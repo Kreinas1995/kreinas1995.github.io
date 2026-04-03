@@ -1,31 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>War Calculator</title>
-</head>
-<body>
-    <h1>War Calculator</h1>
-    <button id="startWar">Start War</button>
-    <div id="result"></div>
+<div>
+  <h1>War Treasury Payout Calculator</h1>
+  <label for="inputAmount">Enter Amount:</label>
+  <input type="number" id="inputAmount" placeholder="Enter amount" />
+  <button id="calculateBtn">Calculate</button>
 
-    <script>
-        document.getElementById('startWar').addEventListener('click', function() {
-            const player1Card = Math.floor(Math.random() * 13) + 1;
-            const player2Card = Math.floor(Math.random() * 13) + 1;
+  <h2>Payout: <span id="outputAmount">0</span></h2>
+</div>
 
-            let resultText;
-            if (player1Card > player2Card) {
-                resultText = `Player 1 wins with card ${player1Card} against Player 2's card ${player2Card}.`;
-            } else if (player2Card > player1Card) {
-                resultText = `Player 2 wins with card ${player2Card} against Player 1's card ${player1Card}.`;
-            } else {
-                resultText = `It's a tie with both players drawing card ${player1Card}.`;
-            }
+<script>
+  document.getElementById('calculateBtn').addEventListener('click', function() {
+    const amount = parseFloat(document.getElementById('inputAmount').value);
+    const payout = calculatePayout(amount);
+    document.getElementById('outputAmount').innerText = payout.toFixed(2);
+  });
 
-            document.getElementById('result').innerText = resultText;
-        });
-    </script>
-</body>
-</html>
+  function calculatePayout(amount) {
+    // Assuming a calculation logic for the payout, adjust as necessary
+    return amount * 0.80; // Example: 80% payout
+  }
+</script>
