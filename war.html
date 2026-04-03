@@ -1,21 +1,529 @@
-<div>
-  <h1>War Treasury Payout Calculator</h1>
-  <label for="inputAmount">Enter Amount:</label>
-  <input type="number" id="inputAmount" placeholder="Enter amount" />
-  <button id="calculateBtn">Calculate</button>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HighVibes War Treasury</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-  <h2>Payout: <span id="outputAmount">0</span></h2>
+    body {
+      min-height: 100vh;
+      background: #0d0d14;
+      font-family: 'Courier New', monospace;
+      color: #e2e8f0;
+    }
+
+    /* Header */
+    #app-header {
+      background: linear-gradient(135deg, #1a0a2e 0%, #0d1117 50%, #0a1628 100%);
+      border-bottom: 1px solid rgba(167,139,250,0.3);
+      padding: 24px 20px 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    #app-header::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 20% 50%, rgba(167,139,250,0.08) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .header-inner { display: flex; align-items: center; gap: 12px; }
+    .hv-badge {
+      width: 36px; height: 36px; border-radius: 8px;
+      background: linear-gradient(135deg, #7c3aed, #a78bfa);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: bold; color: white; flex-shrink: 0;
+    }
+    .header-title { font-size: 18px; font-weight: bold; color: #a78bfa; letter-spacing: 2px; }
+    .header-sub { font-size: 11px; color: #6b7280; letter-spacing: 1px; margin-top: 2px; }
+
+    /* Main content */
+    #main { max-width: 680px; margin: 0 auto; padding: 16px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; margin-bottom: 16px; background: #111827; border-radius: 8px; padding: 4px; }
+    .tab-btn {
+      flex: 1; padding: 8px; border-radius: 6px; border: none; cursor: pointer;
+      background: transparent; color: #6b7280; font-size: 12px; letter-spacing: 0.5px;
+      font-family: 'Courier New', monospace; transition: all 0.2s;
+    }
+    .tab-btn.active { background: #1e1b4b; color: #a78bfa; font-weight: bold; }
+
+    /* Card */
+    .card {
+      background: #111827; border-radius: 10px; padding: 16px;
+      border: 1px solid #1f2937; margin-bottom: 12px;
+    }
+    .card.purple-border { border-color: rgba(167,139,250,0.2); }
+    .card-label { font-size: 11px; color: #6b7280; margin-bottom: 8px; letter-spacing: 1px; }
+
+    /* Pot input */
+    .pot-row { display: flex; align-items: center; gap: 8px; }
+    .pot-symbol { color: #6b7280; font-size: 16px; }
+    .pot-input {
+      flex: 1; background: #1f2937; border: 1px solid rgba(167,139,250,0.3);
+      border-radius: 6px; padding: 10px 12px; color: #a78bfa;
+      font-size: 20px; font-weight: bold; outline: none;
+      font-family: 'Courier New', monospace; width: 100%;
+    }
+    .pot-meta { margin-top: 8px; display: flex; gap: 16px; font-size: 12px; color: #6b7280; }
+    .red { color: #f87171; }
+    .green { color: #34d399; }
+    .blue { color: #60a5fa; }
+    .yellow { color: #fbbf24; }
+    .purple { color: #a78bfa; }
+    .gray { color: #6b7280; }
+
+    /* Summary grid */
+    .summary-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .summary-card {
+      background: #111827; border-radius: 8px; padding: 10px;
+      border: 1px solid #1f2937; text-align: center;
+    }
+    .summary-val { font-size: 16px; font-weight: bold; }
+    .summary-lbl { font-size: 10px; color: #6b7280; margin-top: 2px; }
+
+    /* Warning */
+    .warning {
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 8px; padding: 10px; margin-bottom: 12px;
+      font-size: 12px; color: #f87171; display: none;
+    }
+
+    /* Member rows */
+    .member-list { display: flex; flex-direction: column; gap: 4px; }
+    .member-row {
+      border-radius: 8px; padding: 10px 12px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .member-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .member-info { flex: 1; min-width: 0; }
+    .member-name { font-size: 13px; font-weight: bold; color: #e2e8f0; }
+    .member-meta { font-size: 10px; color: #6b7280; }
+    .member-payout { text-align: right; flex-shrink: 0; }
+    .member-payout-val { font-size: 15px; font-weight: bold; }
+    .member-payout-pct { font-size: 10px; color: #6b7280; }
+
+    /* Slider rows */
+    .slider-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .slider-label { font-size: 12px; color: #9ca3af; min-width: 80px; }
+    .slider-row input[type=range] { flex: 1; }
+    .slider-val { font-weight: bold; min-width: 36px; text-align: right; }
+
+    /* Tier sliders */
+    .tier-slider-block { margin-bottom: 14px; }
+    .tier-slider-header { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
+    .tier-slider-block input[type=range] { width: 100%; }
+
+    /* Base pay toggle */
+    .base-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .toggle-btn {
+      border-radius: 20px; padding: 3px 10px; cursor: pointer;
+      font-size: 11px; font-family: 'Courier New', monospace; border: 1px solid;
+      transition: all 0.2s;
+    }
+    .toggle-btn.on { background: rgba(52,211,153,0.15); border-color: #34d399; color: #34d399; }
+    .toggle-btn.off { background: #1f2937; border-color: #374151; color: #6b7280; }
+
+    .base-input-row { display: flex; align-items: center; gap: 8px; }
+    .base-input {
+      flex: 1; background: #1f2937; border: 1px solid rgba(96,165,250,0.3);
+      border-radius: 6px; padding: 8px 10px; color: #60a5fa;
+      font-size: 16px; font-weight: bold; outline: none;
+      font-family: 'Courier New', monospace; width: 100%;
+    }
+    .base-meta { font-size: 11px; color: #6b7280; margin-top: 6px; }
+
+    /* Roster */
+    .add-row { display: flex; gap: 8px; }
+    .add-input {
+      background: #1f2937; border: 1px solid #374151; border-radius: 6px;
+      padding: 8px 10px; color: #e2e8f0; outline: none; font-size: 13px;
+      font-family: 'Courier New', monospace;
+    }
+    .add-input.name { flex: 2; }
+    .add-input.score { flex: 1; }
+    .add-btn {
+      background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.4);
+      border-radius: 6px; padding: 8px 14px; color: #a78bfa;
+      cursor: pointer; font-size: 16px;
+    }
+
+    .roster-row {
+      background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+      padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+      margin-bottom: 6px;
+    }
+    .roster-info { flex: 1; min-width: 0; }
+    .roster-name { font-size: 13px; color: #e2e8f0; font-weight: bold; }
+    .roster-score { font-size: 10px; color: #6b7280; }
+    .tier-select {
+      border-radius: 6px; padding: 4px 8px;
+      font-size: 11px; outline: none; cursor: pointer;
+      font-family: 'Courier New', monospace; border: 1px solid;
+    }
+    .remove-btn {
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2);
+      border-radius: 6px; padding: 4px 8px; color: #f87171;
+      cursor: pointer; font-size: 12px; flex-shrink: 0;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .col-gap { display: flex; flex-direction: column; gap: 12px; }
+  </style>
+</head>
+<body>
+
+<div id="app-header">
+  <div class="header-inner">
+    <div class="hv-badge">HV</div>
+    <div>
+      <div class="header-title">HIGHVIBES WAR TREASURY</div>
+      <div class="header-sub">TORN CITY · FACTION PAYOUT CALCULATOR</div>
+    </div>
+  </div>
+</div>
+
+<div id="main">
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('results')">💰 Payouts</button>
+    <button class="tab-btn" onclick="switchTab('config')">⚙️ Config</button>
+    <button class="tab-btn" onclick="switchTab('roster')">👥 Roster</button>
+  </div>
+
+  <!-- Pot Input (always visible) -->
+  <div class="card purple-border">
+    <div class="card-label">TOTAL WAR POT</div>
+    <div class="pot-row">
+      <span class="pot-symbol">$</span>
+      <input class="pot-input" type="number" id="totalPot" value="50000000" oninput="render()" />
+    </div>
+    <div class="pot-meta">
+      <span>Faction cut: <span class="red" id="factionCutAmt"></span></span>
+      <span>Distributable: <span class="green" id="distributableAmt"></span></span>
+    </div>
+  </div>
+
+  <!-- RESULTS TAB -->
+  <div class="tab-panel active" id="panel-results">
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-val green" id="sum-distributed">—</div>
+        <div class="summary-lbl">Distributed</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-val" id="sum-leftover">—</div>
+        <div class="summary-lbl">Leftover</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-val blue" id="sum-members">—</div>
+        <div class="summary-lbl">Members</div>
+      </div>
+    </div>
+    <div class="warning" id="overpay-warning"></div>
+    <div class="member-list" id="member-list"></div>
+  </div>
+
+  <!-- CONFIG TAB -->
+  <div class="tab-panel" id="panel-config">
+    <div class="col-gap">
+
+      <!-- Faction cut -->
+      <div class="card">
+        <div class="card-label">FACTION OVERHEAD</div>
+        <div class="slider-row">
+          <span class="slider-label">Faction Cut</span>
+          <input type="range" min="0" max="50" id="factionCut" value="20"
+            style="accent-color:#f87171" oninput="render()" />
+          <span class="slider-val red" id="factionCutPct">20%</span>
+        </div>
+      </div>
+
+      <!-- Base pay -->
+      <div class="card">
+        <div class="base-header">
+          <div class="card-label" style="margin:0">FLAT BASE PAY (PARTICIPATED TIER)</div>
+          <button class="toggle-btn on" id="baseToggle" onclick="toggleBase()">ON</button>
+        </div>
+        <div id="basePaySection">
+          <div class="base-input-row">
+            <span class="gray">$</span>
+            <input class="base-input" type="number" id="basePay" value="2000000" oninput="render()" />
+          </div>
+          <div class="base-meta" id="baseMeta"></div>
+        </div>
+      </div>
+
+      <!-- Tier sliders -->
+      <div class="card">
+        <div class="card-label">TIER SHARE OF POOL (%)</div>
+        <div style="font-size:10px;color:#6b7280;margin-bottom:12px">
+          Per-person % of the post-base pool. Total: <span id="totalPctDisplay" class="green">0%</span>
+        </div>
+        <div id="tier-sliders"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ROSTER TAB -->
+  <div class="tab-panel" id="panel-roster">
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-label">ADD MEMBER</div>
+      <div class="add-row">
+        <input class="add-input name" type="text" id="newName" placeholder="Name" />
+        <input class="add-input score" type="number" id="newScore" placeholder="Score" />
+        <button class="add-btn" onclick="addMember()">+</button>
+      </div>
+    </div>
+    <div id="roster-list"></div>
+  </div>
+
 </div>
 
 <script>
-  document.getElementById('calculateBtn').addEventListener('click', function() {
-    const amount = parseFloat(document.getElementById('inputAmount').value);
-    const payout = calculatePayout(amount);
-    document.getElementById('outputAmount').innerText = payout.toFixed(2);
-  });
+const TIER_CONFIG = {
+  lead: { label: "Leadership",      color: "#a78bfa", bg: "rgba(167,139,250,0.12)" },
+  star: { label: "Star Performer",  color: "#fbbf24", bg: "rgba(251,191,36,0.12)"  },
+  mvp:  { label: "Key Contributor", color: "#34d399", bg: "rgba(52,211,153,0.12)"  },
+  base: { label: "Participated",    color: "#60a5fa", bg: "rgba(96,165,250,0.12)"  },
+  none: { label: "No Contribution", color: "#6b7280", bg: "rgba(107,114,128,0.08)" },
+};
 
-  function calculatePayout(amount) {
-    // Assuming a calculation logic for the payout, adjust as necessary
-    return amount * 0.80; // Example: 80% payout
+let members = [
+  { id: 1,  name: "Kush_McLoud",   score: 258.61, tier: "star" },
+  { id: 2,  name: "DanTheHighMan", score: 232.99, tier: "lead" },
+  { id: 3,  name: "Sypharius",     score: 218.26, tier: "lead" },
+  { id: 4,  name: "Sassyquatch",   score: 152.00, tier: "mvp"  },
+  { id: 5,  name: "Kenver",        score: 27.03,  tier: "base" },
+  { id: 6,  name: "xxxmd",         score: 19.02,  tier: "base" },
+  { id: 7,  name: "Nakamur4",      score: 8.75,   tier: "base" },
+  { id: 8,  name: "ReinSlash",     score: 8.75,   tier: "base" },
+  { id: 9,  name: "HidooO",        score: 0,      tier: "none" },
+  { id: 10, name: "aakashthakar",  score: 0,      tier: "none" },
+  { id: 11, name: "078483401",     score: 0,      tier: "none" },
+  { id: 12, name: "INMASAP",       score: 0,      tier: "none" },
+  { id: 13, name: "MrSandman22",   score: 0,      tier: "none" },
+  { id: 14, name: "Maiden911",     score: 0,      tier: "none" },
+  { id: 15, name: "Gspot_gavin",   score: 0,      tier: "none" },
+];
+
+let tiers = { lead: 18, star: 16, mvp: 10, base: 0, none: 0 };
+let baseEnabled = true;
+let activeTab = "results";
+
+function fmt(n) {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}K`;
+  return `$${Math.round(n).toLocaleString()}`;
+}
+
+function getState() {
+  const totalPot    = parseFloat(document.getElementById("totalPot").value) || 0;
+  const factionCut  = parseInt(document.getElementById("factionCut").value) || 0;
+  const basePay     = parseFloat(document.getElementById("basePay")?.value) || 0;
+  const distributable = totalPot * (1 - factionCut / 100);
+
+  const tierCounts = members.reduce((acc, m) => {
+    acc[m.tier] = (acc[m.tier] || 0) + 1;
+    return acc;
+  }, {});
+
+  const basePayTotal   = baseEnabled ? (tierCounts["base"] || 0) * basePay : 0;
+  const poolAfterBase  = Math.max(0, distributable - basePayTotal);
+
+  const calcPayout = (m) => {
+    if (m.tier === "none") return 0;
+    if (m.tier === "base" && baseEnabled) return basePay;
+    return poolAfterBase * (tiers[m.tier] / 100);
+  };
+
+  const sorted     = [...members].sort((a, b) => b.score - a.score);
+  const totalPaid  = members.reduce((s, m) => s + calcPayout(m), 0);
+  const leftover   = distributable - totalPaid;
+
+  const totalPct = Object.entries(tiers).reduce((sum, [tier, pct]) => {
+    if (tier === "base" || tier === "none") return sum;
+    return sum + pct * (tierCounts[tier] || 0);
+  }, 0);
+
+  return { totalPot, factionCut, basePay, distributable, tierCounts,
+           basePayTotal, poolAfterBase, sorted, totalPaid, leftover,
+           totalPct, calcPayout };
+}
+
+function render() {
+  const s = getState();
+
+  // Pot meta
+  document.getElementById("factionCutAmt").textContent   = fmt(s.totalPot * s.factionCut / 100);
+  document.getElementById("distributableAmt").textContent = fmt(s.distributable);
+
+  // Config
+  document.getElementById("factionCutPct").textContent = s.factionCut + "%";
+  const totalPctEl = document.getElementById("totalPctDisplay");
+  if (totalPctEl) {
+    totalPctEl.textContent = s.totalPct.toFixed(1) + "%";
+    totalPctEl.className   = s.totalPct > 100 ? "red" : "green";
   }
+  if (document.getElementById("baseMeta") && baseEnabled) {
+    document.getElementById("baseMeta").textContent =
+      `Total base pay: ${fmt((s.tierCounts["base"] || 0) * s.basePay)} for ${s.tierCounts["base"] || 0} members`;
+  }
+
+  // Summary
+  document.getElementById("sum-distributed").textContent = fmt(s.totalPaid);
+  const lo = document.getElementById("sum-leftover");
+  lo.textContent  = fmt(s.leftover);
+  lo.className    = "summary-val " + (s.leftover < 0 ? "red" : "yellow");
+  document.getElementById("sum-members").textContent = members.length;
+
+  // Warning
+  const warn = document.getElementById("overpay-warning");
+  if (s.leftover < 0) {
+    warn.style.display  = "block";
+    warn.textContent    = `⚠️ Overpaid by ${fmt(Math.abs(s.leftover))} — reduce tier % or base pay`;
+  } else {
+    warn.style.display  = "none";
+  }
+
+  // Member list
+  const list = document.getElementById("member-list");
+  list.innerHTML = s.sorted.map(m => {
+    const cfg    = TIER_CONFIG[m.tier];
+    const payout = s.calcPayout(m);
+    const pct    = s.totalPaid > 0 ? ((payout / s.totalPaid) * 100).toFixed(1) : "0.0";
+    return `
+      <div class="member-row" style="background:${cfg.bg};border:1px solid ${cfg.color}30">
+        <div class="member-dot" style="background:${cfg.color}"></div>
+        <div class="member-info">
+          <div class="member-name">${m.name}</div>
+          <div class="member-meta">Score: ${m.score.toFixed(2)} · <span style="color:${cfg.color}">${cfg.label}</span></div>
+        </div>
+        <div class="member-payout">
+          <div class="member-payout-val" style="color:${payout > 0 ? '#34d399' : '#6b7280'}">
+            ${payout > 0 ? fmt(payout) : "—"}
+          </div>
+          ${payout > 0 ? `<div class="member-payout-pct">${pct}% of pool</div>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+
+  // Roster list
+  const roster = document.getElementById("roster-list");
+  roster.innerHTML = s.sorted.map(m => {
+    const cfg = TIER_CONFIG[m.tier];
+    const opts = Object.entries(TIER_CONFIG).map(([k, v]) =>
+      `<option value="${k}" ${m.tier === k ? "selected" : ""} style="background:#111827;color:${v.color}">${v.label}</option>`
+    ).join("");
+    return `
+      <div class="roster-row">
+        <div class="roster-info">
+          <div class="roster-name">${m.name}</div>
+          <div class="roster-score">Score: ${m.score}</div>
+        </div>
+        <select class="tier-select"
+          style="background:${cfg.bg};border-color:${cfg.color}50;color:${cfg.color}"
+          onchange="updateTier(${m.id}, this.value)">${opts}</select>
+        <button class="remove-btn" onclick="removeMember(${m.id})">✕</button>
+      </div>`;
+  }).join("");
+}
+
+function buildTierSliders() {
+  const container = document.getElementById("tier-sliders");
+  const sliderTiers = ["lead", "star", "mvp"];
+  container.innerHTML = sliderTiers.map(tier => {
+    const cfg = TIER_CONFIG[tier];
+    return `
+      <div class="tier-slider-block">
+        <div class="tier-slider-header">
+          <span style="color:${cfg.color}">${cfg.label}</span>
+          <span style="color:${cfg.color};font-weight:bold" id="tier-label-${tier}"></span>
+        </div>
+        <input type="range" min="0" max="40" value="${tiers[tier]}"
+          style="accent-color:${cfg.color}"
+          oninput="updateTierPct('${tier}', this.value)" />
+      </div>`;
+  }).join("");
+  updateTierLabels();
+}
+
+function updateTierLabels() {
+  const tierCounts = members.reduce((acc, m) => {
+    acc[m.tier] = (acc[m.tier] || 0) + 1; return acc;
+  }, {});
+  ["lead","star","mvp"].forEach(tier => {
+    const el = document.getElementById(`tier-label-${tier}`);
+    if (el) {
+      const count = tierCounts[tier] || 0;
+      el.textContent = `${tiers[tier]}% × ${count} = ${(tiers[tier] * count).toFixed(0)}%`;
+    }
+  });
+}
+
+function updateTierPct(tier, val) {
+  tiers[tier] = parseInt(val);
+  updateTierLabels();
+  render();
+}
+
+function toggleBase() {
+  baseEnabled = !baseEnabled;
+  const btn = document.getElementById("baseToggle");
+  const sec = document.getElementById("basePaySection");
+  if (baseEnabled) {
+    btn.textContent = "ON";
+    btn.className   = "toggle-btn on";
+    sec.style.display = "block";
+  } else {
+    btn.textContent = "OFF";
+    btn.className   = "toggle-btn off";
+    sec.style.display = "none";
+  }
+  render();
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll(".tab-btn").forEach((btn, i) => {
+    btn.classList.toggle("active", ["results","config","roster"][i] === tab);
+  });
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+  document.getElementById(`panel-${tab}`).classList.add("active");
+}
+
+function addMember() {
+  const name  = document.getElementById("newName").value.trim();
+  const score = parseFloat(document.getElementById("newScore").value) || 0;
+  if (!name) return;
+  members.push({ id: Date.now(), name, score, tier: "base" });
+  document.getElementById("newName").value  = "";
+  document.getElementById("newScore").value = "";
+  render();
+  updateTierLabels();
+}
+
+function removeMember(id) {
+  members = members.filter(m => m.id !== id);
+  render();
+  updateTierLabels();
+}
+
+function updateTier(id, tier) {
+  members = members.map(m => m.id === id ? { ...m, tier } : m);
+  render();
+  updateTierLabels();
+}
+
+// Init
+buildTierSliders();
+render();
 </script>
+</body>
+</html>
