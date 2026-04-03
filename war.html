@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>War Calculator</title>
+</head>
+<body>
+    <h1>War Calculator</h1>
+    <button id="startWar">Start War</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('startWar').addEventListener('click', function() {
+            const player1Card = Math.floor(Math.random() * 13) + 1;
+            const player2Card = Math.floor(Math.random() * 13) + 1;
+
+            let resultText;
+            if (player1Card > player2Card) {
+                resultText = `Player 1 wins with card ${player1Card} against Player 2's card ${player2Card}.`;
+            } else if (player2Card > player1Card) {
+                resultText = `Player 2 wins with card ${player2Card} against Player 1's card ${player1Card}.`;
+            } else {
+                resultText = `It's a tie with both players drawing card ${player1Card}.`;
+            }
+
+            document.getElementById('result').innerText = resultText;
+        });
+    </script>
+</body>
+</html>
