@@ -7,62 +7,1164 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0a0d0f;
-    --surface: #111418;
-    --surface2: #181d22;
-    --border: #1e2530;
-    --accent: #7fff6e;
-    --accent2: #3dd68c;
-    --accent3: #f0c040;
-    --accent4: #ff6b6b;
-    --text: #e8edf2;
-    --muted: #5a6a7a;
-    --muted2: #3a4550;
+    --bg:#0a0d0f; --surface:#111418; --surface2:#181d22; --border:#1e2530;
+    --accent:#7fff6e; --accent2:#3dd68c; --accent3:#f0c040; --accent4:#ff6b6b;
+    --accent5:#7eb8ff; --text:#e8edf2; --muted:#5a6a7a; --muted2:#3a4550;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;overflow-x:hidden;}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(127,255,110,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(127,255,110,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+  .app{position:relative;z-index:1;max-width:1280px;margin:0 auto;padding:24px 20px;}
+
+  /* HEADER */
+  .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--border);}
+  .logo-name{font-size:26px;font-weight:800;letter-spacing:-0.5px;color:var(--accent);line-height:1;}
+  .logo-sub{font-size:11px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;}
+  .header-right{display:flex;align-items:center;gap:12px;}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted2);flex-shrink:0;}
+  .status-dot.live{background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s infinite;}
+  .status-dot.loading{background:var(--accent3);box-shadow:0 0 8px var(--accent3);animation:pulse 0.6s infinite;}
+  .status-dot.error{background:var(--accent4);box-shadow:0 0 8px var(--accent4);}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+  .status-text{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;}
+  .btn-sm{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:7px 14px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;text-transform:uppercase;}
+  .btn-sm:hover{border-color:var(--accent);color:var(--accent);}
+  .btn-sm:disabled{opacity:0.4;cursor:not-allowed;}
+
+  /* API SETUP */
+  .api-setup{background:var(--surface);border:1px solid var(--border);padding:28px;margin-bottom:24px;}
+  .api-setup h2{font-size:13px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:8px;}
+  .api-setup p{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.7;}
+  .api-setup code{background:var(--surface2);padding:1px 6px;font-family:'Space Mono',monospace;font-size:11px;color:var(--accent5);}
+  .api-row{display:flex;gap:10px;}
+  .api-input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:13px;padding:10px 14px;letter-spacing:2px;outline:none;transition:border-color 0.2s;}
+  .api-input:focus{border-color:var(--accent);}
+  .api-input::placeholder{color:var(--muted2);letter-spacing:1px;}
+  .btn-primary{background:var(--accent);color:var(--bg);border:none;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;padding:10px 22px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;white-space:nowrap;display:flex;align-items:center;gap:8px;}
+  .btn-primary:hover{background:#a0ffaa;}
+  .btn-primary:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-danger{background:transparent;color:var(--accent4);border:1px solid var(--accent4);font-family:'Space Mono',monospace;font-size:10px;padding:7px 14px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;}
+  .btn-danger:hover{background:rgba(255,107,107,0.1);}
+
+  /* CONSOLE LOG */
+  .console-wrap{background:var(--bg);border:1px solid var(--border);margin-top:16px;max-height:180px;overflow-y:auto;display:none;}
+  .console-header{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface2);}
+  .console-header span{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;}
+  .console-clear{background:none;border:none;color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;letter-spacing:1px;}
+  .console-clear:hover{color:var(--accent4);}
+  .console-body{padding:10px 14px;display:flex;flex-direction:column;gap:4px;}
+  .log-line{font-family:'Space Mono',monospace;font-size:11px;display:flex;gap:10px;align-items:baseline;}
+  .log-time{color:var(--muted2);font-size:10px;white-space:nowrap;}
+  .log-ok{color:var(--accent2);}
+  .log-warn{color:var(--accent3);}
+  .log-err{color:var(--accent4);}
+  .log-info{color:var(--accent5);}
+
+  /* KEY MANAGE BAR */
+  .key-bar{display:none;align-items:center;gap:12px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);margin-bottom:16px;}
+  .key-bar span{font-family:'Space Mono',monospace;font-size:11px;}
+
+  /* REFRESH BAR */
+  .refresh-bar{display:none;align-items:center;gap:10px;margin-bottom:20px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);}
+  .refresh-progress{flex:1;height:3px;background:var(--border);overflow:hidden;}
+  .refresh-progress-fill{height:100%;background:var(--accent2);transition:width 1s linear;}
+
+  /* STAT CARDS */
+  .stat-grid{display:none;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;}
+  @media(max-width:900px){.stat-grid{grid-template-columns:repeat(3,1fr);}}
+  @media(max-width:560px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
+  .stat-card{background:var(--surface);border:1px solid var(--border);padding:16px 18px;position:relative;overflow:hidden;}
+  .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--card-accent,var(--accent));}
+  .stat-label{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;font-family:'Space Mono',monospace;}
+  .stat-value{font-size:20px;font-weight:800;color:var(--card-accent,var(--accent));line-height:1;margin-bottom:3px;}
+  .stat-sub{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;}
+
+  /* TABS */
+  .tabs{display:none;border-bottom:1px solid var(--border);margin-bottom:24px;overflow-x:auto;}
+  .tab{background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:12px 16px;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-bottom:-1px;}
+  .tab:hover{color:var(--text);}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .tab .tab-badge{display:inline-block;background:var(--accent4);color:var(--bg);font-size:9px;font-weight:800;padding:1px 5px;border-radius:2px;margin-left:6px;vertical-align:middle;}
+
+  /* PANELS */
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  /* TABLE */
+  .table-wrap{background:var(--surface);border:1px solid var(--border);overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;}
+  thead th{background:var(--surface2);font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding:11px 14px;text-align:left;font-family:'Space Mono',monospace;border-bottom:1px solid var(--border);white-space:nowrap;}
+  tbody td{padding:11px 14px;font-size:12px;border-bottom:1px solid var(--border);font-family:'Space Mono',monospace;vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover td{background:rgba(127,255,110,0.02);}
+  .cell-name{font-family:'Syne',sans-serif;font-weight:600;color:var(--text);font-size:13px;}
+  .cell-green{color:var(--accent2);}
+  .cell-yellow{color:var(--accent3);}
+  .cell-red{color:var(--accent4);}
+  .cell-blue{color:var(--accent5);}
+  .cell-muted{color:var(--muted);}
+
+  /* SECTION HEAD */
+  .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .section-title{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--muted);}
+
+  /* BAR */
+  .bar-wrap{background:var(--bg);height:4px;border-radius:2px;overflow:hidden;margin-top:4px;}
+  .bar-fill{height:100%;background:var(--accent);transition:width 0.4s;}
+
+  /* BADGES */
+  .badge{display:inline-block;padding:2px 7px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Space Mono',monospace;border-radius:2px;}
+  .badge-green{background:rgba(127,255,110,0.12);color:var(--accent);border:1px solid rgba(127,255,110,0.2);}
+  .badge-yellow{background:rgba(240,192,64,0.12);color:var(--accent3);border:1px solid rgba(240,192,64,0.2);}
+  .badge-red{background:rgba(255,107,107,0.12);color:var(--accent4);border:1px solid rgba(255,107,107,0.2);}
+  .badge-blue{background:rgba(126,184,255,0.12);color:var(--accent5);border:1px solid rgba(126,184,255,0.2);}
+  .badge-muted{background:rgba(90,106,122,0.15);color:var(--muted);border:1px solid rgba(90,106,122,0.2);}
+
+  /* EMPTY / ERROR */
+  .empty{text-align:center;padding:50px 20px;color:var(--muted);font-family:'Space Mono',monospace;font-size:11px;letter-spacing:1px;line-height:1.8;}
+  .error-box{background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.3);color:var(--accent4);padding:12px 16px;font-family:'Space Mono',monospace;font-size:11px;margin-bottom:16px;letter-spacing:0.5px;display:none;}
+
+  /* OC CALC */
+  .oc-calc{background:var(--surface);border:1px solid var(--border);padding:22px;margin-bottom:20px;}
+  .oc-calc h3{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:16px;}
+  .oc-form{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:14px;align-items:end;}
+  @media(max-width:700px){.oc-form{grid-template-columns:1fr 1fr;}}
+  .form-group label{display:block;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;font-family:'Space Mono',monospace;}
+  .form-group input,.form-group select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:12px;padding:9px 12px;outline:none;transition:border-color 0.2s;appearance:none;}
+  .form-group input:focus,.form-group select:focus{border-color:var(--accent3);}
+  .split-result{background:var(--surface2);border:1px solid var(--border);padding:14px 18px;margin-top:14px;display:none;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .split-item{text-align:center;}
+  .split-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:5px;}
+  .split-value{font-size:17px;font-weight:800;color:var(--accent3);}
+
+  /* VAULT */
+  .vault-card{background:var(--surface);border:1px solid var(--border);padding:20px 24px;margin-bottom:20px;}
+  .vault-title{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;}
+
+  /* PAYOUT SETTINGS */
+  .payout-settings{background:var(--surface);border:1px solid var(--border);padding:20px 24px;margin-bottom:20px;}
+  .payout-settings h3{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent5);margin-bottom:16px;}
+  .payout-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;}
+  @media(max-width:700px){.payout-grid{grid-template-columns:repeat(2,1fr);}}
+  .payout-item label{display:block;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;font-family:'Space Mono',monospace;}
+  .payout-item input{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--accent5);font-family:'Space Mono',monospace;font-size:13px;padding:9px 12px;outline:none;transition:border-color 0.2s;text-align:center;}
+  .payout-item input:focus{border-color:var(--accent5);}
+
+  /* MEMBER OWED CARDS */
+  .owed-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:20px;}
+  .owed-card{background:var(--surface);border:1px solid var(--border);padding:18px 20px;position:relative;}
+  .owed-card.paid{border-color:var(--muted2);opacity:0.55;}
+  .owed-card-name{font-size:16px;font-weight:800;color:var(--text);margin-bottom:4px;}
+  .owed-card-amount{font-size:24px;font-weight:800;color:var(--accent3);margin-bottom:12px;}
+  .owed-card-amount.zero{color:var(--muted);}
+  .owed-card-sub{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.6;}
+  .owed-card-actions{display:flex;gap:8px;}
+  .btn-paid{background:var(--accent2);color:var(--bg);border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;padding:8px 16px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;}
+  .btn-paid:hover{background:#5effa0;}
+  .btn-view-log{background:transparent;color:var(--muted);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;padding:7px 12px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;}
+  .btn-view-log:hover{color:var(--text);border-color:var(--muted);}
+  .paid-stamp{position:absolute;top:14px;right:14px;}
+
+  /* RECEIPT LOG */
+  .log-search{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:7px 12px;outline:none;width:220px;transition:border-color 0.2s;}
+  .log-search:focus{border-color:var(--accent);}
+  .btn-del{background:none;border:none;color:var(--muted2);cursor:pointer;font-size:14px;padding:2px 6px;transition:color 0.2s;line-height:1;}
+  .btn-del:hover{color:var(--accent4);}
+
+  /* PILLS */
+  .type-pills{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+  .pill{padding:4px 12px;font-size:10px;font-weight:700;letter-spacing:1px;font-family:'Space Mono',monospace;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--muted);transition:all 0.15s;}
+  .pill.active,.pill:hover{border-color:var(--accent);color:var(--accent);background:rgba(127,255,110,0.06);}
+
+  /* SPINNER */
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(10,13,15,0.4);border-top-color:var(--bg);border-radius:50%;animation:spin 0.6s linear infinite;flex-shrink:0;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* TOOLTIP */
+  [title]{cursor:help;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div>
+      <div class="logo-name">⬡ HIGHVIBES</div>
+      <div class="logo-sub">Faction Budget Dashboard</div>
+    </div>
+    <div class="header-right">
+      <div class="status-dot" id="statusDot"></div>
+      <span class="status-text" id="statusText">NO KEY</span>
+      <button class="btn-sm" id="btnRefresh" onclick="manualRefresh()" disabled>↻ REFRESH</button>
+    </div>
+  </div>
+
+  <!-- GLOBAL ERROR -->
+  <div class="error-box" id="globalError"></div>
+
+  <!-- API SETUP -->
+  <div id="apiSetup" class="api-setup">
+    <h2>⚙ API Key Setup</h2>
+    <p>
+      Enter your Torn API key — stored only in <code>localStorage</code>, sent only to <code>api.torn.com</code>.<br>
+      Requires faction: <code>basic</code> <code>donations</code> <code>armorynews</code> <code>mainnews</code> + user: <code>events</code> + torn: <code>items</code>.<br>
+      Recommended: <strong>Limited Access</strong> key with AA enabled.
+    </p>
+    <div class="api-row">
+      <input type="password" class="api-input" id="apiKeyInput" placeholder="16-character Torn API key" maxlength="16" autocomplete="off"
+        onkeydown="if(event.key==='Enter')saveKey()">
+      <button class="btn-primary" id="btnConnect" onclick="saveKey()">CONNECT</button>
+    </div>
+    <div class="console-wrap" id="consoleWrap">
+      <div class="console-header">
+        <span>⬡ API Console</span>
+        <button class="console-clear" onclick="clearConsole()">CLEAR</button>
+      </div>
+      <div class="console-body" id="consoleBody"></div>
+    </div>
+  </div>
+
+  <!-- KEY BAR (post-connect) -->
+  <div class="key-bar" id="keyBar">
+    <span style="color:var(--muted)">KEY:</span>
+    <span style="color:var(--accent)" id="keyDisplay"></span>
+    <span style="flex:1"></span>
+    <button class="btn-sm" onclick="toggleConsolePost()">CONSOLE</button>
+    <button class="btn-danger" onclick="clearKey()">DISCONNECT</button>
+  </div>
+  <!-- Post-connect console -->
+  <div class="console-wrap" id="consoleWrapPost" style="margin-bottom:16px;">
+    <div class="console-header">
+      <span>⬡ API Console</span>
+      <button class="console-clear" onclick="clearConsole()">CLEAR</button>
+    </div>
+    <div class="console-body" id="consoleBodyPost"></div>
+  </div>
+
+  <!-- REFRESH BAR -->
+  <div class="refresh-bar" id="refreshBar">
+    <span id="refreshLabel">Next refresh in 30:00</span>
+    <div class="refresh-progress"><div class="refresh-progress-fill" id="refreshFill" style="width:100%"></div></div>
+    <span id="lastUpdated" style="color:var(--muted2)">Never synced</span>
+  </div>
+
+  <!-- STAT CARDS -->
+  <div class="stat-grid" id="statGrid">
+    <div class="stat-card" style="--card-accent:var(--accent)">
+      <div class="stat-label">Net Vault</div>
+      <div class="stat-value" id="cNetVault">—</div>
+      <div class="stat-sub">vault − member balances</div>
+    </div>
+    <div class="stat-card" style="--card-accent:var(--accent3)">
+      <div class="stat-label">Supply Cost (30d)</div>
+      <div class="stat-value" id="cSupplyCost">—</div>
+      <div class="stat-sub">armory disbursements</div>
+    </div>
+    <div class="stat-card" style="--card-accent:var(--accent2)">
+      <div class="stat-label">OC Income (30d)</div>
+      <div class="stat-value" id="cOCIncome">—</div>
+      <div class="stat-sub">vault deposits</div>
+    </div>
+    <div class="stat-card" style="--card-accent:var(--accent4)">
+      <div class="stat-label">Net P&amp;L (30d)</div>
+      <div class="stat-value" id="cPnL">—</div>
+      <div class="stat-sub">income − costs</div>
+    </div>
+    <div class="stat-card" style="--card-accent:var(--accent5)">
+      <div class="stat-label">Total Owed</div>
+      <div class="stat-value" id="cOwed">—</div>
+      <div class="stat-sub">pending payouts</div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs" id="mainTabs">
+    <button class="tab active" onclick="switchTab('vault')">Vault</button>
+    <button class="tab" onclick="switchTab('supply')">Supply Costs</button>
+    <button class="tab" onclick="switchTab('members')">Member Usage</button>
+    <button class="tab" onclick="switchTab('oc')">OC Income</button>
+    <button class="tab" id="tabReceipts" onclick="switchTab('receipts')">Item Receipts</button>
+    <button class="tab" onclick="switchTab('log')">Armory Log</button>
+  </div>
+
+  <!-- ═══ VAULT TAB ═══ -->
+  <div class="panel active" id="panel-vault">
+    <div class="vault-card" id="vaultCard">
+      <div class="empty">Connect your API key to load faction data.</div>
+    </div>
+  </div>
+
+  <!-- ═══ SUPPLY TAB ═══ -->
+  <div class="panel" id="panel-supply">
+    <div class="type-pills" id="typePills">
+      <div class="pill active" onclick="filterType(this,'all')">All</div>
+      <div class="pill" onclick="filterType(this,'Medical')">Meds</div>
+      <div class="pill" onclick="filterType(this,'Temporary')">Temp Weapons</div>
+      <div class="pill" onclick="filterType(this,'Drug')">Drugs</div>
+      <div class="pill" onclick="filterType(this,'Alcohol')">Alcohol</div>
+      <div class="pill" onclick="filterType(this,'Candy')">Candy</div>
+    </div>
+    <div class="table-wrap" id="supplyTable"><div class="empty">No data yet.</div></div>
+  </div>
+
+  <!-- ═══ MEMBER USAGE TAB ═══ -->
+  <div class="panel" id="panel-members">
+    <div class="table-wrap" id="memberTable"><div class="empty">No data yet.</div></div>
+  </div>
+
+  <!-- ═══ OC INCOME TAB ═══ -->
+  <div class="panel" id="panel-oc">
+    <div class="oc-calc">
+      <h3>⚡ OC Split Calculator</h3>
+      <div class="oc-form">
+        <div class="form-group">
+          <label>OC Payout ($)</label>
+          <input type="number" id="ocPayoutInput" placeholder="5000000" oninput="calcSplit()">
+        </div>
+        <div class="form-group">
+          <label>Members Required</label>
+          <input type="number" id="ocMembersInput" placeholder="4" min="1" max="10" oninput="calcSplit()">
+        </div>
+        <div class="form-group">
+          <label>Faction Share</label>
+          <select id="ocFactionShare" onchange="calcSplit()">
+            <option value="auto">Auto (+1 share)</option>
+            <option value="0">0%</option>
+            <option value="10">10%</option>
+            <option value="20">20%</option>
+            <option value="25">25%</option>
+            <option value="33">33%</option>
+            <option value="50">50%</option>
+            <option value="100">100%</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <button class="btn-primary" onclick="calcSplit()" style="width:100%;justify-content:center;">CALC</button>
+        </div>
+      </div>
+      <div class="split-result" id="splitResult">
+        <div class="split-item"><div class="split-label">Faction Gets</div><div class="split-value" id="splitFaction">—</div></div>
+        <div class="split-item"><div class="split-label">Per Member</div><div class="split-value" id="splitPerMember">—</div></div>
+        <div class="split-item"><div class="split-label">Faction %</div><div class="split-value" id="splitPct">—</div></div>
+      </div>
+    </div>
+    <div class="table-wrap" id="ocTable"><div class="empty">No OC data yet.</div></div>
+  </div>
+
+  <!-- ═══ ITEM RECEIPTS TAB ═══ -->
+  <div class="panel" id="panel-receipts">
+
+    <!-- Payout % settings -->
+    <div class="payout-settings">
+      <h3>⚙ Payout Rate by Category</h3>
+      <div class="payout-grid">
+        <div class="payout-item"><label>Plushies %</label><input type="number" id="pct-Plushie" value="98" min="0" max="100" oninput="savePayoutRates();renderReceipts();"></div>
+        <div class="payout-item"><label>Flowers %</label><input type="number" id="pct-Flower" value="98" min="0" max="100" oninput="savePayoutRates();renderReceipts();"></div>
+        <div class="payout-item"><label>Xanax %</label><input type="number" id="pct-Xanax" value="98" min="0" max="100" oninput="savePayoutRates();renderReceipts();"></div>
+        <div class="payout-item"><label>Alcohol %</label><input type="number" id="pct-Alcohol" value="98" min="0" max="100" oninput="savePayoutRates();renderReceipts();"></div>
+        <div class="payout-item"><label>Medical %</label><input type="number" id="pct-Medical" value="98" min="0" max="100" oninput="savePayoutRates();renderReceipts();"></div>
+      </div>
+    </div>
+
+    <!-- Member owed cards -->
+    <div class="section-head">
+      <span class="section-title">Outstanding Balances</span>
+      <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);">Click PAID to clear balance (log kept)</span>
+    </div>
+    <div class="owed-grid" id="owedGrid"><div class="empty">No receipt data.</div></div>
+
+    <!-- Full receipt log -->
+    <div class="section-head" style="margin-top:24px;">
+      <span class="section-title">All Item Receipts</span>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <input type="text" class="log-search" id="receiptSearch" placeholder="Filter by member or item…" oninput="renderReceiptLog()">
+        <button class="btn-sm" onclick="syncReceipts()" id="btnSyncReceipts">↻ SYNC EVENTS</button>
+      </div>
+    </div>
+    <div class="table-wrap" id="receiptLogTable"><div class="empty">No receipts logged.</div></div>
+  </div>
+
+  <!-- ═══ ARMORY LOG TAB ═══ -->
+  <div class="panel" id="panel-log">
+    <div class="section-head">
+      <span class="section-title">Armory News (last 100)</span>
+      <input type="text" class="log-search" id="logSearch" placeholder="Search…" oninput="filterArmoryLog()">
+    </div>
+    <div class="table-wrap" id="logTable"><div class="empty">No data yet.</div></div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+// ═══════════════════════════════════════════════
+// CONSTANTS & STATE
+// ═══════════════════════════════════════════════
+const REFRESH_MS = 30 * 60 * 1000;
+const SUPPLY_TYPES = ['Medical','Temporary','Drug','Alcohol','Candy'];
+const RECEIPT_ITEM_TYPES = ['Plushie','Flower','Drug','Alcohol','Medical']; // categories for receipts
+// Items specifically tracked as "sent to you" for payout
+const FLOWER_NAMES = ['Heather','Dahlia','Orchid','Pansy','Lily','Crocus','Peony','Daffodil','Violet','Cerise','African Violet','Banana Orchid','Edelweiss','Gerbera','Hollyhock','Peony'];
+const PLUSHIE_NAMES = ['Wolverine Plushie','Teddy Bear Plushie','Stingray Plushie','Sheep Plushie','Chamois Plushie','Jaguar Plushie','Lion Plushie','Monkey Plushie','Nessie Plushie','Red Fox Plushie','Snowman Plushie','Stingray Plushie','Turtle Plushie','Panda Plushie'];
+
+let S = {
+  apiKey: '',
+  faction: null,
+  donations: {},
+  armoryNews: [],
+  events: [],
+  itemPrices: {},
+  ocData: [],
+  receipts: [],      // [{id, member, memberId, item, qty, unitPrice, category, pct, ts, deleted}]
+  paidLog: {},       // {memberName: [{ts, amount}]}  — historical paid records
+  payoutRates: {Plushie:98, Flower:98, Xanax:98, Alcohol:98, Medical:98},
+  lastUpdated: null,
+  loading: false,
+  tab: 'vault',
+  typeFilter: 'all',
+};
+
+let refreshTimer = null, countdownTimer = null, refreshStart = null;
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+(function init(){
+  const k = localStorage.getItem('hv_key');
+  const r = localStorage.getItem('hv_receipts');
+  const p = localStorage.getItem('hv_paid');
+  const pr = localStorage.getItem('hv_payoutRates');
+  if(r) try{ S.receipts = JSON.parse(r); }catch(e){}
+  if(p) try{ S.paidLog = JSON.parse(p); }catch(e){}
+  if(pr) try{ S.payoutRates = {...S.payoutRates, ...JSON.parse(pr)}; }catch(e){}
+  loadPayoutRateInputs();
+  if(k){ S.apiKey = k; showConnected(); fetchAll(); startCycle(); }
+  updateOwedBadge();
+})();
+
+// ═══════════════════════════════════════════════
+// CONSOLE LOGGER
+// ═══════════════════════════════════════════════
+function clog(msg, type='info'){
+  const time = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const cls = {ok:'log-ok',warn:'log-warn',err:'log-err',info:'log-info'}[type]||'log-info';
+  const icon = {ok:'✓',warn:'⚠',err:'✗',info:'→'}[type]||'→';
+  const line = `<div class="log-line"><span class="log-time">${time}</span><span class="${cls}">${icon} ${msg}</span></div>`;
+  // write to both consoles
+  ['consoleBody','consoleBodyPost'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el){ el.innerHTML += line; el.scrollTop = el.scrollHeight; }
+  });
+  document.getElementById('consoleWrap').style.display = 'block';
+}
+
+function clearConsole(){
+  ['consoleBody','consoleBodyPost'].forEach(id=>{ const el=document.getElementById(id); if(el) el.innerHTML=''; });
+}
+
+function toggleConsolePost(){
+  const el = document.getElementById('consoleWrapPost');
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+// ═══════════════════════════════════════════════
+// KEY MANAGEMENT
+// ═══════════════════════════════════════════════
+async function saveKey(){
+  const input = document.getElementById('apiKeyInput');
+  const key = input.value.trim();
+  if(!key || key.length < 10){ clog('Key must be ≥10 characters','err'); return; }
+  S.apiKey = key;
+  localStorage.setItem('hv_key', key);
+  const btn = document.getElementById('btnConnect');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div>CONNECTING';
+  setStatus('loading','CONNECTING');
+  clog('Saving key and initiating connection…','info');
+  // test key validity first
+  try{
+    const test = await tornGet('user','basic');
+    clog(`Key valid — authenticated as: ${test.name} [${test.player_id}]`,'ok');
+    showConnected();
+    fetchAll();
+    startCycle();
+  } catch(e){
+    clog('Key validation failed: ' + e.message,'err');
+    setStatus('error','KEY ERROR');
+    btn.disabled = false;
+    btn.innerHTML = 'CONNECT';
+    localStorage.removeItem('hv_key');
+    S.apiKey = '';
+    showGlobalError('Key error: ' + e.message);
+  }
+}
+
+function showConnected(){
+  document.getElementById('apiSetup').style.display = 'none';
+  document.getElementById('keyBar').style.display = 'flex';
+  document.getElementById('keyDisplay').textContent = S.apiKey.slice(0,4)+'••••••••'+S.apiKey.slice(-2);
+  document.getElementById('btnRefresh').disabled = false;
+  document.getElementById('statGrid').style.display = 'grid';
+  document.getElementById('mainTabs').style.display = 'flex';
+  document.getElementById('refreshBar').style.display = 'flex';
+}
+
+function clearKey(){
+  if(!confirm('Disconnect and remove API key? Cached receipts and logs are preserved.')) return;
+  localStorage.removeItem('hv_key');
+  S.apiKey=''; S.faction=null; S.donations={}; S.armoryNews=[]; S.events=[];
+  S.itemPrices={}; S.ocData=[];
+  clearInterval(refreshTimer); clearInterval(countdownTimer);
+  document.getElementById('apiSetup').style.display='block';
+  document.getElementById('keyBar').style.display='none';
+  document.getElementById('consoleWrapPost').style.display='none';
+  document.getElementById('statGrid').style.display='none';
+  document.getElementById('mainTabs').style.display='none';
+  document.getElementById('refreshBar').style.display='none';
+  document.getElementById('apiKeyInput').value='';
+  setStatus('','NO KEY');
+}
+
+// ═══════════════════════════════════════════════
+// API FETCH
+// ═══════════════════════════════════════════════
+async function tornGet(section, selections, extra=''){
+  const url = `https://api.torn.com/${section}/?selections=${selections}&key=${S.apiKey}${extra}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if(data.error) throw new Error(`[${data.error.code}] ${data.error.error}`);
+  return data;
+}
+
+async function fetchAll(){
+  if(S.loading) return;
+  S.loading = true;
+  setStatus('loading','SYNCING');
+  document.getElementById('btnRefresh').disabled = true;
+  document.getElementById('globalError').style.display = 'none';
+  clog('Starting full data sync…','info');
+
+  try{
+    // ── Faction basic + donations
+    clog('Fetching faction basic & donations…','info');
+    const fac = await tornGet('faction','basic,donations');
+    S.faction = fac;
+    S.donations = fac.donations || {};
+    clog(`Faction: ${fac.name} | Members: ${Object.keys(fac.members||{}).length} | Vault: ${fmt$(fac.money||0)}`,'ok');
+
+    // ── Armory news (30d)
+    clog('Fetching armory news (30d)…','info');
+    const since30 = Math.floor(Date.now()/1000) - 30*24*3600;
+    const [an1, an2] = await Promise.all([
+      tornGet('faction','armorynews'),
+      tornGet('faction','armorynews',`&from=${since30}`)
+    ]);
+    const newsMap = {};
+    const mergeN = src => Object.entries(src.armorynews||{}).forEach(([k,v])=>{ newsMap[k]=v; });
+    mergeN(an1); mergeN(an2);
+    S.armoryNews = Object.values(newsMap).sort((a,b)=>b.timestamp-a.timestamp);
+    clog(`Armory news: ${S.armoryNews.length} entries loaded`,'ok');
+
+    // ── Torn items (prices)
+    clog('Fetching item prices…','info');
+    const items = await tornGet('torn','items');
+    const rawItems = items.items||{};
+    S.itemPrices = {};
+    Object.entries(rawItems).forEach(([id,item])=>{
+      S.itemPrices[id] = { id, name:item.name, type:item.type, market_value:item.market_value||0 };
+    });
+    clog(`Item prices loaded: ${Object.keys(S.itemPrices).length} items`,'ok');
+
+    // ── User events (for item receipts)
+    await syncReceipts(true);
+
+    // ── Faction main news (OC)
+    clog('Fetching faction main news for OC income…','info');
+    try{
+      const mn = await tornGet('faction','mainnews');
+      S.ocData = Object.values(mn.mainnews||{})
+        .filter(e=>e.news&&(e.news.toLowerCase().includes('organized crime')||e.news.toLowerCase().includes('faction received')))
+        .sort((a,b)=>b.timestamp-a.timestamp).slice(0,100);
+      clog(`OC entries found: ${S.ocData.length}`,'ok');
+    } catch(e){ clog('OC data: '+e.message,'warn'); S.ocData=[]; }
+
+    S.lastUpdated = Date.now();
+    renderAll();
+    setStatus('live','LIVE');
+    clog('Sync complete ✓','ok');
+
+  } catch(e){
+    const msg = e.message||'Unknown error';
+    clog('Sync failed: '+msg,'err');
+    showGlobalError('API Error: '+msg);
+    setStatus('error','ERROR');
   }
 
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  S.loading=false;
+  document.getElementById('btnRefresh').disabled=false;
+  if(S.lastUpdated){
+    const d=new Date(S.lastUpdated);
+    document.getElementById('lastUpdated').textContent='Updated '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  }
+}
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Syne', sans-serif;
-    min-height: 100vh;
-    overflow-x: hidden;
+// ── Sync user events → parse item receipts
+async function syncReceipts(silent=false){
+  if(!S.apiKey) return;
+  if(!silent){ document.getElementById('btnSyncReceipts').disabled=true; clog('Syncing user events…','info'); }
+  try{
+    const ev = await tornGet('user','events');
+    S.events = Object.values(ev.events||{});
+    clog(`User events loaded: ${S.events.length} entries`,'ok');
+    parseItemReceipts();
+    persistReceipts();
+    renderReceipts();
+    updateOwedBadge();
+  } catch(e){
+    clog('Events fetch failed: '+e.message,'warn');
+  }
+  if(!silent) document.getElementById('btnSyncReceipts').disabled=false;
+}
+
+// Parse "You were sent Nx Item from MemberName [ID]"
+function parseItemReceipts(){
+  const existing = new Set(S.receipts.map(r=>r.id));
+  let added = 0;
+
+  S.events.forEach(ev=>{
+    const news = ev.event||ev.news||'';
+    // Pattern: "You were sent 10x Heather from Sassyquatch [12345]"
+    const m = news.match(/You were sent (\d+)x (.+?) from (.+?)\s*\[(\d+)\]/i);
+    if(!m) return;
+    const id = `rcpt_${ev.timestamp}_${m[4]}_${m[2].replace(/\s+/g,'_')}`;
+    if(existing.has(id)) return;
+
+    const qty = parseInt(m[1]);
+    const itemName = m[2].trim();
+    const memberName = m[3].trim();
+    const memberId = m[4];
+
+    // Determine category
+    const cat = detectReceiptCategory(itemName);
+    if(!cat) return; // not a tracked item type
+
+    // Price at time of event (best we can do: current market value)
+    const itemData = lookupItemByName(itemName);
+    const unitPrice = itemData?.market_value || 0;
+    const pct = S.payoutRates[cat] ?? 98;
+
+    S.receipts.push({ id, member:memberName, memberId, item:itemName, qty, unitPrice, category:cat, pct, ts:ev.timestamp, deleted:false });
+    added++;
+  });
+
+  if(added > 0){ clog(`Added ${added} new receipt entries`,'ok'); }
+  S.receipts.sort((a,b)=>b.ts-a.ts);
+}
+
+function detectReceiptCategory(name){
+  const n = name.toLowerCase();
+  if(n.includes('plushie')) return 'Plushie';
+  // Flowers — check flower list
+  if(FLOWER_NAMES.some(f=>f.toLowerCase()===n)) return 'Flower';
+  if(n.includes('xanax')) return 'Xanax';
+  // Alcohol items
+  if(n.includes('beer')||n.includes('wine')||n.includes('vodka')||n.includes('whiskey')||
+     n.includes('rum')||n.includes('tequila')||n.includes('gin')||n.includes('brandy')||
+     n.includes('champagne')||n.includes('sake')||n.includes('mead')) return 'Alcohol';
+  // Medical
+  if(n.includes('blood bag')||n.includes('morphine')||n.includes('bandage')||
+     n.includes('first aid')||n.includes('med')||n.includes('epinephrine')) return 'Medical';
+  // Check item price map type
+  const found = lookupItemByName(name);
+  if(found){
+    const t = (found.type||'').toLowerCase();
+    if(t.includes('plushie')) return 'Plushie';
+    if(t.includes('flower')) return 'Flower';
+    if(t.includes('alcohol')) return 'Alcohol';
+    if(t.includes('medical')) return 'Medical';
+    if(t.includes('drug')) return 'Xanax';
+  }
+  return null; // untracked
+}
+
+function persistReceipts(){
+  try{ localStorage.setItem('hv_receipts', JSON.stringify(S.receipts)); }catch(e){}
+}
+
+// ═══════════════════════════════════════════════
+// REFRESH CYCLE
+// ═══════════════════════════════════════════════
+function startCycle(){
+  refreshStart = Date.now();
+  clearInterval(refreshTimer); clearInterval(countdownTimer);
+  refreshTimer = setInterval(()=>{ fetchAll(); refreshStart=Date.now(); }, REFRESH_MS);
+  countdownTimer = setInterval(()=>{
+    const rem = Math.max(0, REFRESH_MS - (Date.now()-refreshStart));
+    const m=Math.floor(rem/60000), s=Math.floor((rem%60000)/1000);
+    document.getElementById('refreshLabel').textContent=`Next refresh in ${m}:${String(s).padStart(2,'0')}`;
+    document.getElementById('refreshFill').style.width=((REFRESH_MS-(Date.now()-refreshStart))/REFRESH_MS*100)+'%';
+  },1000);
+}
+
+function manualRefresh(){ if(!S.loading){ fetchAll(); clearInterval(refreshTimer); clearInterval(countdownTimer); startCycle(); }}
+
+// ═══════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════
+function fmt$(n){
+  if(n===null||n===undefined||isNaN(n)) return '—';
+  const a=Math.abs(n), sign=n<0?'-':'';
+  if(a>=1e9) return sign+'$'+(a/1e9).toFixed(2)+'B';
+  if(a>=1e6) return sign+'$'+(a/1e6).toFixed(2)+'M';
+  if(a>=1e3) return sign+'$'+(a/1e3).toFixed(1)+'K';
+  return sign+'$'+Math.round(a).toLocaleString();
+}
+function fmtFull$(n){ return n?'$'+Math.round(n).toLocaleString():'$0'; }
+function fmtDate(ts){ return new Date(ts*1000).toLocaleDateString([],{month:'short',day:'numeric',year:'2-digit'}); }
+function fmtTime(ts){ const d=new Date(ts*1000); return d.toLocaleDateString([],{month:'short',day:'numeric'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+
+function lookupItemByName(name){
+  const lo = name.toLowerCase().replace(/\(s\)$|s$/,'').trim();
+  for(const item of Object.values(S.itemPrices)){
+    if(item.name.toLowerCase()===name.toLowerCase()) return item;
+  }
+  for(const item of Object.values(S.itemPrices)){
+    const il=item.name.toLowerCase();
+    if(il===lo||il.startsWith(lo)||lo.startsWith(il)) return item;
+  }
+  return null;
+}
+
+function parseArmoryEntry(e){
+  const n=e.news||'';
+  const take=n.match(/^(.+?)\s*\[(\d+)\]\s+took\s+(\d+)x?\s+(.+?)\s+from/i);
+  const give=n.match(/^(.+?)\s*\[(\d+)\]\s+gave\s+(\d+)x?\s+(.+?)\s+to/i);
+  const loan=n.match(/^(.+?)\s*\[(\d+)\]\s+loaned\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\s*\[(\d+)\]/i);
+  const ret=n.match(/^(.+?)\s*\[(\d+)\]\s+returned\s+(\d+)x?\s+(.+)/i);
+  if(take) return {member:take[1].trim(),memberId:take[2],qty:parseInt(take[3])||1,item:take[4].trim(),direction:'out',ts:e.timestamp};
+  if(loan) return {member:loan[1].trim(),memberId:loan[2],qty:parseInt(loan[3])||1,item:loan[4].trim(),direction:'loan',ts:e.timestamp,to:loan[5].trim()};
+  if(ret)  return {member:ret[1].trim(),memberId:ret[2],qty:parseInt(ret[3])||1,item:ret[4].trim(),direction:'return',ts:e.timestamp};
+  if(give) return {member:give[1].trim(),memberId:give[2],qty:parseInt(give[3])||1,item:give[4].trim(),direction:'in',ts:e.timestamp};
+  return {member:'Unknown',memberId:null,qty:1,item:n.substring(0,40),direction:'unknown',ts:e.timestamp,raw:n};
+}
+
+function inLast30D(ts){ return (Date.now()/1000-ts)<30*24*3600; }
+
+function setStatus(type,text){
+  const d=document.getElementById('statusDot');
+  const t=document.getElementById('statusText');
+  d.className='status-dot'+(type?' '+type:'');
+  t.textContent=text;
+}
+
+function showGlobalError(msg){
+  const el=document.getElementById('globalError');
+  el.textContent='⚠ '+msg;
+  el.style.display='block';
+}
+
+// ═══════════════════════════════════════════════
+// PAYOUT RATES
+// ═══════════════════════════════════════════════
+function savePayoutRates(){
+  ['Plushie','Flower','Xanax','Alcohol','Medical'].forEach(cat=>{
+    const el=document.getElementById('pct-'+cat);
+    if(el) S.payoutRates[cat]=parseFloat(el.value)||98;
+  });
+  localStorage.setItem('hv_payoutRates',JSON.stringify(S.payoutRates));
+}
+
+function loadPayoutRateInputs(){
+  Object.entries(S.payoutRates).forEach(([cat,pct])=>{
+    const el=document.getElementById('pct-'+cat);
+    if(el) el.value=pct;
+  });
+}
+
+function getPayoutRate(cat){ return (S.payoutRates[cat]??98)/100; }
+
+// ═══════════════════════════════════════════════
+// RENDER ALL
+// ═══════════════════════════════════════════════
+function renderAll(){
+  renderVault();
+  renderSupply();
+  renderMemberUsage();
+  renderOC();
+  renderReceipts();
+  renderArmoryLog();
+  renderStatCards();
+}
+
+// ── VAULT
+function renderVault(){
+  if(!S.faction){ return; }
+  const vault=S.faction.money||0;
+  let memberTotal=0;
+  const mBalances=[];
+  Object.entries(S.donations).forEach(([id,d])=>{
+    const bal=d.money_balance||0;
+    memberTotal+=bal;
+    const name=S.faction.members?.[id]?.name||d.name||'Unknown';
+    mBalances.push({name,bal});
+  });
+  mBalances.sort((a,b)=>b.bal-a.bal);
+  const net=vault-memberTotal;
+  const mPct=vault>0?Math.round(memberTotal/vault*100):0;
+  const nPct=100-mPct;
+
+  let html=`<div class="vault-title">FACTION VAULT BREAKDOWN</div>
+  <div style="margin-bottom:22px;">
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+      <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);">Total Vault</span>
+      <span style="font-family:'Space Mono',monospace;font-size:13px;color:var(--text);">${fmtFull$(vault)}</span>
+    </div>
+    <div style="height:10px;background:var(--bg);border-radius:5px;overflow:hidden;display:flex;">
+      <div style="width:${nPct}%;background:var(--accent);height:100%;"></div>
+      <div style="width:${mPct}%;background:var(--accent3);height:100%;"></div>
+    </div>
+    <div style="display:flex;gap:20px;margin-top:8px;">
+      <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent);">■ Net Faction: ${fmtFull$(net)}</span>
+      <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);">■ Member Balances: ${fmtFull$(memberTotal)}</span>
+    </div>
+  </div>`;
+
+  if(mBalances.length>0){
+    html+=`<div class="vault-title">MEMBER VAULT BALANCES</div>
+    <div class="table-wrap" style="border:none;background:transparent;"><table><thead><tr>
+      <th>Member</th><th>Balance</th><th>% of Vault</th><th style="min-width:120px;">&nbsp;</th>
+    </tr></thead><tbody>`;
+    mBalances.forEach(m=>{
+      const p=vault>0?((m.bal/vault)*100).toFixed(1):'0.0';
+      html+=`<tr>
+        <td class="cell-name">${m.name}</td>
+        <td class="cell-yellow">${fmtFull$(m.bal)}</td>
+        <td class="cell-muted">${p}%</td>
+        <td><div class="bar-wrap"><div class="bar-fill" style="width:${p}%;background:var(--accent3);"></div></div></td>
+      </tr>`;
+    });
+    html+=`</tbody></table></div>`;
+  }
+  document.getElementById('vaultCard').innerHTML=html;
+}
+
+// ── SUPPLY COSTS
+function renderSupply(){
+  const parsed=S.armoryNews.filter(e=>inLast30D(e.timestamp)).map(parseArmoryEntry)
+    .filter(e=>e.direction==='out'||e.direction==='loan');
+  const agg={};
+  parsed.forEach(e=>{
+    const iData=lookupItemByName(e.item);
+    const type=iData?.type||'Unknown';
+    if(S.typeFilter!=='all'&&!type.toLowerCase().includes(S.typeFilter.toLowerCase())) return;
+    if(!agg[e.item]) agg[e.item]={name:e.item,type,qty:0,unitPrice:iData?.market_value||0,total:0};
+    agg[e.item].qty+=e.qty;
+    agg[e.item].total+=e.qty*(iData?.market_value||0);
+  });
+  const rows=Object.values(agg).sort((a,b)=>b.total-a.total);
+  if(!rows.length){ document.getElementById('supplyTable').innerHTML='<div class="empty">No supply disbursements found in last 30 days.</div>'; return; }
+  const grand=rows.reduce((s,r)=>s+r.total,0);
+  let html=`<table><thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Unit Price</th><th>Total Cost</th><th>% of Spend</th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    const p=grand>0?((r.total/grand)*100).toFixed(1):'0.0';
+    html+=`<tr>
+      <td class="cell-name">${r.name}</td>
+      <td><span class="badge badge-yellow">${r.type}</span></td>
+      <td class="cell-muted">${r.qty.toLocaleString()}</td>
+      <td class="cell-muted">${fmt$(r.unitPrice)}</td>
+      <td class="cell-red">${fmt$(r.total)}</td>
+      <td style="min-width:100px;"><div style="font-size:10px;color:var(--muted);margin-bottom:3px;">${p}%</div>
+        <div class="bar-wrap"><div class="bar-fill" style="width:${p}%;background:var(--accent4);"></div></div></td>
+    </tr>`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById('supplyTable').innerHTML=html;
+}
+
+// ── MEMBER USAGE
+function renderMemberUsage(){
+  const parsed=S.armoryNews.filter(e=>inLast30D(e.timestamp)).map(parseArmoryEntry)
+    .filter(e=>e.direction==='out'||e.direction==='loan');
+  const agg={};
+  parsed.forEach(e=>{
+    const iData=lookupItemByName(e.item);
+    const price=iData?.market_value||0;
+    if(!agg[e.member]) agg[e.member]={name:e.member,items:{},total:0,count:0};
+    if(!agg[e.member].items[e.item]) agg[e.member].items[e.item]={qty:0,cost:0};
+    agg[e.member].items[e.item].qty+=e.qty;
+    agg[e.member].items[e.item].cost+=e.qty*price;
+    agg[e.member].total+=e.qty*price;
+    agg[e.member].count+=e.qty;
+  });
+  const rows=Object.values(agg).sort((a,b)=>b.total-a.total);
+  const grand=rows.reduce((s,r)=>s+r.total,0);
+  if(!rows.length){ document.getElementById('memberTable').innerHTML='<div class="empty">No member usage found in last 30 days.</div>'; return; }
+  let html=`<table><thead><tr><th>Member</th><th>Items Taken</th><th>Top Item</th><th>30d Cost</th><th>% of Total</th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    const p=grand>0?((r.total/grand)*100).toFixed(1):'0.0';
+    const top=Object.entries(r.items).sort((a,b)=>b[1].cost-a[1].cost)[0];
+    html+=`<tr>
+      <td class="cell-name">${r.name}</td>
+      <td class="cell-muted">${r.count}</td>
+      <td class="cell-muted" style="font-size:11px;">${top?top[0]:'—'}</td>
+      <td class="cell-red">${fmt$(r.total)}</td>
+      <td style="min-width:110px;"><div style="font-size:10px;color:var(--muted);margin-bottom:3px;">${p}%</div>
+        <div class="bar-wrap"><div class="bar-fill" style="width:${p}%;"></div></div></td>
+    </tr>`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById('memberTable').innerHTML=html;
+}
+
+// ── OC
+function renderOC(){
+  const parsed=S.ocData.map(e=>{
+    const amounts=(e.news.match(/\$([\d,]+)/g)||[]).map(m=>parseInt(m.replace(/[$,]/g,'')));
+    return {news:e.news,ts:e.timestamp,date:fmtDate(e.timestamp),amount:amounts.reduce((s,n)=>s+n,0)};
+  }).filter(e=>e.amount>0);
+  if(!parsed.length){ document.getElementById('ocTable').innerHTML='<div class="empty">No OC income entries found.<br>Ensure key has faction mainnews access.</div>'; return; }
+  const total=parsed.reduce((s,r)=>s+r.amount,0);
+  document.getElementById('cOCIncome').textContent=fmt$(total);
+  let html=`<table><thead><tr><th>Date</th><th>Amount</th><th>Event</th></tr></thead><tbody>`;
+  parsed.forEach(r=>{
+    html+=`<tr>
+      <td class="cell-muted">${r.date}</td>
+      <td class="cell-green">${fmt$(r.amount)}</td>
+      <td style="font-size:11px;color:var(--muted);max-width:500px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.news}</td>
+    </tr>`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById('ocTable').innerHTML=html;
+}
+
+// ── ITEM RECEIPTS — OWED CARDS
+function renderReceipts(){
+  renderOwedCards();
+  renderReceiptLog();
+  updateOwedBadge();
+}
+
+function calcOwed(memberName){
+  const active=S.receipts.filter(r=>!r.deleted&&r.member===memberName);
+  // Find last paid timestamp for this member
+  const paidTs=getLastPaidTs(memberName);
+  const unpaid=active.filter(r=>r.ts>paidTs);
+  return unpaid.reduce((s,r)=>{
+    const pct=getPayoutRate(r.category);
+    return s + r.qty * r.unitPrice * pct;
+  },0);
+}
+
+function getLastPaidTs(memberName){
+  const log=S.paidLog[memberName];
+  if(!log||!log.length) return 0;
+  return log[log.length-1].ts;
+}
+
+function renderOwedCards(){
+  const members={};
+  S.receipts.filter(r=>!r.deleted).forEach(r=>{
+    if(!members[r.member]) members[r.member]={name:r.member,memberId:r.memberId,cats:{},total:0,count:0};
+    if(!members[r.member].cats[r.category]) members[r.member].cats[r.category]=0;
+    members[r.member].cats[r.category]+=r.qty;
+    members[r.member].count+=r.qty;
+  });
+
+  const entries=Object.values(members);
+  if(!entries.length){
+    document.getElementById('owedGrid').innerHTML='<div class="empty">No item receipts logged yet.<br>Sync your events to load sent items.</div>';
+    return;
   }
 
-  /* \u2500\u2500\u2500 GRID BACKGROUND \u2500\u2500\u2500 */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(127,255,110,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(127,255,110,0.03) 1px, transparent 1px);
-    background-size: 40px 40px;
-    pointer-events: none;
-    z-index: 0;
+  let html='';
+  let totalOwed=0;
+  entries.sort((a,b)=>calcOwed(b.name)-calcOwed(a.name)).forEach(m=>{
+    const owed=calcOwed(m.name);
+    totalOwed+=owed;
+    const isPaid=owed<1;
+    const lastPaidTs=getLastPaidTs(m.name);
+    const catSummary=Object.entries(m.cats).map(([c,q])=>`${q}x ${c}`).join(' · ');
+    html+=`<div class="owed-card ${isPaid?'paid':''}">
+      <div class="owed-card-name">${m.name}</div>
+      <div class="owed-card-amount ${isPaid?'zero':''}">${fmtFull$(owed)}</div>
+      <div class="owed-card-sub">${catSummary}<br>Total items: ${m.count}${lastPaidTs?'<br>Last paid: '+fmtDate(lastPaidTs):''}</div>
+      <div class="owed-card-actions">
+        ${isPaid
+          ? `<span class="badge badge-green">PAID ✓</span>`
+          : `<button class="btn-paid" onclick="markPaid('${m.name}',${owed})">✓ PAID ${fmtFull$(owed)}</button>`}
+        <button class="btn-view-log" onclick="switchTab('receipts');filterReceiptByMember('${m.name}')">VIEW LOG</button>
+      </div>
+    </div>`;
+  });
+  document.getElementById('owedGrid').innerHTML=html;
+  document.getElementById('cOwed').textContent=fmt$(totalOwed);
+}
+
+function markPaid(memberName, amount){
+  if(!confirm(`Mark ${memberName} as paid ${fmtFull$(amount)}?\n\nThis clears their outstanding balance. All log entries are preserved.`)) return;
+  if(!S.paidLog[memberName]) S.paidLog[memberName]=[];
+  S.paidLog[memberName].push({ ts: Math.floor(Date.now()/1000), amount });
+  try{ localStorage.setItem('hv_paid',JSON.stringify(S.paidLog)); }catch(e){}
+  clog(`Marked ${memberName} as paid — ${fmtFull$(amount)}`,'ok');
+  renderReceipts();
+  renderStatCards();
+}
+
+// ── RECEIPT LOG
+function renderReceiptLog(){
+  const search=(document.getElementById('receiptSearch')?.value||'').toLowerCase();
+  const memberFilter=document.getElementById('receiptSearch')?.dataset?.memberFilter||'';
+  let rows=S.receipts.filter(r=>!r.deleted);
+  if(search) rows=rows.filter(r=>r.member.toLowerCase().includes(search)||r.item.toLowerCase().includes(search));
+  if(memberFilter&&!search) rows=rows.filter(r=>r.member===memberFilter);
+
+  if(!rows.length){
+    document.getElementById('receiptLogTable').innerHTML='<div class="empty">No receipts found.</div>';
+    return;
   }
 
-  .app { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 24px 20px; }
+  let html=`<table><thead><tr>
+    <th>Date/Time</th><th>Member</th><th>Item</th><th>Qty</th><th>Category</th><th>Unit Price</th><th>Owed</th><th>Status</th><th></th>
+  </tr></thead><tbody>`;
 
-  /* \u2500\u2500\u2500 HEADER \u2500\u2500\u2500 */
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 28px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--border);
+  rows.forEach(r=>{
+    const pct=getPayoutRate(r.category);
+    const owed=r.qty*r.unitPrice*pct;
+    const paidTs=getLastPaidTs(r.member);
+    const isPaid=r.ts<=paidTs;
+    const catBadge=r.category==='Plushie'?'badge-blue':r.category==='Flower'?'badge-green':r.category==='Xanax'?'badge-yellow':r.category==='Alcohol'?'badge-yellow':'badge-red';
+    html+=`<tr style="${r.deleted?'opacity:0.4':''}">
+      <td class="cell-muted" style="font-size:11px;white-space:nowrap;">${fmtTime(r.ts)}</td>
+      <td class="cell-name">${r.member}</td>
+      <td style="font-size:12px;color:var(--text);">${r.item}</td>
+      <td class="cell-muted">${r.qty}</td>
+      <td><span class="badge ${catBadge}">${r.category}</span></td>
+      <td class="cell-muted">${fmt$(r.unitPrice)}</td>
+      <td class="${isPaid?'cell-muted':'cell-yellow'}">${fmtFull$(owed)}</td>
+      <td>${isPaid?'<span class="badge badge-green">PAID</span>':'<span class="badge badge-yellow">OWED</span>'}</td>
+      <td><button class="btn-del" title="Delete this entry" onclick="deleteReceipt('${r.id}')">✕</button></td>
+    </tr>`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById('receiptLogTable').innerHTML=html;
+}
+
+function filterReceiptByMember(name){
+  const el=document.getElementById('receiptSearch');
+  if(el){ el.value=name; el.dataset.memberFilter=name; renderReceiptLog(); }
+}
+
+function deleteReceipt(id){
+  if(!confirm('Remove this receipt entry from the log?\n\n(This action cannot be undone)')) return;
+  const r=S.receipts.find(r=>r.id===id);
+  if(r){ r.deleted=true; persistReceipts(); renderReceipts(); clog(`Receipt deleted: ${r.qty}x ${r.item} from ${r.member}`,'warn'); }
+}
+
+function updateOwedBadge(){
+  const members=new Set(S.receipts.filter(r=>!r.deleted).map(r=>r.member));
+  let count=0;
+  members.forEach(m=>{ if(calcOwed(m)>0) count++; });
+  const tab=document.getElementById('tabReceipts');
+  if(tab){
+    tab.innerHTML=count>0
+      ? `Item Receipts <span class="tab-badge">${count}</span>`
+      : 'Item Receipts';
   }
+}
 
-  .logo {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
+// ── ARMORY LOG
+function renderArmoryLog(){ filterArmoryLog(); }
+function filterArmoryLog(){
+  const search=(document.getElementById('logSearch')?.value||'').toLowerCase();
+  let entries=S.armoryNews.slice(0,200);
+  if(search) entries=entries.filter(e=>(e.news||'').toLowerCase().includes(search));
+  if(!entries.length){ document.getElementById('logTable').innerHTML='<div class="empty">No log entries.</div>'; return; }
+  let html=`<table><thead><tr><th>Time</th><th>Dir</th><th>Entry</th></tr></thead><tbody>`;
+  entries.slice(0,100).forEach(e=>{
+    const p=parseArmoryEntry(e);
+    const dirClass=p.direction==='out'?'badge-red':p.direction==='in'?'badge-green':'badge-yellow';
+    const dirLabel=p.direction==='out'?'▼ TOOK':p.direction==='in'?'▲ GAVE':p.direction==='loan'?'→ LOAN':'↩ RET';
+    html+=`<tr>
+      <td class="cell-muted" style="font-size:11px;white-space:nowrap;">${fmtTime(e.timestamp)}</td>
+      <td><span class="badge ${dirClass}">${dirLabel}</span></td>
+      <td style="font-size:11px;color:var(--muted);max-width:600px;">${e.news||''}</td>
+    </tr>`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById('logTable').innerHTML=html;
+}
 
-  .logo-name {
-    font-size: 26px;
+// ── STAT CARDS
+function renderStatCards(){
+  // Net vault
+  const vault=S.faction?.money||0;
+  let mTotal=0;
+  Object.values(S.donations).forEach(d=>{ mTotal+=d.money_balance||0; });
+  document.getElementById('cNetVault').textContent=fmt$(vault-mTotal);
+
+  // Supply 30d
+  const parsed=S.armoryNews.filter(e=>inLast30D(e.timestamp)).map(parseArmoryEntry)
+    .filter(e=>e.direction==='out'||e.direction==='loan');
+  let supply=0;
+  parsed.forEach(e=>{ const i=lookupItemByName(e.item); supply+=e.qty*(i?.market_value||0); });
+  document.getElementById('cSupplyCost').textContent=fmt$(supply);
+
+  // OC income
+  const oc=S.ocData.reduce((s,e)=>{ const m=e.news.match(/\$([\d,]+)/g); return s+(m?m.reduce((a,v)=>a+parseInt(v.replace(/[$,]/g,'')),0):0); },0);
+  document.getElementById('cOCIncome').textContent=fmt$(oc);
+
+  // P&L
+  const pnl=oc-supply;
+  const pnlEl=document.getElementById('cPnL');
+  pnlEl.textContent=fmt$(pnl);
+  pnlEl.style.color=pnl>=0?'var(--accent)':'var(--accent4)';
+
+  // Total owed
+  const members=new Set(S.receipts.filter(r=>!r.deleted).map(r=>r.member));
+  let totalOwed=0;
+  members.forEach(m=>{ totalOwed+=calcOwed(m); });
+  document.getElementById('cOwed').textContent=fmt$(totalOwed);
+}
+
+// ═══════════════════════════════════════════════
+// OC SPLIT CALC
+// ═══════════════════════════════════════════════
+function calcSplit(){
+  const payout=parseFloat(document.getElementById('ocPayoutInput').value)||0;
+  const members=parseInt(document.getElementById('ocMembersInput').value)||0;
+  const mode=document.getElementById('ocFactionShare').value;
+  if(!payout||!members){ document.getElementById('splitResult').style.display='none'; return; }
+  const fPct=mode==='auto'?1/(members+1):parseFloat(mode)/100;
+  const mPct=(1-fPct)/members;
+  document.getElementById('splitFaction').textContent=fmtFull$(payout*fPct);
+  document.getElementById('splitPerMember').textContent=fmtFull$(payout*mPct);
+  document.getElementById('splitPct').textContent=(fPct*100).toFixed(1)+'%';
+  document.getElementById('splitResult').style.display='grid';
+}
+
+// ═══════════════════════════════════════════════
+// TABS / FILTERS
+// ═══════════════════════════════════════════════
+function switchTab(name){
+  const order=['vault','supply','members','oc','receipts','log'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',order[i]===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  const panel=document.getElementById('panel-'+name);
+  if(panel) panel.classList.add('active');
+  S.tab=name;
+}
+
+function filterType(el, type){
+  document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  S.typeFilter=type;
+  renderSupply();
+}
+</script>
+</body>
+</html>
     font-weight: 800;
     letter-spacing: -0.5px;
     color: var(--accent);
