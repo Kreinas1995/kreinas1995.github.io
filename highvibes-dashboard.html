@@ -234,13 +234,15 @@
 <div class="app">
 
   <div class="header">
-    <div>
-      <div class="logo-name">⬡ HIGHVIBES</div>
-      <div class="logo-sub">Faction Budget Dashboard</div>
-    </div>
-    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;" onclick="showChangelog()" title="View changelog / check for updates">
-      <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;padding:3px 8px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.00.000 · CURRENT</div>
-      <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted2);letter-spacing:1px;">tap to view changelog</div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div>
+        <div class="logo-name">⬡ HIGHVIBES</div>
+        <div class="logo-sub">Faction Budget Dashboard</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="showChangelog()" title="View changelog / check for updates">
+        <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.00.000</div>
+        <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;padding-left:2px;">changelog</div>
+      </div>
     </div>
     <div class="header-right">
       <div style="display:flex;align-items:center;gap:8px;">
@@ -252,7 +254,7 @@
           <span id="rateMeterPerMin" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-left:2px;"></span>
         </div>
       </div>
-      <button class="btn-danger" id="btnDisconnect" onclick="clearKey()" style="display:none;padding:5px 10px;font-size:9px;">✕ DC</button>
+      <button class="btn-danger" id="btnDisconnect" onclick="clearKey()" style="display:none;padding:6px 18px;font-size:9px;white-space:nowrap;min-width:110px;text-align:center;">✕ DISCONNECT</button>
     </div>
   </div>
 
@@ -385,6 +387,13 @@
 
   <!-- SUPPLY -->
   <div class="panel" id="panel-supply">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+      <label style="display:flex;align-items:center;gap:6px;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);cursor:pointer;user-select:none;">
+        <input type="checkbox" id="trackConsumablesChk" onchange="toggleTrackConsumables(this.checked)" style="accent-color:var(--accent);width:14px;height:14px;cursor:pointer;">
+        Track items sent from inventory
+      </label>
+      <span id="trackConsumablesStatus" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted2);"></span>
+    </div>
     <div class="pills" id="typePills">
       <div class="pill on" onclick="filterType(this,'all')">All Consumables</div>
       <div class="pill" onclick="filterType(this,'Medical')">Medical</div>
@@ -392,8 +401,6 @@
       <div class="pill" onclick="filterType(this,'Alcohol')">Alcohol</div>
       <div class="pill" onclick="filterType(this,'Candy')">Candy</div>
       <div class="pill" onclick="filterType(this,'Temporary')">Throwables</div>
-      <div class="pill" onclick="filterType(this,'Flower')">Flowers</div>
-      <div class="pill" onclick="filterType(this,'Plushie')">Plushies</div>
     </div>
     <div class="tw" id="supplyTbl"><div class="empty">No data yet.</div></div>
   </div>
@@ -725,10 +732,23 @@
 // ════════════════════════════════════════════
 // VERSION & CHANGELOG
 // ════════════════════════════════════════════
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '2.1.0';
 const VERSION_URL = 'https://raw.githubusercontent.com/highvibes-torn/dashboard/main/version.json'; // update as needed
 
 const CHANGELOG = [
+  { v:'2.1.0', date:'2026-04-10', notes:[
+    '[+] Inventory: points price fetched from torn/items and stored with 365-day local history',
+    '[+] Inventory: 1-year price chart with buy/sell timing advice (above/below avg)',
+    '[+] Inventory: estimated profit = points value − member cost paid',
+    '[+] Inventory: Museum Day value (10% bonus) shown alongside base value',
+    '[+] Supply: "Track items sent from inventory" checkbox — shows personal Sent column',
+    '[+] Supply: Flowers and Plushies removed from disbursement tab (inventory-only)',
+    '[*] Museum set lists corrected to canonical Torn wiki items (13 plushies, 11 flowers)',
+    '[*] Each set = 10 points (fixed from incorrect 2250/2000 values)',
+    '[*] Vault: failed fetch displays --- instead of error text',
+    '[*] Disconnect button renamed and sized correctly for mobile',
+    '[*] Version badge moved to left of logo, reduced to secondary size',
+  ]},
   { v:'1.4.0', date:'2026-04-10', notes:[
     '[+] Inventory tab: plushie/flower set tracker from user items (sets complete, point value, trade value)',
     '[+] Museum Day 10% bonus shown as separate line in inventory',
@@ -802,14 +822,15 @@ async function checkForUpdate(){
     const d=await r.json();
     const latest=d.version||APP_VERSION;
     if(latest!==APP_VERSION){
-      badge.textContent=`v${APP_VERSION} · UPDATE v${latest}`;
+      badge.textContent=`v${APP_VERSION} → v${latest}`;
       badge.style.borderColor='var(--accent3)';badge.style.color='var(--accent3)';
-      sub.textContent='tap to view changelog & update';
+      sub.textContent='update available';
       clog(`Update available: v${latest} (current: v${APP_VERSION})`,'warn');
       return {available:true,latest};
     } else {
-      badge.textContent=`v${APP_VERSION} · CURRENT`;
+      badge.textContent=`v${APP_VERSION}`;
       badge.style.borderColor='';badge.style.color='';
+      sub.textContent='changelog';
       clog(`Version up to date: v${APP_VERSION}`,'ok');
       return {available:false,latest};
     }
@@ -859,6 +880,9 @@ let S = {
   outgoing:[], // items sent from you to faction members
   inventory:[], // user's personal inventory items
   exemptReceipts:new Set(), // receipt IDs exempt from payout
+  pointPrice:0, // current points market price $/pt
+  pointPriceHistory:[], // [{label,price}] rolling 365-day log
+  trackConsumablesSent:false, // checkbox: deduct consumables sent from inventory
 };
 let rTimer=null, cTimer=null, rStart=null;
 
@@ -921,10 +945,16 @@ async function rateSafeGet(section, sel, extra=''){
   try{ const cp=JSON.parse(localStorage.getItem('hv_card_periods')||'{}'); S.cardPeriods={...S.cardPeriods,...cp}; }catch(e){}
   try{ S.outgoing=JSON.parse(localStorage.getItem('hv_outgoing')||'[]'); }catch(e){}
   try{ const ex=JSON.parse(localStorage.getItem('hv_exempt')||'[]'); S.exemptReceipts=new Set(ex); }catch(e){}
+  try{ const pp=localStorage.getItem('hv_ptprice'); if(pp) S.pointPrice=parseFloat(pp)||0; }catch(e){}
+  try{ S.pointPriceHistory=JSON.parse(localStorage.getItem('hv_ptphist')||'[]'); }catch(e){}
+  try{ S.trackConsumablesSent=localStorage.getItem('hv_track_consumables')==='true'; }catch(e){}
   loadRateInputs();
   buildSyncSelector();
   // Restore period pill states
   restoreCardPeriodPills();
+  // Restore checkbox state
+  const chkInit=document.getElementById('trackConsumablesChk');
+  if(chkInit) chkInit.checked=!!S.trackConsumablesSent;
   const k=localStorage.getItem('hv_key');
   if(k){ S.key=k; revealDash(); fetchAll(); startCycle(); }
   updateBadge();
@@ -1044,28 +1074,26 @@ async function fetchAll(isManual=false){
     S.faction=fac;
     S.donations=fac.donations||{};
 
-    // 2. Vault money — always compute member total from donations
+    // 2. Vault money — member total always available from donations
     let vaultMoney=fac.money||0;
     let memberTotal=0;
     Object.values(S.donations).forEach(d=>{ memberTotal+=d.money_balance||0; });
     S.faction._memberTotal=memberTotal;
 
-    // Vault balance from donations even without AA key:
-    // If no AA, fac.money is 0, but we can still show member sum + note
+    // With AA key, fac.money = total vault. If it's 0 try the dedicated money selection.
     if(vaultMoney===0){
-      // Non-AA: vault = member total (faction unassigned unknown)
-      S.faction._vaultFromDonations = memberTotal;
       try{
         const vm=await tGet('faction','money');
         vaultMoney=vm.money||0;
-        if(vaultMoney>0){ S.faction.money=vaultMoney; clog(`Vault (money selection): ${fmt$(vaultMoney)}`,'ok'); }
+        if(vaultMoney>0){ S.faction.money=vaultMoney; clog(`Vault (money): ${fmt$(vaultMoney)}`,'ok'); }
       }catch(e2){
-        clog(`Vault AA required for total — showing member balances: ${fmt$(memberTotal)}`,'warn');
+        // AA not enabled or key lacks permission — display --- for vault total, member balances still shown
+        clog(`Vault total unavailable (${e2.message}) — member balances shown`,'warn');
       }
     }
 
     S.faction._factionAvailable = vaultMoney>0 ? vaultMoney-memberTotal : 0;
-    clog(`"${fac.name}" | ${Object.keys(fac.members||{}).length} members | Vault: ${vaultMoney>0?fmt$(vaultMoney):'(AA req, members: '+fmt$(memberTotal)+')'} | Available: ${vaultMoney>0?fmt$(S.faction._factionAvailable):'(AA req)'}`,'ok');
+    clog(`"${fac.name}" | ${Object.keys(fac.members||{}).length} members | Members: ${fmt$(memberTotal)} | Vault: ${vaultMoney>0?fmt$(vaultMoney):'---'}`,'ok');
 
     // 3. Armory news (1 call)
     clog('Fetching armory news…','info');
@@ -1194,6 +1222,9 @@ async function fetchAll(isManual=false){
       S.inventory=Object.values(inv.inventory||{});
       clog(`Inventory: ${S.inventory.length} item stacks`,'ok');
     }catch(e){ clog('Inventory fetch failed (needs user/inventory access): '+e.message,'warn'); S.inventory=[]; }
+
+    // 10. Points price (uses cached torn/items data — no extra API call needed)
+    fetchPointPrice().catch(()=>{});
 
     renderAll();
     setStatus('live','LIVE');
@@ -1654,11 +1685,11 @@ function renderVault(){
   // Update stat cards — member total always available from donations
   const vtEl=document.getElementById('cVaultTotal');
   const vEl=document.getElementById('cVault');
-  if(vtEl) vtEl.textContent=vault>0?fmt$(vault):fmt$(mTotal)+' (members)';
-  if(vEl)  vEl.textContent=vault>0?fmt$(factionAvail):'(AA req for total)';
+  if(vtEl) vtEl.textContent=vault>0?fmt$(vault):fmt$(mTotal);
+  if(vEl)  vEl.textContent=vault>0?fmt$(factionAvail):'---';
 
   let h=`<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">FACTION VAULT BREAKDOWN</div>`;
-  if(vaultUnknown) h+=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);margin-bottom:12px;padding:8px 12px;border:1px solid rgba(240,192,64,0.2);background:rgba(240,192,64,0.05)">⚠ Vault total requires Full Access (AA) key. Member balances shown below.</div>`;
+  if(vaultUnknown) h+=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:12px;padding:8px 12px;border:1px solid var(--border);">Member balances: ${ff$(mTotal)} · Faction funds: ---</div>`;
 
   // Highlight faction available funds if we have the total
   if(!vaultUnknown&&factionAvail>0){
@@ -1674,7 +1705,7 @@ function renderVault(){
   h+=`<div style="margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
       <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Vault Total</span>
-      <span style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent)">${vaultUnknown?'(requires AA)':ff$(vault)}</span>
+      <span style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent)">${vaultUnknown?'---':ff$(vault)}</span>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
       <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Member Balances</span>
@@ -1682,7 +1713,7 @@ function renderVault(){
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:${!vaultUnknown?'10':'0'}px;">
       <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Faction Available</span>
-      <span style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent2)">${vaultUnknown?'(requires AA)':ff$(factionAvail)}</span>
+      <span style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent2)">${vaultUnknown?'---':ff$(factionAvail)}</span>
     </div>
     ${!vaultUnknown?`<div style="height:8px;background:var(--bg);border-radius:4px;overflow:hidden;display:flex;margin-bottom:6px;">
       <div style="width:${100-mp}%;background:var(--accent2);height:100%"></div>
@@ -1708,18 +1739,21 @@ function renderVault(){
 }
 
 // ── INVENTORY (Plushie/Flower set tracker)
-// Torn set definitions — all canonical plushies and flowers
-const PLUSHIE_SET = ['Camel Plushie','Cat Plushie','Dog Plushie','Donkey Plushie','Duck Plushie',
-  'Elephant Plushie','Monkey Plushie','Panda Plushie','Penguin Plushie','Rabbit Plushie',
-  'Sheep Plushie','Stag Plushie','Teddy Bear Plushie','Tiger Plushie','Wolverine Plushie'];
-const FLOWER_SET = ['African Violet','Banana Orchid','Cerise','Crocus','Dahlia','Daffodil',
-  'Edelweiss','Gerbera','Heather','Hollyhock','Lily','Orchid','Pansy','Peony',
-  'Tribhujanga','Violet'];
+// Canonical Torn museum sets — all 13 plushies, all 11 flowers (matching wiki/API item names)
+const PLUSHIE_SET = [
+  'Camel Plushie','Cat Plushie','Chamois Plushie','Dog Plushie','Duck Plushie',
+  'Jaguar Plushie','Kitten Plushie','Lion Plushie','Monkey Plushie','Panda Plushie',
+  'Sheep Plushie','Teddy Bear Plushie','Wolverine Plushie'
+];
+const FLOWER_SET = [
+  'African Violet','Banana Orchid','Cerise','Crocus','Dahlia',
+  'Edelweiss','Heather','Orchid','Peony','Tribhujanga','Violet'
+];
 
-// Points per complete set (Torn trade-in values — approximate)
-const PLUSHIE_SET_PTS = 2250;   // pts per full plushie set
-const FLOWER_SET_PTS  = 2000;   // pts per full flower set
-const MUSEUM_DAY_BONUS = 0.10;  // 10% bonus on Museum Day
+// Points per complete set — Torn Museum: 1 set = 10 points (both plushies and flowers)
+const PLUSHIE_SET_PTS = 10;
+const FLOWER_SET_PTS  = 10;
+const MUSEUM_DAY_BONUS = 0.10;  // +10% on Museum Day (11 pts instead of 10)
 
 function renderInventory(){
   const grid=document.getElementById('invSetsGrid');
@@ -1732,105 +1766,224 @@ function renderInventory(){
     return;
   }
 
-  // Build a name→qty map from inventory
+  // Build name→qty map (match by name from API)
   const inv={};
   S.inventory.forEach(it=>{
     const n=(it.name||'').trim();
     if(n) inv[n]=(inv[n]||0)+(it.quantity||1);
   });
 
-  // Count sets
+  // Count complete sets
   const plushieCounts=PLUSHIE_SET.map(n=>inv[n]||0);
   const flowerCounts=FLOWER_SET.map(n=>inv[n]||0);
-  const plushieSets=Math.min(...plushieCounts);
-  const flowerSets=Math.min(...flowerCounts);
+  const plushieSets=plushieCounts.length?Math.min(...plushieCounts):0;
+  const flowerSets=flowerCounts.length?Math.min(...flowerCounts):0;
+  const totalSets=plushieSets+flowerSets;
 
-  // Value calculations
-  // Trade value: get MV from S.prices for each item * qty
-  let plushieMV=0, flowerMV=0;
+  // Points calc: 10 pts per set (11 on Museum Day)
+  const ptPrice=S.pointPrice||0; // $/pt fetched from market
+  const totalPts=totalSets*PLUSHIE_SET_PTS;
+  const museumDayPts=Math.floor(totalPts*1.10);
+  const ptsValue=ptPrice>0?totalPts*ptPrice:0;
+  const ptsValueMuseum=ptPrice>0?museumDayPts*ptPrice:0;
+
+  // MV of all plushies + flowers in inventory
+  let plushieMV=0, flowerMV=0, totalCostPaid=0;
   PLUSHIE_SET.forEach(n=>{ const it=lookupItem(n); plushieMV+=(it?.mv||0)*(inv[n]||0); });
   FLOWER_SET.forEach(n=>{ const it=lookupItem(n); flowerMV+=(it?.mv||0)*(inv[n]||0); });
 
-  const totalPts=(plushieSets*PLUSHIE_SET_PTS)+(flowerSets*FLOWER_SET_PTS);
-  const museumBonus=totalPts*MUSEUM_DAY_BONUS;
+  // Profit estimate: pts value − cost paid to members (from receipts)
+  // Cost paid = sum of all flower+plushie receipts after last paid timestamp
+  let memberCostPaid=0;
+  (S.receipts||[]).filter(r=>!r.deleted&&(r.cat==='Plushie'||r.cat==='Flower')).forEach(r=>{
+    memberCostPaid+=r.qty*(r.mv||0)*(r.pct||98)/100;
+  });
 
-  // Set completion bars
-  const plushiePct=PLUSHIE_SET.length>0?Math.round((Math.min(...plushieCounts.filter(c=>c>0).concat(plushieCounts))/Math.max(...plushieCounts)||0)*100):0;
+  const profit=ptPrice>0?ptsValue-memberCostPaid:null;
   const minP=Math.min(...plushieCounts), maxP=Math.max(...plushieCounts)||1;
   const minF=Math.min(...flowerCounts), maxF=Math.max(...flowerCounts)||1;
 
+  // Points price chart data (stored locally, updated on fetch)
+  const chartData=S.pointPriceHistory||[];
+  let chartSvg='';
+  if(chartData.length>1){
+    const vals=chartData.map(d=>d.price);
+    const mn=Math.min(...vals), mx=Math.max(...vals)||1;
+    const W=260,H=48;
+    const pts=chartData.map((d,i)=>{
+      const x=Math.round(i/(chartData.length-1)*W);
+      const y=Math.round(H-((d.price-mn)/(mx-mn||1))*H);
+      return `${x},${y}`;
+    }).join(' ');
+    // Color line green if current > 6mo avg
+    const sixMoAvg=vals.slice(-180).reduce((a,b)=>a+b,0)/Math.min(vals.length,180);
+    const lineColor=ptPrice>sixMoAvg?'var(--accent2)':'var(--accent4)';
+    chartSvg=`<svg width="${W}" height="${H}" style="display:block;margin-top:6px;">
+      <polyline points="${pts}" fill="none" stroke="${lineColor}" stroke-width="1.5"/>
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-top:2px;">
+      <span>${chartData[0]?.label||'1yr ago'}</span><span>${chartData[chartData.length-1]?.label||'today'}</span>
+    </div>`;
+  }
+
+  // Best sell time estimate
+  let sellAdvice='—';
+  if(chartData.length>14){
+    const recent=chartData.slice(-14).map(d=>d.price);
+    const avg14=recent.reduce((a,b)=>a+b,0)/recent.length;
+    const allAvg=chartData.map(d=>d.price).reduce((a,b)=>a+b,0)/chartData.length;
+    if(ptPrice>allAvg*1.05) sellAdvice='<span style="color:var(--accent2)">NOW — above average</span>';
+    else if(ptPrice<allAvg*0.95) sellAdvice='<span style="color:var(--accent3)">HOLD — below average</span>';
+    else sellAdvice='<span style="color:var(--muted)">NEUTRAL</span>';
+  } else if(ptPrice>0){
+    sellAdvice='<span style="color:var(--muted)">Accumulating history…</span>';
+  }
+
   grid.innerHTML=`
     <div style="background:var(--surface);border:1px solid var(--border);padding:16px;grid-column:1/-1;">
-      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent5);margin-bottom:14px;font-family:'Space Mono',monospace;">SET TRACKER</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent5);font-family:'Space Mono',monospace;">SET TRACKER</div>
+        <button class="btn-sm" onclick="fetchPointPrice()" style="font-size:9px;padding:4px 10px;">↻ REFRESH POINTS PRICE</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;">
 
         <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
           <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">PLUSHIE SETS</div>
           <div style="font-size:26px;font-weight:800;color:var(--accent5);">${plushieSets}</div>
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">complete sets · ${PLUSHIE_SET_PTS.toLocaleString()} pts each</div>
-          <div style="height:3px;background:var(--border);margin-top:8px;border-radius:2px;overflow:hidden;">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">${PLUSHIE_SET.length} items · 10 pts each</div>
+          <div style="height:3px;background:var(--border);margin-top:8px;overflow:hidden;">
             <div style="height:100%;background:var(--accent5);width:${maxP>0?Math.round(minP/maxP*100):0}%"></div>
           </div>
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:4px;">lowest: ${minP} · highest: ${maxP}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-top:4px;">min: ${minP} · max: ${maxP}</div>
         </div>
 
         <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
           <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">FLOWER SETS</div>
           <div style="font-size:26px;font-weight:800;color:var(--accent2);">${flowerSets}</div>
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">complete sets · ${FLOWER_SET_PTS.toLocaleString()} pts each</div>
-          <div style="height:3px;background:var(--border);margin-top:8px;border-radius:2px;overflow:hidden;">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">${FLOWER_SET.length} items · 10 pts each</div>
+          <div style="height:3px;background:var(--border);margin-top:8px;overflow:hidden;">
             <div style="height:100%;background:var(--accent2);width:${maxF>0?Math.round(minF/maxF*100):0}%"></div>
           </div>
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:4px;">lowest: ${minF} · highest: ${maxF}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-top:4px;">min: ${minF} · max: ${maxF}</div>
         </div>
 
         <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
-          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">TOTAL POINTS</div>
-          <div style="font-size:26px;font-weight:800;color:var(--accent3);">${totalPts.toLocaleString()}</div>
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">if traded now (both sets)</div>
-          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
-            <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent3);">+${museumBonus.toLocaleString()} pts Museum Day bonus</div>
-            <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);">+10% on total if traded on Museum Day</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">POINTS VALUE</div>
+          <div style="font-size:22px;font-weight:800;color:var(--accent3);">${totalPts} pts</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">${totalSets} sets × 10 pts</div>
+          <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">
+            <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent3);">Museum Day: ${museumDayPts} pts (+10%)</div>
           </div>
         </div>
 
         <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
-          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">MARKET VALUE</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">POINT PRICE</div>
+          <div style="font-size:22px;font-weight:800;color:var(--accent);" id="invPtPrice">${ptPrice>0?fmt$(ptPrice):'—'}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-top:2px;">per point (market)</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:6px;">Sell advice: ${sellAdvice}</div>
+          ${chartSvg}
+        </div>
+
+        <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">ESTIMATED PROFIT</div>
+          <div style="font-size:20px;font-weight:800;color:${profit===null?'var(--muted)':profit>=0?'var(--accent2)':'var(--accent4)'};">${profit===null?'—':fmt$(profit)}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-top:2px;">pts value − member cost</div>
+          <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);">
+            Pts value: ${ptPrice>0?fmt$(ptsValue):'(no price)'}<br>
+            Museum Day: ${ptPrice>0?fmt$(ptsValueMuseum):'—'}<br>
+            Member cost: ${fmt$(memberCostPaid)}
+          </div>
+        </div>
+
+        <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">ITEM MV TOTAL</div>
           <div style="font-size:20px;font-weight:800;color:var(--accent);">${fmt$(plushieMV+flowerMV)}</div>
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">all plushies + flowers at MV</div>
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:4px;">
+          <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-top:2px;">all held items at market value</div>
+          <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-top:6px;">
             Plushies: ${fmt$(plushieMV)}<br>Flowers: ${fmt$(flowerMV)}
           </div>
         </div>
+
       </div>
     </div>`;
 
   // Per-item breakdown table
   if(!tbl) return;
   const allSetItems=[...PLUSHIE_SET.map(n=>({n,type:'Plushie'})),...FLOWER_SET.map(n=>({n,type:'Flower'}))];
-  let th=`<table><thead><tr><th>Item</th><th>Type</th><th>In Inventory</th><th>Unit MV</th><th>Total MV</th></tr></thead><tbody>`;
+  let th=`<table><thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Unit MV</th><th>Total MV</th></tr></thead><tbody>`;
   allSetItems.forEach(({n,type})=>{
     const qty=inv[n]||0;
     const it=lookupItem(n);
     const mv=it?.mv||0;
-    const cls=qty===0?'cr':qty<3?'cy':'cm';
+    const qcls=qty===0?'cr':qty<3?'cy':'cg';
     th+=`<tr>
       <td class="cn" style="font-size:11px;">${n}</td>
       <td><span class="badge ${type==='Plushie'?'bb':'bg'}">${type}</span></td>
-      <td class="${cls};font-weight:${qty===0?'700':'400'}">${qty===0?'MISSING':qty}</td>
+      <td class="${qcls}" style="font-weight:${qty===0?700:400}">${qty===0?'MISSING':qty}</td>
       <td class="cm">${fmt$(mv)}</td>
       <td class="${qty>0?'cy':'cm'}">${qty>0?fmt$(qty*mv):'—'}</td>
     </tr>`;
   });
   tbl.innerHTML=th+'</tbody></table>';
 }
+
+// ── POINTS PRICE FETCH (market/lookup for points item #367)
+// Points are item #367 in Torn. We fetch from market/itemmarket and store history locally.
+async function fetchPointPrice(){
+  if(!S.key) return;
+  const el=document.getElementById('invPtPrice');
+  if(el) el.textContent='…';
+  try{
+    // torn/items has market_value updated daily — good enough for sell timing
+    // For points specifically, we check item 367 (Points) market_value from torn/items
+    // which we already have in S.prices from the initial fetch
+    let ptItem=null;
+    for(const it of Object.values(S.prices)){
+      if(it.name==='Points'||(it.name||'').toLowerCase()==='points') { ptItem=it; break; }
+    }
+    // If not in cached prices, fetch directly — ID goes in the path: torn/367/?selections=items
+    if(!ptItem){
+      const url=`https://api.torn.com/torn/367/?selections=items&key=${S.key}`;
+      trackApiCall();
+      const r=await fetch(url);
+      if(r.ok){
+        const d=await r.json();
+        const item=d.items?.[367]||d.items?.['367']||Object.values(d.items||{})[0];
+        if(item) ptItem={name:'Points',mv:item.market_value||0};
+      }
+    }
+    if(ptItem&&ptItem.mv>0){
+      S.pointPrice=ptItem.mv;
+      // Store history snapshot (max 365 entries, 1 per day)
+      const today=new Date().toLocaleDateString([],{month:'short',day:'numeric'});
+      if(!S.pointPriceHistory) S.pointPriceHistory=[];
+      const last=S.pointPriceHistory[S.pointPriceHistory.length-1];
+      if(!last||last.label!==today){
+        S.pointPriceHistory.push({label:today,price:ptItem.mv});
+        if(S.pointPriceHistory.length>365) S.pointPriceHistory.shift();
+        try{localStorage.setItem('hv_ptphist',JSON.stringify(S.pointPriceHistory));}catch(e){}
+      }
+      try{localStorage.setItem('hv_ptprice',String(ptItem.mv));}catch(e){}
+      clog(`Points price: ${fmt$(ptItem.mv)}/pt`,'ok');
+      renderInventory();
+    } else {
+      clog('Points item not found in price data','warn');
+      if(el) el.textContent='—';
+    }
+  }catch(e){
+    clog('Points price fetch failed: '+e.message,'warn');
+    if(el) el.textContent='---';
+  }
+}
 const CONSUMABLE_TYPES = new Set([
   'medical','drug','alcohol','candy','energy drink','booster','temporary',
-  'flower','plushie','virus','explosive'
+  'virus','explosive'
 ]);
 function isConsumable(type){
   if(!type) return false;
   const t=type.toLowerCase();
+  // Flowers and plushies are NOT disbursements — inventory tab only
+  if(t==='flower'||t==='plushie') return false;
   return CONSUMABLE_TYPES.has(t)||t.includes('medical')||t.includes('drug')||
     t.includes('alcohol')||t.includes('booster')||t.includes('candy')||
     t.includes('temporary')||t.includes('explosive');
@@ -1847,21 +2000,41 @@ function renderSupply(){
     const it=lookupItem(e.item); const t=it?.type||'Unknown';
     if(!isConsumable(t)&&S.typeFilter==='all') return;
     if(S.typeFilter!=='all'&&!t.toLowerCase().includes(S.typeFilter.toLowerCase())) return;
-    if(!ag[e.item]) ag[e.item]={name:e.item,type:t,qty:0,up:it?.mv||0,total:0};
+    if(!ag[e.item]) ag[e.item]={name:e.item,type:t,qty:0,up:it?.mv||0,total:0,sent:0};
     ag[e.item].qty+=e.qty; ag[e.item].total+=e.qty*(it?.mv||0);
   });
+
+  // If tracking checkbox is on, deduct items YOU personally sent from inventory
+  if(S.trackConsumablesSent){
+    (S.outgoing||[]).filter(r=>r.ts>from).forEach(r=>{
+      const it=lookupItem(r.item); const t=it?.type||'Unknown';
+      if(!isConsumable(t)) return;
+      if(S.typeFilter!=='all'&&!t.toLowerCase().includes(S.typeFilter.toLowerCase())) return;
+      if(!ag[r.item]) ag[r.item]={name:r.item,type:t,qty:0,up:it?.mv||0,total:0,sent:0};
+      ag[r.item].sent=(ag[r.item].sent||0)+r.qty;
+    });
+  }
+
   const r=Object.values(ag).sort((a,b)=>b.total-a.total);
-  if(!r.length){document.getElementById('supplyTbl').innerHTML=`<div class="empty">No consumable disbursements (${period}).<br><span style="font-size:9px;color:var(--muted)">Weapons &amp; armor excluded. See Armory tab.</span></div>`;return;}
+  if(!r.length){document.getElementById('supplyTbl').innerHTML=`<div class="empty">No consumable disbursements (${period}).<br><span style="font-size:9px;color:var(--muted)">Flowers &amp; plushies excluded — see Inventory tab.</span></div>`;return;}
   const grand=r.reduce((s,x)=>s+x.total,0);
-  let h=`<table><thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Unit MV</th><th>Total</th><th>%</th></tr></thead><tbody>`;
+  const trackCol=S.trackConsumablesSent?'<th>Sent by You</th>':'';
+  let h=`<table><thead><tr><th>Item</th><th>Type</th><th>Qty (Armory)</th><th>Unit MV</th><th>Total</th>${trackCol}<th>%</th></tr></thead><tbody>`;
   r.forEach(x=>{
     const p=grand>0?((x.total/grand)*100).toFixed(1):'0.0';
+    const sentCol=S.trackConsumablesSent?`<td class="${x.sent>0?'cy':'cm'}" style="font-size:10px">${x.sent>0?x.sent:'—'}</td>`:'';
     h+=`<tr><td class="cn">${x.name}</td><td><span class="badge by">${x.type}</span></td>
-      <td class="cm">${x.qty.toLocaleString()}</td><td class="cm">${fmt$(x.up)}</td><td class="cr">${fmt$(x.total)}</td>
+      <td class="cm">${x.qty.toLocaleString()}</td><td class="cm">${fmt$(x.up)}</td><td class="cr">${fmt$(x.total)}</td>${sentCol}
       <td><div style="font-size:9px;color:var(--muted)">${p}%</div>
         <div class="bw"><div class="bf" style="width:${p}%;background:var(--accent4)"></div></div></td></tr>`;
   });
   document.getElementById('supplyTbl').innerHTML=h+'</tbody></table>';
+
+  // Sync checkbox state with S
+  const chk=document.getElementById('trackConsumablesChk');
+  if(chk) chk.checked=!!S.trackConsumablesSent;
+  const status=document.getElementById('trackConsumablesStatus');
+  if(status&&S.trackConsumablesSent) status.textContent='✓ Tracking active — items you sent shown in Sent column';
 }
 
 // ── MEMBER USAGE (consumables only)
@@ -2997,6 +3170,14 @@ function parseOutgoing(){
 function filterType(el,type){
   document.querySelectorAll('#typePills .pill').forEach(p=>p.classList.remove('on'));
   el.classList.add('on'); S.typeFilter=type; renderSupply();
+}
+
+function toggleTrackConsumables(checked){
+  S.trackConsumablesSent=checked;
+  try{localStorage.setItem('hv_track_consumables',String(checked));}catch(e){}
+  const status=document.getElementById('trackConsumablesStatus');
+  if(status) status.textContent=checked?'✓ Tracking active — items you sent deduct from supply totals':'';
+  renderSupply();
 }
 
 </script>
