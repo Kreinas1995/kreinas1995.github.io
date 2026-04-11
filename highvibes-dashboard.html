@@ -843,21 +843,32 @@ async function fetchAll(isManual=false){
     S.faction=fac;
     S.donations=fac.donations||{};
 
-    // 2. Vault money — correct endpoint is faction/?selections=donations
-    //    The vault total is returned in the faction basic response as fac.money
-    //    If 0, try dedicated money selection (requires AA)
+    // 2. Vault money
+    // The Torn API returns fac.money for AA keys on faction/basic.
+    // For non-AA keys: compute from donations sum + faction's remaining funds.
+    // The donations response includes each member's money_balance.
+    // Total vault = sum(member balances) + faction_remaining_funds.
+    // fac.money IS the total vault for AA keys.
+    // For non-AA we compute: memberTotal + (fac.money if >0 else try donations endpoint)
     let vaultMoney=fac.money||0;
+    let memberTotal=0;
+    Object.values(S.donations).forEach(d=>{ memberTotal+=d.money_balance||0; });
+    S.faction._memberTotal=memberTotal;
+
     if(vaultMoney===0){
+      // Non-AA fallback: try faction money selection
       try{
-        // Torn API: GET /faction/?selections=donations returns vault info with AA
-        const vm=await tGet('faction','donations');
-        // The vault total comes back as vm.money on some key levels
+        const vm=await tGet('faction','money');
         vaultMoney=vm.money||0;
-        if(vaultMoney>0){ S.faction.money=vaultMoney; clog(`Vault: ${fmt$(vaultMoney)}`,'ok'); }
-        else clog('Vault 0 — key may need Full Access (AA)','warn');
-      }catch(e2){ clog('Vault AA call failed: '+e2.message,'warn'); }
+        if(vaultMoney>0){ S.faction.money=vaultMoney; clog(`Vault (money selection): ${fmt$(vaultMoney)}`,'ok'); }
+      }catch(e2){
+        clog(`Vault API failed [${e2.message}] — showing member balances only`,'warn');
+      }
     }
-    clog(`"${fac.name}" | ${Object.keys(fac.members||{}).length} members | Vault: ${vaultMoney>0?fmt$(vaultMoney):'(AA req)'}`,'ok');
+
+    // Faction available (unassigned) funds = vault - member balances
+    S.faction._factionAvailable = vaultMoney>0 ? vaultMoney-memberTotal : 0;
+    clog(`"${fac.name}" | ${Object.keys(fac.members||{}).length} members | Vault: ${vaultMoney>0?fmt$(vaultMoney):'(AA req)'} | Members: ${fmt$(memberTotal)} | Available: ${vaultMoney>0?fmt$(S.faction._factionAvailable):'(AA req)'}`,'ok');
 
     // 3. Armory news (1 call)
     clog('Fetching armory news…','info');
@@ -903,22 +914,66 @@ async function fetchAll(isManual=false){
       clog(`Attack news: ${S.crimeNews.length} entries`,'ok');
     }catch(e){ clog('Attack news failed: '+e.message,'warn'); S.crimeNews=[]; }
 
-    // 8. Crimes news — OC activity log (1 call) — $ from crimenews if faction vault is recipient
+    // 8. Crimes news — OC activity log + fetch completed OC details for $ and respect
     clog('Fetching crimes news…','info');
     try{
       const cr=await tGet('faction','crimenews');
       const crAll=Object.values(cr.crimenews||{});
-      // If OC money goes to vault it appears here with $; if not, this is just the activity log
+      S._crimeLog=crAll.sort((a,b)=>b.timestamp-a.timestamp);
+
+      // Extract OC IDs from success entries — "The faction successfully kidnapped someone! [view]"
+      // The view link in the raw HTML contains the OC ID: organisedcrimes.php?step=log&ID=XXXXX
+      const ocIdPattern=/organisedcrimes\.php\?step=log&(?:amp;)?ID=(\d+)/gi;
+      const ocIds=new Set();
+      crAll.forEach(e=>{
+        const raw=e.news||'';
+        let m;
+        while((m=ocIdPattern.exec(raw))!==null) ocIds.add(m[1]);
+        ocIdPattern.lastIndex=0;
+      });
+
+      // Fetch OC details for each completed crime (capped at 10 most recent to save API calls)
+      if(ocIds.size>0){
+        const idList=[...ocIds].slice(0,10);
+        clog(`Fetching ${idList.length} OC completion details…`,'info');
+        let ocTotal=0; const ocDetails=[];
+        for(const ocId of idList){
+          try{
+            const oc=await tGet('faction',`crimes&ID=${ocId}`,'');
+            // crimes endpoint returns crime details including reward
+            const crime=oc.crime||oc;
+            const reward=crime.money_gain||crime.money||0;
+            const respect=crime.respect_gain||crime.respect||0;
+            if(reward>0||respect>0){
+              ocDetails.push({id:ocId,reward,respect,ts:crime.time_completed||0});
+              ocTotal+=reward;
+            }
+          }catch(e2){ /* individual fetch failure is non-fatal */ }
+        }
+        if(ocTotal>0){
+          clog(`OC $ total from ${ocDetails.length} completed crimes: ${fmt$(ocTotal)}`,'ok');
+          S._ocDetails=ocDetails;
+          // Build synthetic entries for S.ocRaw if not already populated from mainnews
+          if(S.ocRaw.length===0&&ocDetails.length>0){
+            S.ocRaw=ocDetails.filter(d=>d.reward>0).map(d=>({
+              news:`The faction received $${d.reward.toLocaleString()} from organised crime`,
+              timestamp:d.ts
+            }));
+          }
+        } else {
+          clog('OC crime details: no $ rewards found (crimes may pay members directly)','warn');
+        }
+      } else {
+        clog(`Crimes news: ${crAll.length} entries (no completed OC IDs found in crimenews)`, 'info');
+      }
+
+      // Also check if crimenews itself has $ entries (vault-payout mode)
       const crMoney=crAll.filter(e=>e.news&&/\$[\d,]+/.test(e.news));
       if(crMoney.length>0&&S.ocRaw.length===0){
         S.ocRaw=crMoney.sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
-        clog(`OC income found in crimenews: ${S.ocRaw.length} $ entries`,'ok');
-      } else {
-        clog(`Crimes news: ${crAll.length} entries (activity log)`,'ok');
+        clog(`OC income in crimenews: ${S.ocRaw.length} $ entries`,'ok');
       }
-      // Store all crimes for the OC tab log
-      S._crimeLog=crAll.sort((a,b)=>b.timestamp-a.timestamp);
-    }catch(e){ clog('Crimes news failed: '+e.message,'warn'); S._crimeLog=[]; }
+    }catch(e){ clog('Crimes news failed: '+e.message,'warn'); S._crimeLog=[];}
 
     S.lastSync=Date.now();
     renderAll();
@@ -1228,7 +1283,8 @@ function renderRespect(){
   const memberRespect={};
   let totalAtk=0, totalChain=0, totalWar=0;
 
-  // Individual attacks from attacknews (HTML-stripped)
+  // Step 1: Collect individual attack entries with timestamps
+  const atkEntries=[]; // {member, resp, ts}
   S.crimeNews.forEach(e=>{
     if(!inPeriod(e.timestamp,period)) return;
     const n=stripHtml(e.news||'');
@@ -1240,25 +1296,24 @@ function renderRespect(){
         if(!memberRespect[mem]) memberRespect[mem]={atk:0,chain:0,war:0};
         memberRespect[mem].atk+=resp;
         totalAtk+=resp;
+        atkEntries.push({mem,resp,ts:e.timestamp});
       }
     }
   });
 
-  // Chain and war respect from mainnews (HTML-stripped)
+  // Step 2: Parse chain completions from mainnews
+  // "Achieved a chain of N and X.XX respect" — this total INCLUDES all individual attack
+  // respect earned during the chain. Net chain bonus = chainTotal - sum(attacks in that chain window).
+  // We approximate the chain window by looking back from chain-end timestamp to find attacks
+  // that occurred before the previous chain entry (or beginning of data).
+  const chainEvents=[];
   S.attackNews.forEach(e=>{
     if(!inPeriod(e.timestamp,period)) return;
     const n=stripHtml(e.news||'');
-
-    // Chain: "Achieved a chain of 25 and 90.09 respect"
-    const chainM=n.match(/Achieved a chain of \d+ and ([\d.]+) respect/i);
+    const chainM=n.match(/Achieved a chain of (\d+) and ([\d.]+) respect/i);
     if(chainM){
-      const resp=parseFloat(chainM[1])||0;
-      if(!memberRespect['⛓ Chain Bonus']) memberRespect['⛓ Chain Bonus']={atk:0,chain:0,war:0};
-      memberRespect['⛓ Chain Bonus'].chain+=resp;
-      totalChain+=resp;
+      chainEvents.push({ts:e.timestamp, chainLen:parseInt(chainM[1]), totalResp:parseFloat(chainM[2])});
     }
-
-    // War rank-up bonus: "received X bonus respect" or "X respect" from ranked war
     const warRankM=n.match(/received\s+([\d,]+)\s+bonus\s+respect/i);
     if(warRankM){
       const resp=parseFloat(warRankM[1].replace(/,/g,''))||0;
@@ -1266,6 +1321,22 @@ function renderRespect(){
       memberRespect['⚡ War Rank Bonus'].war+=resp;
       totalWar+=resp;
     }
+  });
+
+  // For each chain event, subtract the individual attack respect earned during that chain's window
+  // Chain window: from previous chain end (or ts - 24h) up to this chain end
+  chainEvents.sort((a,b)=>a.ts-b.ts);
+  chainEvents.forEach((ce,i)=>{
+    const prevTs=i>0?chainEvents[i-1].ts:ce.ts-86400; // 24h window max if no prior chain
+    // Sum individual attack respect during this window
+    const atkDuringChain=atkEntries
+      .filter(a=>a.ts>prevTs&&a.ts<=ce.ts)
+      .reduce((s,a)=>s+a.resp,0);
+    // Net chain bonus = total chain respect - individual attacks counted in chain
+    const netChain=Math.max(0, ce.totalResp-atkDuringChain);
+    if(!memberRespect['⛓ Chain Bonus']) memberRespect['⛓ Chain Bonus']={atk:0,chain:0,war:0};
+    memberRespect['⛓ Chain Bonus'].chain+=netChain;
+    totalChain+=netChain;
   });
 
   const totalAll=totalAtk+totalChain+totalWar;
@@ -1293,7 +1364,7 @@ function renderRespect(){
   }
 
   const maxTotal=entries[0]?.total||1;
-  let h=`<table><thead><tr><th>Member</th><th>⚔ Atk</th><th>⛓ Chain</th><th>⚡ War</th><th>Total</th><th>Share</th></tr></thead><tbody>`;
+  let h=`<table><thead><tr><th>Member</th><th>⚔ Atk</th><th>⛓ Chain¹</th><th>⚡ War</th><th>Total</th><th>Share</th></tr></thead><tbody>`;
   entries.forEach(x=>{
     const pct=totalAll>0?((x.total/totalAll)*100).toFixed(1):'0.0';
     const barW=((x.total/maxTotal)*100).toFixed(1);
@@ -1307,7 +1378,7 @@ function renderRespect(){
         <div class="bw"><div class="bf" style="width:${barW}%;background:var(--accent3)"></div></div></td>
     </tr>`;
   });
-  h+='</tbody></table>';
+  h+=`</tbody></table><div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);padding:8px 10px;">¹ Chain respect = chain completion total − individual attacks during chain window (deduped)</div>`;
   document.getElementById('respectTbl').innerHTML=h;
 }
 
@@ -1331,10 +1402,12 @@ function renderAll(){
 function renderVault(){
   if(!S.faction) return;
   const vault=S.faction.money||0;
-  let mTotal=0;
+  let mTotal=S.faction._memberTotal||0;
+  // Recompute if not cached
+  if(!mTotal){ Object.values(S.donations).forEach(([id,d])=>{ mTotal+=d?.money_balance||0; }); }
   const bals=[];
   Object.entries(S.donations).forEach(([id,d])=>{
-    const b=d.money_balance||0; mTotal+=b;
+    const b=d.money_balance||0;
     const nm=S.faction.members?.[id]?.name||d.name||'Unknown';
     bals.push({nm,b});
   });
@@ -1343,41 +1416,54 @@ function renderVault(){
   const denominator=vault>0?vault:mTotal;
   const vaultUnknown=vault===0&&mTotal>0;
   const mp=denominator>0?Math.round(mTotal/denominator*100):0;
+  const factionAvail=vault>0?net:0;
 
   // Update stat cards
   const vtEl=document.getElementById('cVaultTotal');
   const vEl=document.getElementById('cVault');
   if(vtEl) vtEl.textContent=vault>0?fmt$(vault):'(AA req)';
-  if(vEl)  vEl.textContent=vault>0?fmt$(net):'(AA req)';
+  if(vEl)  vEl.textContent=vault>0?fmt$(factionAvail):'(AA req)';
 
   let h=`<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">FACTION VAULT BREAKDOWN</div>`;
-  if(vaultUnknown) h+=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);margin-bottom:12px;padding:8px 12px;border:1px solid rgba(240,192,64,0.2);background:rgba(240,192,64,0.05)">⚠ Vault total not returned — key may need Full Access (AA). Showing member balances only.</div>`;
-  h+=`<div style="margin-bottom:22px;">
+  if(vaultUnknown) h+=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);margin-bottom:12px;padding:8px 12px;border:1px solid rgba(240,192,64,0.2);background:rgba(240,192,64,0.05)">⚠ Vault total requires Full Access (AA) key. Member balances shown below.</div>`;
+
+  // Highlight faction available funds if we have the total
+  if(!vaultUnknown&&factionAvail>0){
+    h+=`<div style="background:rgba(61,214,140,0.06);border:1px solid rgba(61,214,140,0.2);padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);margin-bottom:3px;">FACTION AVAILABLE FUNDS</div>
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted)">vault total − member balances</div>
+      </div>
+      <div style="font-size:22px;font-weight:800;color:var(--accent2)">${ff$(factionAvail)}</div>
+    </div>`;
+  }
+
+  h+=`<div style="margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-      <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Vault Balance (All $)</span>
+      <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Vault Total</span>
       <span style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent)">${vaultUnknown?'(requires AA)':ff$(vault)}</span>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-      <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Member Balances (assigned)</span>
+      <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Member Balances</span>
       <span style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent3)">${ff$(mTotal)}</span>
     </div>
-    <div style="display:flex;justify-content:space-between;margin-bottom:${!vaultUnknown?'12':'0'}px;">
-      <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Faction Balance (unassigned)</span>
-      <span style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent2)">${vaultUnknown?'(requires AA)':ff$(net)}</span>
+    <div style="display:flex;justify-content:space-between;margin-bottom:${!vaultUnknown?'10':'0'}px;">
+      <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Faction Available</span>
+      <span style="font-family:'Space Mono',monospace;font-size:13px;color:var(--accent2)">${vaultUnknown?'(requires AA)':ff$(factionAvail)}</span>
     </div>
-    ${!vaultUnknown?`<div style="height:10px;background:var(--bg);border-radius:5px;overflow:hidden;display:flex;margin-bottom:8px;">
+    ${!vaultUnknown?`<div style="height:8px;background:var(--bg);border-radius:4px;overflow:hidden;display:flex;margin-bottom:6px;">
       <div style="width:${100-mp}%;background:var(--accent2);height:100%"></div>
       <div style="width:${mp}%;background:var(--accent3);height:100%"></div>
     </div>
-    <div style="display:flex;gap:20px;">
-      <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2)">■ Faction: ${ff$(net)} (${100-mp}%)</span>
-      <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3)">■ Members: ${ff$(mTotal)} (${mp}%)</span>
+    <div style="display:flex;gap:16px;">
+      <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2)">■ Available: ${(100-mp)}%</span>
+      <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent3)">■ Members: ${mp}%</span>
     </div>`:''}
   </div>`;
   if(bals.length){
     const colHeader=vaultUnknown?'% of Deposits':'% of Vault';
-    h+=`<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:12px;font-family:'Space Mono',monospace;">MEMBER VAULT BALANCES</div>
-    <div class="tw" style="border:none;background:transparent;"><table><thead><tr><th>Member</th><th>Balance</th><th>${colHeader}</th><th style="min-width:120px"></th></tr></thead><tbody>`;
+    h+=`<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;font-family:'Space Mono',monospace;">MEMBER VAULT BALANCES</div>
+    <div class="tw" style="border:none;background:transparent;"><table><thead><tr><th>Member</th><th>Balance</th><th>${colHeader}</th><th></th></tr></thead><tbody>`;
     bals.forEach(m=>{
       const p=denominator>0?((m.b/denominator)*100).toFixed(1):'0.0';
       h+=`<tr><td class="cn">${m.nm}</td><td class="cy">${ff$(m.b)}</td><td class="cm">${p}%</td>
@@ -2278,12 +2364,16 @@ async function importWarUrl(){
     status.style.display='block';status.style.color='var(--accent3)';
     status.textContent='⚠ This war has already been imported'; return;
   }
-  status.style.display='block';status.style.color='var(--muted)';status.textContent='Fetching…';
+  status.style.display='block';status.style.color='var(--muted)';status.textContent='Fetching via proxy…';
+  // Direct fetch blocked by CORS. Use allorigins.win as a CORS proxy.
+  const proxyUrl=`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
   try{
-    const r=await fetch(url);
-    const html=await r.text();
+    const r=await fetch(proxyUrl);
+    const json=await r.json();
+    const html=json.contents||'';
+    if(!html){ status.style.color='var(--accent4)';status.textContent='✗ Proxy returned empty response — try again';return; }
     const war=parseArmaSync(html,url);
-    if(!war){status.style.color='var(--accent4)';status.textContent='✗ Could not parse payout data from page';return;}
+    if(!war){status.style.color='var(--accent4)';status.textContent='✗ Could not parse member data — page may still be loading. Wait a moment and retry.';return;}
     S.wars.push(war);
     try{localStorage.setItem('hv_wars',JSON.stringify(S.wars));}catch(e){}
     status.style.color='var(--accent2)';
@@ -2292,7 +2382,8 @@ async function importWarUrl(){
     renderWarPanel();
     clog(`War imported: ${war.name} (${fmt$(war.grossPayout)})`,'ok');
   }catch(e){
-    status.style.color='var(--accent4)';status.textContent='✗ Fetch failed: '+e.message;
+    status.style.color='var(--accent4)';
+    status.textContent=`✗ Fetch failed: ${e.message} — check connection and try again`;
     clog('War import failed: '+e.message,'err');
   }
 }
