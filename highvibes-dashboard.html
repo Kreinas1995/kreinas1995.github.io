@@ -14,172 +14,203 @@
   *{margin:0;padding:0;box-sizing:border-box;}
   body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;overflow-x:hidden;}
   body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(127,255,110,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(127,255,110,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
-  .app{position:relative;z-index:1;max-width:1280px;margin:0 auto;padding:24px 20px;}
+  .app{position:relative;z-index:1;max-width:1280px;margin:0 auto;padding:16px;}
 
-  .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--border);}
-  .logo-name{font-size:26px;font-weight:800;letter-spacing:-0.5px;color:var(--accent);line-height:1;}
-  .logo-sub{font-size:11px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;}
-  .header-right{display:flex;align-items:center;gap:12px;}
+  /* HEADER */
+  .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border);gap:8px;}
+  .logo-name{font-size:22px;font-weight:800;letter-spacing:-0.5px;color:var(--accent);line-height:1;}
+  .logo-sub{font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;}
+  .header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;}
   .status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted2);flex-shrink:0;}
   .status-dot.live{background:var(--accent);box-shadow:0 0 8px var(--accent);animation:blink 2s infinite;}
   .status-dot.loading{background:var(--accent3);box-shadow:0 0 8px var(--accent3);animation:blink 0.5s infinite;}
   .status-dot.error{background:var(--accent4);box-shadow:0 0 8px var(--accent4);}
   @keyframes blink{0%,100%{opacity:1;}50%{opacity:0.25;}}
   .status-text{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;}
-  .btn-sm{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:7px 14px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;text-transform:uppercase;}
+  .btn-sm{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:6px 10px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;text-transform:uppercase;white-space:nowrap;}
   .btn-sm:hover{border-color:var(--accent);color:var(--accent);}
   .btn-sm:disabled{opacity:0.4;cursor:not-allowed;}
 
   /* API SETUP */
-  .api-setup{background:var(--surface);border:1px solid var(--border);padding:28px;margin-bottom:24px;}
-  .api-setup h2{font-size:13px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:8px;}
-  .api-setup p{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.7;}
-  code{background:var(--surface2);padding:1px 6px;font-family:'Space Mono',monospace;font-size:11px;color:var(--accent5);}
-  .api-row{display:flex;gap:10px;}
-  .api-input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:13px;padding:10px 14px;letter-spacing:2px;outline:none;transition:border-color 0.2s;}
+  .api-setup{background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;}
+  .api-setup h2{font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:8px;}
+  .api-setup p{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.7;}
+  code{background:var(--surface2);padding:1px 6px;font-family:'Space Mono',monospace;font-size:10px;color:var(--accent5);}
+  .api-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .api-input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:13px;padding:10px 12px;letter-spacing:2px;outline:none;transition:border-color 0.2s;}
   .api-input:focus{border-color:var(--accent);}
   .api-input::placeholder{color:var(--muted2);letter-spacing:1px;}
-  .btn-connect{background:var(--accent);color:var(--bg);border:none;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;padding:10px 22px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:opacity 0.2s;white-space:nowrap;display:flex;align-items:center;gap:8px;min-width:130px;justify-content:center;}
+  .btn-connect{background:var(--accent);color:var(--bg);border:none;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;padding:10px 18px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:opacity 0.2s;white-space:nowrap;display:flex;align-items:center;gap:8px;justify-content:center;}
   .btn-connect:disabled{opacity:0.5;cursor:not-allowed;}
-  .btn-primary{background:var(--accent);color:var(--bg);border:none;font-family:'Syne',sans-serif;font-size:12px;font-weight:700;padding:9px 18px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:opacity 0.2s;display:flex;align-items:center;gap:6px;justify-content:center;}
+  .btn-primary{background:var(--accent);color:var(--bg);border:none;font-family:'Syne',sans-serif;font-size:12px;font-weight:700;padding:9px 16px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:opacity 0.2s;display:flex;align-items:center;gap:6px;justify-content:center;}
   .btn-primary:hover{opacity:0.85;}
-  .btn-danger{background:transparent;color:var(--accent4);border:1px solid var(--accent4);font-family:'Space Mono',monospace;font-size:10px;padding:7px 14px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;}
+  .btn-danger{background:transparent;color:var(--accent4);border:1px solid var(--accent4);font-family:'Space Mono',monospace;font-size:9px;padding:5px 8px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;}
   .btn-danger:hover{background:rgba(255,107,107,0.1);}
 
   /* CONSOLE */
-  .console-wrap{background:var(--bg);border:1px solid var(--border);margin-top:14px;max-height:200px;overflow-y:auto;display:none;}
-  .console-head{display:flex;align-items:center;justify-content:space-between;padding:7px 14px;border-bottom:1px solid var(--border);background:var(--surface2);position:sticky;top:0;}
+  .console-wrap{background:var(--bg);border:1px solid var(--border);margin-top:12px;max-height:180px;overflow-y:auto;display:none;}
+  .console-head{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--surface2);position:sticky;top:0;}
   .console-head span{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;}
-  .console-clear-btn{background:none;border:none;color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;}
-  .console-clear-btn:hover{color:var(--accent4);}
-  .console-lines{padding:8px 14px;display:flex;flex-direction:column;gap:3px;}
-  .log-line{font-family:'Space Mono',monospace;font-size:11px;display:flex;gap:10px;align-items:baseline;line-height:1.5;}
-  .log-ts{color:var(--muted2);font-size:10px;white-space:nowrap;flex-shrink:0;}
+  .console-clear-btn{background:none;border:none;color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;}
+  .console-lines{padding:6px 12px;display:flex;flex-direction:column;gap:2px;}
+  .log-line{font-family:'Space Mono',monospace;font-size:10px;display:flex;gap:8px;align-items:baseline;line-height:1.5;}
+  .log-ts{color:var(--muted2);font-size:9px;white-space:nowrap;flex-shrink:0;}
   .log-ok{color:var(--accent2);}
   .log-warn{color:var(--accent3);}
   .log-err{color:var(--accent4);}
   .log-info{color:var(--accent5);}
 
-  /* KEY BAR */
-  .key-bar{display:none;align-items:center;gap:12px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);margin-bottom:14px;}
-  .key-bar-post-console{background:var(--bg);border:1px solid var(--border);margin-bottom:16px;max-height:200px;overflow-y:auto;display:none;}
+  /* KEY BAR — wraps on mobile */
+  .key-bar{display:none;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);margin-bottom:10px;}
+  .key-bar-post-console{background:var(--bg);border:1px solid var(--border);margin-bottom:12px;max-height:180px;overflow-y:auto;display:none;}
 
-  /* REFRESH */
-  .refresh-bar{display:none;align-items:center;gap:10px;margin-bottom:20px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);}
-  .rp{flex:1;height:3px;background:var(--border);overflow:hidden;}
+  /* REFRESH BAR */
+  .refresh-bar{display:none;align-items:center;gap:8px;margin-bottom:16px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);}
+  .rp{flex:1;height:3px;background:var(--border);overflow:hidden;min-width:40px;}
   .rp-fill{height:100%;background:var(--accent2);transition:width 1s linear;}
 
-  /* STAT CARDS */
-  .stat-grid{display:none;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px;}
-  @media(max-width:1100px){.stat-grid{grid-template-columns:repeat(3,1fr);}}
-  @media(max-width:560px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
-  .sc{background:var(--surface);border:1px solid var(--border);padding:16px 18px;position:relative;overflow:hidden;}
+  /* STAT CARDS — 2 col mobile, 3 col tablet, 6 col desktop */
+  .stat-grid{display:none;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:16px;}
+  @media(min-width:600px){.stat-grid{grid-template-columns:repeat(3,1fr);}}
+  @media(min-width:1000px){.stat-grid{grid-template-columns:repeat(6,1fr);}}
+  .sc{background:var(--surface);border:1px solid var(--border);padding:12px 14px;position:relative;overflow:hidden;cursor:pointer;transition:border-color 0.2s;}
+  .sc:hover{border-color:var(--muted);}
+  .sc.active-period{border-color:var(--accent3);}
   .sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--ca,var(--accent));}
-  .sc-label{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;font-family:'Space Mono',monospace;}
-  .sc-value{font-size:20px;font-weight:800;color:var(--ca,var(--accent));line-height:1;margin-bottom:3px;}
-  .sc-sub{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;}
+  .sc-label{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-family:'Space Mono',monospace;}
+  .sc-value{font-size:18px;font-weight:800;color:var(--ca,var(--accent));line-height:1;margin-bottom:2px;}
+  .sc-sub{font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;line-height:1.4;}
+  .sc-period{font-size:8px;color:var(--accent3);font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:1px;}
 
-  /* TABS */
-  .tabs{display:none;border-bottom:1px solid var(--border);margin-bottom:24px;overflow-x:auto;}
-  .tab{background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:12px 14px;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-bottom:-1px;}
+  /* TABS — scroll horizontally, no content overflow */
+  .tabs{display:none;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  .tabs::-webkit-scrollbar{display:none;}
+  .tab{background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:10px 12px;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-bottom:-1px;}
   .tab:hover{color:var(--text);}
   .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
-  .tbadge{display:inline-block;background:var(--accent4);color:var(--bg);font-size:9px;font-weight:800;padding:1px 5px;border-radius:2px;margin-left:5px;vertical-align:middle;}
+  .tbadge{display:inline-block;background:var(--accent4);color:var(--bg);font-size:9px;font-weight:800;padding:1px 4px;border-radius:2px;margin-left:4px;vertical-align:middle;}
 
   .panel{display:none;}
   .panel.active{display:block;}
 
-  /* TABLES */
-  .tw{background:var(--surface);border:1px solid var(--border);overflow-x:auto;}
-  table{width:100%;border-collapse:collapse;}
-  thead th{background:var(--surface2);font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding:11px 14px;text-align:left;font-family:'Space Mono',monospace;border-bottom:1px solid var(--border);white-space:nowrap;}
-  tbody td{padding:11px 14px;font-size:12px;border-bottom:1px solid var(--border);font-family:'Space Mono',monospace;vertical-align:middle;}
+  /* TABLES — scroll within container, never overflow viewport */
+  .tw{background:var(--surface);border:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;}
+  table{width:100%;border-collapse:collapse;min-width:300px;}
+  thead th{background:var(--surface2);font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding:9px 10px;text-align:left;font-family:'Space Mono',monospace;border-bottom:1px solid var(--border);white-space:nowrap;}
+  tbody td{padding:9px 10px;font-size:11px;border-bottom:1px solid var(--border);font-family:'Space Mono',monospace;vertical-align:middle;}
   tbody tr:last-child td{border-bottom:none;}
   tbody tr:hover td{background:rgba(127,255,110,0.02);}
-  .cn{font-family:'Syne',sans-serif;font-weight:600;color:var(--text);font-size:13px;}
+  .cn{font-family:'Syne',sans-serif;font-weight:600;color:var(--text);font-size:12px;}
   .cg{color:var(--accent2);}
   .cy{color:var(--accent3);}
   .cr{color:var(--accent4);}
   .cb{color:var(--accent5);}
   .cm{color:var(--muted);}
 
-  .sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
-  .st{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--muted);}
+  .sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;}
+  .st{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--muted);}
   .bw{background:var(--bg);height:4px;border-radius:2px;overflow:hidden;margin-top:4px;}
   .bf{height:100%;background:var(--accent);transition:width 0.4s;}
-  .badge{display:inline-block;padding:2px 7px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Space Mono',monospace;border-radius:2px;}
+  .badge{display:inline-block;padding:2px 6px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Space Mono',monospace;border-radius:2px;}
   .bg{background:rgba(127,255,110,0.12);color:var(--accent);border:1px solid rgba(127,255,110,0.2);}
   .by{background:rgba(240,192,64,0.12);color:var(--accent3);border:1px solid rgba(240,192,64,0.2);}
   .br{background:rgba(255,107,107,0.12);color:var(--accent4);border:1px solid rgba(255,107,107,0.2);}
   .bb{background:rgba(126,184,255,0.12);color:var(--accent5);border:1px solid rgba(126,184,255,0.2);}
   .bm{background:rgba(90,106,122,0.15);color:var(--muted);border:1px solid rgba(90,106,122,0.2);}
 
-  .empty{text-align:center;padding:50px 20px;color:var(--muted);font-family:'Space Mono',monospace;font-size:11px;letter-spacing:1px;line-height:2;}
-  .err-box{background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.3);color:var(--accent4);padding:12px 16px;font-family:'Space Mono',monospace;font-size:11px;margin-bottom:16px;display:none;}
+  .empty{text-align:center;padding:36px 16px;color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;line-height:2;}
+  .err-box{background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.3);color:var(--accent4);padding:10px 14px;font-family:'Space Mono',monospace;font-size:10px;margin-bottom:12px;display:none;}
 
   /* OC CALC */
-  .oc-calc{background:var(--surface);border:1px solid var(--border);padding:22px;margin-bottom:20px;}
-  .oc-calc h3{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:16px;}
-  .oc-form{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:14px;align-items:end;}
-  @media(max-width:700px){.oc-form{grid-template-columns:1fr 1fr;}}
-  .fg label{display:block;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;font-family:'Space Mono',monospace;}
-  .fg input,.fg select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:12px;padding:9px 12px;outline:none;transition:border-color 0.2s;appearance:none;}
+  .oc-calc{background:var(--surface);border:1px solid var(--border);padding:16px;margin-bottom:16px;}
+  .oc-calc h3{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:14px;}
+  .oc-form{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
+  @media(min-width:600px){.oc-form{grid-template-columns:1fr 1fr 1fr auto;}}
+  .fg label{display:block;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-family:'Space Mono',monospace;}
+  .fg input,.fg select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:12px;padding:8px 10px;outline:none;transition:border-color 0.2s;appearance:none;}
   .fg input:focus,.fg select:focus{border-color:var(--accent3);}
-  .sr{background:var(--surface2);border:1px solid var(--border);padding:14px 18px;margin-top:14px;display:none;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .sr{background:var(--surface2);border:1px solid var(--border);padding:12px 16px;margin-top:12px;display:none;grid-template-columns:repeat(3,1fr);gap:12px;}
   .si{text-align:center;}
-  .si-l{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:5px;}
-  .si-v{font-size:17px;font-weight:800;color:var(--accent3);}
+  .si-l{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:4px;}
+  .si-v{font-size:16px;font-weight:800;color:var(--accent3);}
 
   /* VAULT */
-  .vault-card{background:var(--surface);border:1px solid var(--border);padding:20px 24px;margin-bottom:20px;}
+  .vault-card{background:var(--surface);border:1px solid var(--border);padding:16px;margin-bottom:16px;}
 
   /* PAYOUT SETTINGS */
-  .ps{background:var(--surface);border:1px solid var(--border);padding:20px 24px;margin-bottom:20px;}
-  .ps h3{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent5);margin-bottom:16px;}
-  .pg{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;}
-  @media(max-width:700px){.pg{grid-template-columns:repeat(2,1fr);}}
-  .pi label{display:block;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;font-family:'Space Mono',monospace;}
-  .pi input{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--accent5);font-family:'Space Mono',monospace;font-size:14px;padding:9px 12px;outline:none;transition:border-color 0.2s;text-align:center;}
+  .ps{background:var(--surface);border:1px solid var(--border);padding:16px;margin-bottom:16px;}
+  .ps h3{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent5);margin-bottom:14px;}
+  .pg{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+  @media(min-width:500px){.pg{grid-template-columns:repeat(3,1fr);}}
+  @media(min-width:700px){.pg{grid-template-columns:repeat(5,1fr);}}
+  .pi label{display:block;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-family:'Space Mono',monospace;}
+  .pi input{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--accent5);font-family:'Space Mono',monospace;font-size:14px;padding:8px 10px;outline:none;transition:border-color 0.2s;text-align:center;}
   .pi input:focus{border-color:var(--accent5);}
 
   /* OWED CARDS */
-  .og{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:24px;}
-  .oc{background:var(--surface);border:1px solid var(--border);padding:18px 20px;}
+  .og{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:20px;}
+  @media(min-width:500px){.og{grid-template-columns:repeat(2,1fr);}}
+  @media(min-width:900px){.og{grid-template-columns:repeat(3,1fr);}}
+  .oc{background:var(--surface);border:1px solid var(--border);padding:14px 16px;}
   .oc.paid-card{opacity:0.5;border-color:var(--muted2);}
-  .oc-name{font-size:16px;font-weight:800;color:var(--text);margin-bottom:4px;}
-  .oc-amt{font-size:24px;font-weight:800;color:var(--accent3);margin-bottom:10px;}
+  .oc-name{font-size:15px;font-weight:800;color:var(--text);margin-bottom:3px;}
+  .oc-amt{font-size:22px;font-weight:800;color:var(--accent3);margin-bottom:8px;}
   .oc-amt.zero{color:var(--muted);}
-  .oc-sub{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.7;}
-  .oc-actions{display:flex;gap:8px;flex-wrap:wrap;}
-  .btn-paid{background:var(--accent2);color:var(--bg);border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;padding:8px 14px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:opacity 0.2s;}
+  .oc-sub{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:12px;line-height:1.7;}
+  .oc-actions{display:flex;gap:6px;flex-wrap:wrap;}
+  .btn-paid{background:var(--accent2);color:var(--bg);border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;padding:7px 12px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:opacity 0.2s;}
   .btn-paid:hover{opacity:0.8;}
-  .btn-viewlog{background:transparent;color:var(--muted);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;padding:7px 12px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;}
+  .btn-viewlog{background:transparent;color:var(--muted);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:9px;padding:6px 10px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;}
   .btn-viewlog:hover{color:var(--text);border-color:var(--muted);}
 
   /* RECEIPT LOG */
-  .ls{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:7px 12px;outline:none;width:220px;transition:border-color 0.2s;}
+  .ls{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:6px 10px;outline:none;width:160px;transition:border-color 0.2s;min-width:0;}
+  @media(min-width:500px){.ls{width:200px;}}
   .ls:focus{border-color:var(--accent);}
-  .del-btn{background:none;border:none;color:var(--muted2);cursor:pointer;font-size:14px;padding:2px 6px;transition:color 0.2s;line-height:1;}
+  .del-btn{background:none;border:none;color:var(--muted2);cursor:pointer;font-size:14px;padding:2px 4px;transition:color 0.2s;line-height:1;}
   .del-btn:hover{color:var(--accent4);}
 
   /* PILLS */
-  .pills{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
-  .pill{padding:4px 12px;font-size:10px;font-weight:700;letter-spacing:1px;font-family:'Space Mono',monospace;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--muted);transition:all 0.15s;}
+  .pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+  .pill{padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:1px;font-family:'Space Mono',monospace;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--muted);transition:all 0.15s;}
   .pill.on,.pill:hover{border-color:var(--accent);color:var(--accent);background:rgba(127,255,110,0.06);}
 
+  /* PERIOD PILLS for cards */
+  .period-pills{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;}
+  .period-pill{padding:2px 7px;font-size:8px;font-weight:700;letter-spacing:1px;font-family:'Space Mono',monospace;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);transition:all 0.15s;}
+  .period-pill.on{border-color:var(--accent3);color:var(--accent3);}
+
   /* API RATE METER */
-  .rate-meter-wrap{display:inline-flex;align-items:center;gap:5px;}
-  .rate-meter-bar{width:50px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+  .rate-meter-wrap{display:inline-flex;align-items:center;gap:4px;}
+  .rate-meter-bar{width:40px;height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
   .rate-meter-fill{height:100%;background:var(--accent2);border-radius:2px;transition:width 0.5s,background 0.5s;}
   .rate-meter-fill.warn{background:var(--accent3);}
   .rate-meter-fill.crit{background:var(--accent4);}
-  .rate-meter-label{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:0;transition:color 0.3s;}
+  .rate-meter-label{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);transition:color 0.3s;}
   .rate-meter-label.warn{color:var(--accent3);}
   .rate-meter-label.crit{color:var(--accent4);}
+
+  /* WAR FUNDS CARD */
+  .war-card{background:var(--surface);border:1px solid var(--border);padding:16px;margin-bottom:16px;}
+  .war-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;}
+  .war-member-grid{display:grid;grid-template-columns:1fr;gap:6px;margin-top:10px;}
+  @media(min-width:500px){.war-member-grid{grid-template-columns:repeat(2,1fr);}}
+  @media(min-width:900px){.war-member-grid{grid-template-columns:repeat(3,1fr);}}
+  .war-member-row{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);padding:8px 10px;gap:8px;}
+  .war-member-name{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--text);}
+  .war-member-amt{font-family:'Space Mono',monospace;font-size:12px;color:var(--accent3);font-weight:700;}
+  .war-member-hits{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);}
 
   /* SPINNER */
   .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(10,13,15,0.5);border-top-color:var(--bg);border-radius:50%;animation:rot 0.6s linear infinite;flex-shrink:0;}
   @keyframes rot{to{transform:rotate(360deg);}}
+
+  /* MOBILE: prevent any horizontal overflow */
+  @media(max-width:599px){
+    .app{padding:10px;}
+    .sh{flex-direction:column;align-items:flex-start;}
+    .oc-form .fg:last-child{grid-column:1/-1;}
+  }
 </style>
 </head>
 <body>
@@ -248,24 +279,59 @@
 
   <!-- STAT CARDS -->
   <div class="stat-grid" id="statGrid">
-    <div class="sc" style="--ca:var(--accent)"><div class="sc-label">Vault Balance</div><div class="sc-value" id="cVaultTotal">—</div><div class="sc-sub">all $ in the vault</div></div>
-    <div class="sc" style="--ca:var(--accent2)"><div class="sc-label">Faction Balance</div><div class="sc-value" id="cVault">—</div><div class="sc-sub">vault − member balances</div></div>
-    <div class="sc" style="--ca:var(--accent3)"><div class="sc-label">Supply Cost (30d)</div><div class="sc-value" id="cSupply">—</div><div class="sc-sub">armory disbursements</div></div>
-    <div class="sc" style="--ca:var(--accent2)"><div class="sc-label">OC Income (30d)</div><div class="sc-value" id="cOC">—</div><div class="sc-sub">vault deposits</div></div>
-    <div class="sc" style="--ca:var(--accent4)"><div class="sc-label">Net P&amp;L (30d)</div><div class="sc-value" id="cPnL">—</div><div class="sc-sub">income − costs</div></div>
-    <div class="sc" style="--ca:var(--accent5)"><div class="sc-label">Total Owed</div><div class="sc-value" id="cOwed">—</div><div class="sc-sub">pending item payouts</div></div>
+    <div class="sc" style="--ca:var(--accent)">
+      <div class="sc-label">Vault Balance</div><div class="sc-value" id="cVaultTotal">—</div>
+      <div class="sc-sub">all $ in vault</div>
+    </div>
+    <div class="sc" style="--ca:var(--accent2)">
+      <div class="sc-label">Faction Balance</div><div class="sc-value" id="cVault">—</div>
+      <div class="sc-sub">vault − members</div>
+    </div>
+    <div class="sc" style="--ca:var(--accent3);cursor:pointer;" onclick="cycleCardPeriod('supply')" title="Tap to change period">
+      <div class="sc-label">Supply Cost</div><div class="sc-value" id="cSupply">—</div>
+      <div class="sc-sub" id="cSupplySub">consumables · 30d</div>
+      <div class="period-pills" id="supplyPeriodPills">
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('supply','1d',this)">1D</span>
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('supply','7d',this)">7D</span>
+        <span class="period-pill on" onclick="event.stopPropagation();setCardPeriod('supply','30d',this)">30D</span>
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('supply','90d',this)">90D</span>
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('supply','1y',this)">1Y</span>
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('supply','all',this)">ALL</span>
+      </div>
+    </div>
+    <div class="sc" style="--ca:var(--accent2);cursor:pointer;" onclick="cycleCardPeriod('oc')" title="Tap to change period">
+      <div class="sc-label">OC Income</div><div class="sc-value" id="cOC">—</div>
+      <div class="sc-sub" id="cOCSub">vault deposits · 30d</div>
+      <div class="period-pills" id="ocPeriodPills">
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('oc','1d',this)">1D</span>
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('oc','7d',this)">7D</span>
+        <span class="period-pill on" onclick="event.stopPropagation();setCardPeriod('oc','30d',this)">30D</span>
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('oc','90d',this)">90D</span>
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('oc','1y',this)">1Y</span>
+        <span class="period-pill" onclick="event.stopPropagation();setCardPeriod('oc','all',this)">ALL</span>
+      </div>
+    </div>
+    <div class="sc" style="--ca:var(--accent4)">
+      <div class="sc-label">Net P&amp;L</div><div class="sc-value" id="cPnL">—</div>
+      <div class="sc-sub" id="cPnLSub">income − costs</div>
+    </div>
+    <div class="sc" style="--ca:var(--accent5)">
+      <div class="sc-label">Total Owed</div><div class="sc-value" id="cOwed">—</div>
+      <div class="sc-sub">pending item payouts</div>
+    </div>
   </div>
 
   <!-- TABS -->
   <div class="tabs" id="mainTabs">
     <button class="tab active" onclick="switchTab('vault')">Vault</button>
-    <button class="tab" onclick="switchTab('supply')">Supply Costs</button>
-    <button class="tab" onclick="switchTab('members')">Member Usage</button>
-    <button class="tab" onclick="switchTab('oc')">OC Income</button>
-    <button class="tab" id="tabRcpt" onclick="switchTab('receipts')">Item Receipts</button>
+    <button class="tab" onclick="switchTab('supply')">Supply</button>
+    <button class="tab" onclick="switchTab('members')">Members</button>
+    <button class="tab" onclick="switchTab('oc')">OC</button>
+    <button class="tab" id="tabRcpt" onclick="switchTab('receipts')">Items</button>
     <button class="tab" onclick="switchTab('respect')">Respect</button>
-    <button class="tab" onclick="switchTab('log')">Armory Log</button>
-    <button class="tab" onclick="switchTab('debug')">Event Debug</button>
+    <button class="tab" onclick="switchTab('war')">War Funds</button>
+    <button class="tab" onclick="switchTab('log')">Armory</button>
+    <button class="tab" onclick="switchTab('debug')">Debug</button>
     <button class="tab" onclick="switchTab('admin')" style="color:var(--accent4);">⚙ Admin</button>
   </div>
 
@@ -277,12 +343,14 @@
   <!-- SUPPLY -->
   <div class="panel" id="panel-supply">
     <div class="pills" id="typePills">
-      <div class="pill on" onclick="filterType(this,'all')">All</div>
-      <div class="pill" onclick="filterType(this,'Medical')">Meds</div>
-      <div class="pill" onclick="filterType(this,'Temporary')">Temp Weapons</div>
+      <div class="pill on" onclick="filterType(this,'all')">All Consumables</div>
+      <div class="pill" onclick="filterType(this,'Medical')">Medical</div>
       <div class="pill" onclick="filterType(this,'Drug')">Drugs</div>
       <div class="pill" onclick="filterType(this,'Alcohol')">Alcohol</div>
       <div class="pill" onclick="filterType(this,'Candy')">Candy</div>
+      <div class="pill" onclick="filterType(this,'Temporary')">Throwables</div>
+      <div class="pill" onclick="filterType(this,'Flower')">Flowers</div>
+      <div class="pill" onclick="filterType(this,'Plushie')">Plushies</div>
     </div>
     <div class="tw" id="supplyTbl"><div class="empty">No data yet.</div></div>
   </div>
@@ -339,41 +407,48 @@
 
     <div class="sh" style="margin-top:24px;">
       <span class="st">All Item Receipts</span>
-      <div style="display:flex;gap:10px;align-items:center;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <input type="text" class="ls" id="rcptSearch" placeholder="Filter member or item…" oninput="renderRcptLog()">
-        <button class="btn-sm" id="btnSync" onclick="syncEvents()">↻ SYNC EVENTS</button>
+        <button class="btn-sm" id="btnSync" onclick="syncEvents()">↻ SYNC</button>
       </div>
     </div>
     <div class="tw" id="rcptTbl"><div class="empty">No receipts logged.</div></div>
+
+    <!-- PERSONAL COSTS: items you sent OUT -->
+    <div class="sh" style="margin-top:24px;">
+      <span class="st">Personal Costs (Items Sent Out)</span>
+      <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted)">items you sent to faction members</span>
+    </div>
+    <div class="tw" id="outgoingTbl"><div class="empty">No outgoing items tracked yet.<br>Sync events to detect items you sent.</div></div>
   </div>
 
   <!-- RESPECT -->
   <div class="panel" id="panel-respect">
-    <!-- Total Faction Respect Card -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;" id="respectCards">
-      <div class="sc" style="--ca:var(--accent);grid-column:1">
-        <div class="sc-label">Total Faction Respect</div>
-        <div class="sc-value" id="rTotalAll">—</div>
-        <div class="sc-sub" style="display:flex;gap:12px;margin-top:4px;">
-          <span>⚔ <span id="rTotalAtk">—</span> attacks</span>
-          <span>🔒 <span id="rTotalOC">—</span> OCs</span>
-        </div>
-      </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:16px;">
       <div class="sc" style="--ca:var(--accent4)">
-        <div class="sc-label">Attack Respect</div>
+        <div class="sc-label">⚔ Attack Respect</div>
         <div class="sc-value" id="rAtkCard">—</div>
-        <div class="sc-sub">from wins &amp; assists</div>
+        <div class="sc-sub">wins &amp; mugs</div>
       </div>
       <div class="sc" style="--ca:var(--accent2)">
-        <div class="sc-label">OC Respect</div>
-        <div class="sc-value" id="rOCCard">—</div>
-        <div class="sc-sub">from organized crimes</div>
+        <div class="sc-label">⛓ Chain Respect</div>
+        <div class="sc-value" id="rChainCard">—</div>
+        <div class="sc-sub">chain completions</div>
+      </div>
+      <div class="sc" style="--ca:var(--accent3)">
+        <div class="sc-label">⚡ War Bonus</div>
+        <div class="sc-value" id="rWarCard">—</div>
+        <div class="sc-sub">rank-up &amp; war wins</div>
+      </div>
+      <div class="sc" style="--ca:var(--accent)">
+        <div class="sc-label">Total Respect</div>
+        <div class="sc-value" id="rTotalAll">—</div>
+        <div class="sc-sub" id="rTotalSub">all sources</div>
       </div>
     </div>
-    <!-- Period selector -->
     <div class="sh">
       <span class="st">Respect by Member</span>
-      <div style="display:flex;gap:6px;">
+      <div style="display:flex;gap:5px;flex-wrap:wrap;">
         <button class="pill on" onclick="setRespectPeriod(this,'1d')">1D</button>
         <button class="pill" onclick="setRespectPeriod(this,'7d')">7D</button>
         <button class="pill" onclick="setRespectPeriod(this,'30d')">30D</button>
@@ -382,7 +457,55 @@
         <button class="pill" onclick="setRespectPeriod(this,'all')">ALL</button>
       </div>
     </div>
-    <div class="tw" id="respectTbl"><div class="empty">No respect data yet.<br>Requires faction mainnews access.</div></div>
+    <div class="tw" id="respectTbl"><div class="empty">No respect data yet.</div></div>
+  </div>
+
+  <!-- WAR FUNDS -->
+  <div class="panel" id="panel-war">
+    <div class="war-card">
+      <div class="war-card-header">
+        <div>
+          <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);font-family:'Space Mono',monospace;margin-bottom:4px;">⚔ WAR FUNDS TRACKER</div>
+          <div style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;">Paste a TC ArmaSync payout results URL to import</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+        <input type="text" id="warUrlInput" placeholder="https://tc-armasync.netlify.app/payout-results/..." style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:8px 10px;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--accent3)'" onblur="this.style.borderColor='var(--border)'">
+        <button class="btn-primary" onclick="importWarUrl()">IMPORT</button>
+        <button class="btn-sm" onclick="clearWarData()" style="border-color:var(--accent4);color:var(--accent4);">✕ CLEAR</button>
+      </div>
+      <div id="warImportStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:10px;display:none;"></div>
+    </div>
+
+    <!-- War summary cards -->
+    <div id="warSummaryCards" style="display:none;margin-bottom:16px;">
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px;">
+        <div class="sc" style="--ca:var(--accent3)">
+          <div class="sc-label">Total Payout</div>
+          <div class="sc-value" id="wTotalPayout">—</div>
+          <div class="sc-sub" id="wWarName">—</div>
+        </div>
+        <div class="sc" style="--ca:var(--accent4)">
+          <div class="sc-label">War Attacks</div>
+          <div class="sc-value" id="wTotalAtk">—</div>
+          <div class="sc-sub" id="wWarDate">—</div>
+        </div>
+      </div>
+      <!-- Lifetime/period toggle for war funds -->
+      <div class="sh">
+        <span class="st">Member Payouts</span>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+          <button class="pill" onclick="setWarPeriod(this,'30d')">30D</button>
+          <button class="pill" onclick="setWarPeriod(this,'90d')">90D</button>
+          <button class="pill" onclick="setWarPeriod(this,'1y')">1Y</button>
+          <button class="pill on" onclick="setWarPeriod(this,'all')">LIFETIME</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="warMemberGrid" class="war-member-grid"></div>
+    <div id="warTbl" class="tw" style="margin-top:16px;display:none;"></div>
+    <div id="warEmpty" class="empty">No war data imported yet.<br>Paste a TC ArmaSync link above.</div>
   </div>
 
   <!-- ARMORY LOG -->
@@ -441,10 +564,11 @@
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent2);margin-bottom:14px;font-family:'Space Mono',monospace;">⬇ EXPORT DATA</div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;">
         <button class="btn-sm" onclick="adminExport('all')" style="border-color:var(--accent2);color:var(--accent2);">⬇ Full Backup (JSON)</button>
-        <button class="btn-sm" onclick="adminExport('receipts')">⬇ Receipts Only</button>
+        <button class="btn-sm" onclick="adminExport('receipts')">⬇ Receipts</button>
+        <button class="btn-sm" onclick="adminExport('wars')">⬇ War Records</button>
         <button class="btn-sm" onclick="adminExport('paidlog')">⬇ Paid Log</button>
-        <button class="btn-sm" onclick="adminExport('rates')">⬇ Payout Rates</button>
-        <button class="btn-sm" onclick="adminExport('rawevents')">⬇ Raw Events (last sync)</button>
+        <button class="btn-sm" onclick="adminExport('rates')">⬇ Rates</button>
+        <button class="btn-sm" onclick="adminExport('rawevents')">⬇ Raw Events</button>
         <button class="btn-sm" onclick="adminExportDebugHtml()">⬇ Debug Report (HTML)</button>
       </div>
       <div id="adminExportStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);margin-top:10px;display:none;"></div>
@@ -551,7 +675,10 @@ let S = {
   prices:{}, ocRaw:[], attackNews:[], crimeNews:[],
   receipts:[], paidLog:{}, rates:{Plushie:98,Flower:98,Xanax:98,Alcohol:98,Medical:98},
   lastSync:null, loading:false, tab:'vault', typeFilter:'all',
-  respectPeriod:'30d'
+  respectPeriod:'1d',
+  cardPeriods:{supply:'30d', oc:'30d'},
+  wars:[], warPeriod:'all',
+  outgoing:[], // items sent from you to faction members
 };
 let rTimer=null, cTimer=null, rStart=null;
 
@@ -591,13 +718,18 @@ function updateRateMeter(){
   try{ S.paidLog  = JSON.parse(localStorage.getItem('hv_paid')||'{}'); }catch(e){}
   try{ const r=JSON.parse(localStorage.getItem('hv_rates')||'{}'); S.rates={...S.rates,...r}; }catch(e){}
   try{ const sr=localStorage.getItem('hv_sync_rate'); if(sr){RMINS=parseFloat(sr)||15;} }catch(e){}
+  try{ S.wars=JSON.parse(localStorage.getItem('hv_wars')||'[]'); }catch(e){}
+  try{ const cp=JSON.parse(localStorage.getItem('hv_card_periods')||'{}'); S.cardPeriods={...S.cardPeriods,...cp}; }catch(e){}
+  try{ S.outgoing=JSON.parse(localStorage.getItem('hv_outgoing')||'[]'); }catch(e){}
   loadRateInputs();
   buildSyncSelector();
+  // Restore period pill states
+  restoreCardPeriodPills();
   const k=localStorage.getItem('hv_key');
   if(k){ S.key=k; revealDash(); fetchAll(); startCycle(); }
   updateBadge();
-  // Render receipts from localStorage immediately so tab shows data before sync
   if(S.receipts.length) renderReceipts();
+  if(S.wars.length) renderWarPanel();
 })();
 
 // ════════════════════════════════════════════
@@ -689,7 +821,10 @@ async function tGet(section, sel, extra=''){
   const r=await fetch(url);
   if(!r.ok) throw new Error(`HTTP ${r.status}`);
   const d=await r.json();
-  if(d.error) throw new Error(`[${d.error.code}] ${d.error.error}`);
+  if(d.error){
+    clog(`API Error [${d.error.code}] ${section}/${sel}: ${d.error.error}`,'err');
+    throw new Error(`[${d.error.code}] ${d.error.error}`);
+  }
   return d;
 }
 
@@ -742,34 +877,48 @@ async function fetchAll(isManual=false){
     // 5. User events for item receipts (1 call)
     await syncEvents(true);
 
-    // 6. Main news — chains/respect milestones + war results (1 call)
-    clog('Fetching main news (respect/chain events)…','info');
+    // 6. Main news — chains/respect + OC vault deposits (1 call)
+    clog('Fetching main news…','info');
     try{
       const mn=await tGet('faction','mainnews');
       const mainAll=Object.values(mn.mainnews||{});
-      // Chain-completed events have format: "Achieved a chain of X and Y.YY respect"
       S.attackNews=mainAll.filter(e=>e.news&&/respect/i.test(e.news)).sort((a,b)=>b.timestamp-a.timestamp);
-      clog(`Main news: ${mainAll.length} total, ${S.attackNews.length} respect entries`,'ok');
-    }catch(e){ clog('Main news failed: '+e.message,'warn'); S.attackNews=[]; }
+      // OC deposits appear as "The faction received $X" or "organised crime" payout lines
+      S.ocRaw=mainAll.filter(e=>e.news&&(
+        /faction received \$[\d,]+/i.test(e.news)||
+        /payout.*\$[\d,]+/i.test(e.news)||
+        /\$[\d,]+.*payout/i.test(e.news)||
+        /organized crime.*\$[\d,]+/i.test(e.news)||
+        /organised crime.*\$[\d,]+/i.test(e.news)
+      )).sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
+      clog(`Main news: ${mainAll.length} | ${S.attackNews.length} respect | ${S.ocRaw.length} OC $ entries`,'ok');
+      if(mainAll.length>0&&S.ocRaw.length===0) clog('No OC vault deposits found in mainnews — OC may pay members directly','warn');
+    }catch(e){ clog('Main news failed: '+e.message,'warn'); S.attackNews=[]; S.ocRaw=[]; }
 
     // 7. Attacking news — individual attack respect (1 call)
-    clog('Fetching attacking news…','info');
+    clog('Fetching attack news…','info');
     try{
       const atk=await tGet('faction','attacknews');
       S.crimeNews=Object.values(atk.attacknews||{}).sort((a,b)=>b.timestamp-a.timestamp);
       clog(`Attack news: ${S.crimeNews.length} entries`,'ok');
     }catch(e){ clog('Attack news failed: '+e.message,'warn'); S.crimeNews=[]; }
 
-    // 8. Crimes news — OC completions with $ and respect (1 call)
-    clog('Fetching crimes news (OC income)…','info');
+    // 8. Crimes news — OC activity log (1 call) — $ from crimenews if faction vault is recipient
+    clog('Fetching crimes news…','info');
     try{
       const cr=await tGet('faction','crimenews');
       const crAll=Object.values(cr.crimenews||{});
-      // OC success entries contain $ amounts
-      S.ocRaw=crAll.filter(e=>e.news&&/\$[\d,]+/.test(e.news)).sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
-      clog(`Crimes news: ${crAll.length} total, ${S.ocRaw.length} with $ amounts`,'ok');
-      if(crAll.length>0&&S.ocRaw.length===0) clog('No $ in crimes news — OC payout may go to members not vault','warn');
-    }catch(e){ clog('Crimes news failed: '+e.message,'warn'); S.ocRaw=[]; }
+      // If OC money goes to vault it appears here with $; if not, this is just the activity log
+      const crMoney=crAll.filter(e=>e.news&&/\$[\d,]+/.test(e.news));
+      if(crMoney.length>0&&S.ocRaw.length===0){
+        S.ocRaw=crMoney.sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
+        clog(`OC income found in crimenews: ${S.ocRaw.length} $ entries`,'ok');
+      } else {
+        clog(`Crimes news: ${crAll.length} entries (activity log)`,'ok');
+      }
+      // Store all crimes for the OC tab log
+      S._crimeLog=crAll.sort((a,b)=>b.timestamp-a.timestamp);
+    }catch(e){ clog('Crimes news failed: '+e.message,'warn'); S._crimeLog=[]; }
 
     S.lastSync=Date.now();
     renderAll();
@@ -797,6 +946,7 @@ async function syncEvents(silent=false){
     S.events=Object.values(ev.events||{});
     clog(`User events: ${S.events.length} entries`,'ok');
     parseReceipts();
+    parseOutgoing();
     saveReceipts();
     renderReceipts();
     updateBadge();
@@ -809,9 +959,13 @@ async function syncEvents(silent=false){
 // RECEIPT PARSING
 // ════════════════════════════════════════════
 function stripHtml(s){
-  // Extract text from HTML — handle both proper tags and the malformed href format Torn uses
-  // e.g. "<a href = http://...>Name</a>" → "Name"
   return s.replace(/<a[^>]*>([^<]*)<\/a>/gi,'$1').replace(/<[^>]+>/g,'').trim();
+}
+
+// Extract Torn player XID from a raw HTML string (before stripping)
+function extractXid(raw){
+  const m=raw.match(/XID=(\d+)/);
+  return m?m[1]:'0';
 }
 
 function parseReceipts(){
@@ -823,34 +977,43 @@ function parseReceipts(){
     const raw=ev.event||ev.news||'';
     if(!raw) return;
 
-    // Strip all HTML first to get clean text for matching
+    // Extract XID from the sender's profile link BEFORE stripping HTML
+    // Real format: "...profiles.php?XID=4207614>Sassyquatch</a>"
+    const xid=extractXid(raw);
+
+    // Strip HTML to get clean matchable text
     const news=stripHtml(raw);
     if(!news) return;
 
     let member, memberId, qty, item;
 
-    // FORMAT A (current API): "You were sent 10x Heather from Sassyquatch"
-    // (after HTML stripping, the <a> tag becomes just the name)
-    const pA=news.match(/^You were sent\s+(\d+)x?\s+(.+?)\s+from\s+(.+?)(?:\s*\[(\d+)\])?\.?$/i);
+    // PRIMARY FORMAT (confirmed from live data):
+    // "You were sent 50x Sheep Plushie from Sassyquatch"
+    // "You were sent 10x Heather from Sassyquatch"
+    const pA=news.match(/^You were sent\s+(\d+)x?\s+(.+?)\s+from\s+(.+?)\.?$/i);
 
-    // FORMAT B: "Name [ID] has sent you 10x Item"
+    // "You were sent some Xanax from Stabbatha" — "some" = qty 1 (or variable; log as 1)
+    const pSome=news.match(/^You were sent\s+some\s+(.+?)\s+from\s+(.+?)\.?$/i);
+
+    // "You were sent a Item from Name" — singular
+    const pA1=news.match(/^You were sent\s+a\s+(.+?)\s+from\s+(.+?)\.?$/i);
+
+    // Legacy formats with [ID] brackets
     const pB=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+sent\s+you\s+(\d+)x?\s+(.+?)\.?$/i);
-
-    // FORMAT C: "Name [ID] sent you 10x Item"
     const pC=news.match(/^(.+?)\s*\[(\d+)\]\s+sent\s+you\s+(\d+)x?\s+(.+?)\.?$/i);
-
-    // FORMAT D: "Name [ID] has given you 10x Item"
     const pD=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+given\s+you\s+(\d+)x?\s+(.+?)\.?$/i);
-
-    // FORMAT E: "Name [ID] has sent you a Item" (singular)
     const pE=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+sent\s+you\s+a\s+(.+?)\.?$/i);
 
-    // FORMAT F: "You were sent a Item from Name" (singular, no qty)
-    const pF=news.match(/^You were sent\s+a\s+(.+?)\s+from\s+(.+?)(?:\s*\[(\d+)\])?\.?$/i);
-
     if(pA){
-      member=pA[3].trim(); memberId=pA[4]||'0';
+      member=pA[3].trim(); memberId=xid;
       qty=parseInt(pA[1]); item=pA[2].trim();
+    } else if(pSome){
+      member=pSome[2].trim(); memberId=xid;
+      qty=1; item=pSome[1].trim();
+      clog(`"some" qty event: ${item} from ${member} — logged as qty 1`,'warn');
+    } else if(pA1){
+      member=pA1[2].trim(); memberId=xid;
+      qty=1; item=pA1[1].trim();
     } else if(pB){
       member=pB[1].trim(); memberId=pB[2];
       qty=parseInt(pB[3]); item=pB[4].trim();
@@ -863,9 +1026,6 @@ function parseReceipts(){
     } else if(pE){
       member=pE[1].trim(); memberId=pE[2];
       qty=1; item=pE[3].trim();
-    } else if(pF){
-      member=pF[2].trim(); memberId=pF[3]||'0';
-      qty=1; item=pF[1].trim();
     } else {
       if(/sent|given|plushie|flower|xanax|heather|dahlia/i.test(news)){
         unmatched.push(news.slice(0,120));
@@ -873,7 +1033,6 @@ function parseReceipts(){
       return;
     }
 
-    // Clean item name — strip any residual HTML, trailing punctuation
     item=item.replace(/<[^>]+>/g,'').replace(/[.!,]$/,'').trim();
 
     const cat=detectCat(item);
@@ -882,7 +1041,6 @@ function parseReceipts(){
       return;
     }
 
-    // Use timestamp + member + item as dedup key (memberId may be 0 for format A)
     const id=`r_${ev.timestamp}_${memberId||member.replace(/\W/g,'')}_${item.replace(/\W/g,'').toLowerCase()}`;
     if(seen.has(id)) return;
 
@@ -896,12 +1054,10 @@ function parseReceipts(){
 
   if(added>0) clog(`Parsed ${added} new receipt entries`,'ok');
   else clog('No new receipt entries found in events','info');
-
   if(unmatched.length>0){
     clog(`${unmatched.length} unmatched item-like events — check Event Debug tab`,'warn');
     S._unmatchedEvents=unmatched;
   }
-
   S.receipts.sort((a,b)=>b.ts-a.ts);
 }
 
@@ -1013,33 +1169,38 @@ function lookupItem(name){
 }
 
 function parseArm(e){
-  const n=e.news||'';
-  // Torn armorynews may or may not include [ID] — make it optional
-  // Pattern: Name [ID] action ... OR Name action ...
-  const NAME = /^(.+?)(?:\s*\[\d+\])?/;
+  // Strip HTML from news text — names are wrapped in <a> tags in real API data
+  const raw=e.news||'';
+  const n=stripHtml(raw);
 
-  // Member deposited/gave item TO armory = in (green +)
-  const dp=n.match(/^(.+?)(?:\s*\[\d+\])?\s+deposited\s+(\d+)x?\s+(.+?)(?:\s+(?:to|in|into)\s+.*)?$/i);
-  // Member took FROM armory = out (red −)
-  const tk=n.match(/^(.+?)(?:\s*\[\d+\])?\s+took\s+(\d+)x?\s+(.+?)\s+from/i);
-  // Armory gave to member = out
-  const gvTo=n.match(/^(.+?)(?:\s*\[\d+\])?\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+the\s+armory/i);
-  // gave to armory = in
-  const gvArm=n.match(/^(.+?)(?:\s*\[\d+\])?\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+(?!the\s+armory)/i);
-  // Loaned item to member
-  const ln=n.match(/^(.+?)(?:\s*\[\d+\])?\s+loaned\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)(?:\s*\[\d+\])?/i);
-  // Returned item
-  const rt=n.match(/^(.+?)(?:\s*\[\d+\])?\s+returned\s+(\d+)x?\s+(.+?)(?:\s+to.*)?$/i);
-  // Generic gave X to Y (member got from armory officer = out)
-  const gv2=n.match(/^(.+?)(?:\s*\[\d+\])?\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)(?:\s*\[\d+\])?$/i);
+  // After stripping: "Kush_McLoud returned 1x M4A1 Colt Carbine"
+  //                  "Kush_McLoud loaned 1x M4A1 Colt Carbine to themselves from the faction armory"
+  //                  "DanTheHighMan retrieved 1x M4A1 Colt Carbine from Andrewj4776"
+  //                  "Sassyquatch deposited 1x Fiveseven"
 
-  if(dp)  return{member:dp[1].trim(), qty:parseInt(dp[2])||1, item:dp[3].trim().replace(/[.!]$/,''), dir:'in', ts:e.timestamp};
-  if(tk)  return{member:tk[1].trim(), qty:parseInt(tk[2])||1, item:tk[3].trim().replace(/\s+from.*$/i,''), dir:'out', ts:e.timestamp};
-  if(ln)  return{member:ln[1].trim(), qty:parseInt(ln[2])||1, item:ln[3].trim(), dir:'loan', ts:e.timestamp};
-  if(rt)  return{member:rt[1].trim(), qty:parseInt(rt[2])||1, item:rt[3].trim().replace(/\s+to.*$/i,'').replace(/[.!]$/,''), dir:'return', ts:e.timestamp};
-  if(gvTo) return{member:gvTo[1].trim(), qty:parseInt(gvTo[2])||1, item:gvTo[3].trim(), dir:'in', ts:e.timestamp};
-  if(gv2) return{member:gv2[1].trim(), qty:parseInt(gv2[2])||1, item:gv2[3].trim(), dir:'out', ts:e.timestamp};
-  if(gvArm) return{member:gvArm[1].trim(), qty:parseInt(gvArm[2])||1, item:gvArm[3].trim(), dir:'in', ts:e.timestamp};
+  const dp=n.match(/^(.+?)\s+deposited\s+(\d+)x?\s+(.+?)$/i);
+  const tk=n.match(/^(.+?)\s+took\s+(\d+)x?\s+(.+?)\s+from/i);
+  // "retrieved X from Y" = officer pulled item back from member = return
+  const rv=n.match(/^(.+?)\s+retrieved\s+(\d+)x?\s+(.+?)\s+from\s+(.+?)$/i);
+  // "loaned X to themselves" = member self-loaned = loan to self
+  const lnSelf=n.match(/^(.+?)\s+loaned\s+(\d+)x?\s+(.+?)\s+to\s+themselves/i);
+  // "loaned X to Y from the faction armory" = loan to member
+  const ln=n.match(/^(.+?)\s+loaned\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\s+from\s+the\s+faction\s+armory/i);
+  // "loaned X to Y" generic
+  const ln2=n.match(/^(.+?)\s+loaned\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)$/i);
+  const rt=n.match(/^(.+?)\s+returned\s+(\d+)x?\s+(.+?)$/i);
+  const gvArm=n.match(/^(.+?)\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+the\s+armory/i);
+  const gv2=n.match(/^(.+?)\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)$/i);
+
+  if(dp)     return{member:dp[1].trim(),     qty:parseInt(dp[2])||1,  item:dp[3].trim().replace(/[.!]$/,''),   dir:'in',     ts:e.timestamp};
+  if(rv)     return{member:rv[1].trim(),     qty:parseInt(rv[2])||1,  item:rv[3].trim(),                       dir:'return', ts:e.timestamp};
+  if(lnSelf) return{member:lnSelf[1].trim(),qty:parseInt(lnSelf[2])||1,item:lnSelf[3].trim(),                 dir:'loan',   ts:e.timestamp};
+  if(ln)     return{member:ln[1].trim(),     qty:parseInt(ln[2])||1,  item:ln[3].trim(),                       dir:'loan',   ts:e.timestamp};
+  if(ln2)    return{member:ln2[1].trim(),    qty:parseInt(ln2[2])||1, item:ln2[3].trim(),                      dir:'loan',   ts:e.timestamp};
+  if(rt)     return{member:rt[1].trim(),     qty:parseInt(rt[2])||1,  item:rt[3].trim().replace(/[.!]$/,''),   dir:'return', ts:e.timestamp};
+  if(tk)     return{member:tk[1].trim(),     qty:parseInt(tk[2])||1,  item:tk[3].trim().replace(/\s+from.*$/i,''), dir:'out', ts:e.timestamp};
+  if(gvArm)  return{member:gvArm[1].trim(), qty:parseInt(gvArm[2])||1,item:gvArm[3].trim(),                   dir:'in',     ts:e.timestamp};
+  if(gv2)    return{member:gv2[1].trim(),    qty:parseInt(gv2[2])||1, item:gv2[3].trim(),                      dir:'out',    ts:e.timestamp};
   return{member:n.split(/\s+/)[0]||'Unknown', qty:0, item:n.slice(0,60), dir:'unknown', ts:e.timestamp};
 }
 
@@ -1063,103 +1224,87 @@ function setRespectPeriod(el, period){
 
 
 function renderRespect(){
-  const period=S.respectPeriod||'30d';
-
-  // S.attackNews = mainnews entries containing "respect" (chain completions, rank-ups)
-  // S.crimeNews  = faction attacknews (individual attack entries like "Name attacked X (+3.43)")
-  // Both are already filtered arrays stored in state
-
+  const period=S.respectPeriod||'1d';
   const memberRespect={};
-  let totalAtk=0, totalChain=0;
+  let totalAtk=0, totalChain=0, totalWar=0;
 
-  // Parse individual attack entries from attacknews
-  // Format: "DanTheHighMan attacked Scratcha (+3.43) [view]"
-  // Format: "DNoNim mugged seanyj (+1.69) [view]"
+  // Individual attacks from attacknews (HTML-stripped)
   S.crimeNews.forEach(e=>{
     if(!inPeriod(e.timestamp,period)) return;
-    const n=e.news||'';
-    const m=n.match(/^(.+?)\s+(?:attacked|mugged|hospitalized)\s+.+?\s+\(([+-][\d.]+)\)/i);
+    const n=stripHtml(e.news||'');
+    const m=n.match(/^(.+?)\s+(?:attacked|mugged|hospitalized)\s+.+?\s+\(\+?([\d.]+)\)/i);
     if(m){
       const mem=m[1].trim();
       const resp=parseFloat(m[2])||0;
-      if(resp>0){
-        if(!memberRespect[mem]) memberRespect[mem]={atk:0,chain:0};
+      if(resp>0&&mem.toLowerCase()!=='someone'){
+        if(!memberRespect[mem]) memberRespect[mem]={atk:0,chain:0,war:0};
         memberRespect[mem].atk+=resp;
         totalAtk+=resp;
       }
     }
   });
 
-  // Parse chain completion entries from mainnews
-  // Format: "Achieved a chain of 25 and 90.09 respect"
+  // Chain and war respect from mainnews (HTML-stripped)
   S.attackNews.forEach(e=>{
     if(!inPeriod(e.timestamp,period)) return;
-    const n=e.news||'';
-    const m=n.match(/Achieved a chain of \d+ and ([\d.]+) respect/i);
-    if(m){
-      const resp=parseFloat(m[1])||0;
-      // Chain respect is faction-wide — attribute to "Chain Bonus" bucket
-      if(!memberRespect['⬡ Chain Bonus']) memberRespect['⬡ Chain Bonus']={atk:0,chain:0};
-      memberRespect['⬡ Chain Bonus'].chain+=resp;
+    const n=stripHtml(e.news||'');
+
+    // Chain: "Achieved a chain of 25 and 90.09 respect"
+    const chainM=n.match(/Achieved a chain of \d+ and ([\d.]+) respect/i);
+    if(chainM){
+      const resp=parseFloat(chainM[1])||0;
+      if(!memberRespect['⛓ Chain Bonus']) memberRespect['⛓ Chain Bonus']={atk:0,chain:0,war:0};
+      memberRespect['⛓ Chain Bonus'].chain+=resp;
       totalChain+=resp;
     }
-    // Ranked war victory: "HighVibes defeated X in a ranked war"
-    const warM=n.match(/received\s+([\d,]+)\s+bonus\s+respect/i);
-    if(warM){
-      const resp=parseFloat(warM[1].replace(/,/g,''))||0;
-      if(!memberRespect['⬡ War Bonus']) memberRespect['⬡ War Bonus']={atk:0,chain:0};
-      memberRespect['⬡ War Bonus'].chain+=resp;
-      totalChain+=resp;
+
+    // War rank-up bonus: "received X bonus respect" or "X respect" from ranked war
+    const warRankM=n.match(/received\s+([\d,]+)\s+bonus\s+respect/i);
+    if(warRankM){
+      const resp=parseFloat(warRankM[1].replace(/,/g,''))||0;
+      if(!memberRespect['⚡ War Rank Bonus']) memberRespect['⚡ War Rank Bonus']={atk:0,chain:0,war:0};
+      memberRespect['⚡ War Rank Bonus'].war+=resp;
+      totalWar+=resp;
     }
   });
 
-  const totalAll=totalAtk+totalChain;
+  const totalAll=totalAtk+totalChain+totalWar;
 
-  // Update summary cards
-  document.getElementById('rTotalAll').textContent=totalAll>0?totalAll.toFixed(1):'0';
-  document.getElementById('rTotalAtk').textContent=totalAtk.toFixed(1);
-  document.getElementById('rTotalOC').textContent=totalChain.toFixed(1);
-  document.getElementById('rAtkCard').textContent=totalAtk>0?totalAtk.toFixed(1):'0';
-  document.getElementById('rOCCard').textContent=totalChain>0?totalChain.toFixed(1):'0';
-
-  // Update card labels for accuracy
-  const atkLbl=document.querySelector('#rAtkCard')?.closest('.sc')?.querySelector('.sc-sub');
-  const ocLbl=document.querySelector('#rOCCard')?.closest('.sc')?.querySelector('.sc-sub');
-  const totOCLbl=document.getElementById('rTotalOC')?.parentElement;
-  if(atkLbl) atkLbl.textContent='individual attacks & mugs';
-  if(ocLbl) ocLbl.textContent='chain bonuses & war wins';
-  if(totOCLbl) totOCLbl.innerHTML=`<span id="rTotalAtk">${totalAtk.toFixed(1)}</span> atk &nbsp; <span id="rTotalOC">${totalChain.toFixed(1)}</span> chain`;
+  // Update cards
+  const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val>0?val.toFixed(1):'0';};
+  set('rAtkCard',totalAtk);
+  set('rChainCard',totalChain);
+  set('rWarCard',totalWar);
+  set('rTotalAll',totalAll);
+  const sub=document.getElementById('rTotalSub');
+  if(sub) sub.innerHTML=`<span style="color:var(--accent4)">⚔ ${totalAtk.toFixed(1)}</span> &nbsp;<span style="color:var(--accent2)">⛓ ${totalChain.toFixed(1)}</span> &nbsp;<span style="color:var(--accent3)">⚡ ${totalWar.toFixed(1)}</span>`;
 
   const entries=Object.entries(memberRespect)
-    .map(([name,v])=>({name,atk:v.atk,chain:v.chain,total:v.atk+v.chain}))
+    .map(([name,v])=>({name,atk:v.atk,chain:v.chain,war:v.war,total:v.atk+v.chain+v.war}))
     .sort((a,b)=>b.total-a.total);
 
   if(!entries.length){
-    const noData=S.crimeNews.length===0&&S.attackNews.length===0;
     document.getElementById('respectTbl').innerHTML=`<div class="empty">${
-      noData
-        ?'No respect data yet.<br>Requires faction <code>attacknews</code> and <code>mainnews</code> access.'
-        :'No entries found for this period — try ALL or a wider range.'
+      S.crimeNews.length===0&&S.attackNews.length===0
+        ?'No data yet — requires <code>attacknews</code> &amp; <code>mainnews</code>.'
+        :`No entries for period: ${period}. Try ALL.`
     }</div>`;
     return;
   }
 
   const maxTotal=entries[0]?.total||1;
-  let h=`<table><thead><tr>
-    <th>Member</th><th>⚔ Attack</th><th>⛓ Chain/War</th><th>Total</th><th style="min-width:120px">Share</th>
-  </tr></thead><tbody>`;
+  let h=`<table><thead><tr><th>Member</th><th>⚔ Atk</th><th>⛓ Chain</th><th>⚡ War</th><th>Total</th><th>Share</th></tr></thead><tbody>`;
   entries.forEach(x=>{
     const pct=totalAll>0?((x.total/totalAll)*100).toFixed(1):'0.0';
-    const barW=maxTotal>0?((x.total/maxTotal)*100).toFixed(1):'0';
+    const barW=((x.total/maxTotal)*100).toFixed(1);
     h+=`<tr>
       <td class="cn">${x.name}</td>
-      <td style="color:var(--accent4);font-family:'Space Mono',monospace;font-size:12px">${x.atk>0?x.atk.toFixed(2):'—'}</td>
-      <td style="color:var(--accent2);font-family:'Space Mono',monospace;font-size:12px">${x.chain>0?x.chain.toFixed(2):'—'}</td>
-      <td style="color:var(--accent3);font-family:'Space Mono',monospace;font-size:13px;font-weight:700">${x.total.toFixed(2)}</td>
-      <td>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:3px">${pct}%</div>
-        <div class="bw"><div class="bf" style="width:${barW}%;background:var(--accent3)"></div></div>
-      </td>
+      <td style="color:var(--accent4)">${x.atk>0?x.atk.toFixed(1):'—'}</td>
+      <td style="color:var(--accent2)">${x.chain>0?x.chain.toFixed(1):'—'}</td>
+      <td style="color:var(--accent3)">${x.war>0?x.war.toFixed(1):'—'}</td>
+      <td style="color:var(--accent3);font-weight:700">${x.total.toFixed(1)}</td>
+      <td><div style="font-size:9px;color:var(--muted)">${pct}%</div>
+        <div class="bw"><div class="bf" style="width:${barW}%;background:var(--accent3)"></div></div></td>
     </tr>`;
   });
   h+='</tbody></table>';
@@ -1179,6 +1324,7 @@ function renderAll(){
   renderVault(); renderSupply(); renderMemberUsage();
   renderOC(); renderReceipts(); renderArmoryLog(); renderCards(); renderRespect();
   if(S.tab==='debug') renderDebugEvents();
+  if(S.tab==='war') renderWarPanel();
 }
 
 // ── VAULT
@@ -1257,26 +1403,27 @@ function isConsumable(type){
 
 // ── SUPPLY
 function renderSupply(){
-  const rows=S.armoryNews.filter(e=>in30d(e.timestamp)).map(parseArm)
+  const period=S.cardPeriods.supply||'30d';
+  const from=periodToSeconds(period);
+  const rows=S.armoryNews.filter(e=>e.timestamp>from).map(parseArm)
     .filter(e=>e.dir==='out'||e.dir==='loan');
   const ag={};
   rows.forEach(e=>{
     const it=lookupItem(e.item); const t=it?.type||'Unknown';
-    // Skip weapons and armor — they are loaned, not consumed
     if(!isConsumable(t)&&S.typeFilter==='all') return;
     if(S.typeFilter!=='all'&&!t.toLowerCase().includes(S.typeFilter.toLowerCase())) return;
     if(!ag[e.item]) ag[e.item]={name:e.item,type:t,qty:0,up:it?.mv||0,total:0};
     ag[e.item].qty+=e.qty; ag[e.item].total+=e.qty*(it?.mv||0);
   });
   const r=Object.values(ag).sort((a,b)=>b.total-a.total);
-  if(!r.length){document.getElementById('supplyTbl').innerHTML='<div class="empty">No consumable supply disbursements in last 30 days.<br><span style="font-size:10px;color:var(--muted)">Weapons & armor excluded (loaned, not consumed). See Armory Log tab.</span></div>';return;}
+  if(!r.length){document.getElementById('supplyTbl').innerHTML=`<div class="empty">No consumable disbursements (${period}).<br><span style="font-size:9px;color:var(--muted)">Weapons &amp; armor excluded. See Armory tab.</span></div>`;return;}
   const grand=r.reduce((s,x)=>s+x.total,0);
-  let h=`<table><thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Unit Price</th><th>Total Cost</th><th>% of Spend</th></tr></thead><tbody>`;
+  let h=`<table><thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Unit MV</th><th>Total</th><th>%</th></tr></thead><tbody>`;
   r.forEach(x=>{
     const p=grand>0?((x.total/grand)*100).toFixed(1):'0.0';
     h+=`<tr><td class="cn">${x.name}</td><td><span class="badge by">${x.type}</span></td>
       <td class="cm">${x.qty.toLocaleString()}</td><td class="cm">${fmt$(x.up)}</td><td class="cr">${fmt$(x.total)}</td>
-      <td style="min-width:100px"><div style="font-size:10px;color:var(--muted);margin-bottom:3px">${p}%</div>
+      <td><div style="font-size:9px;color:var(--muted)">${p}%</div>
         <div class="bw"><div class="bf" style="width:${p}%;background:var(--accent4)"></div></div></td></tr>`;
   });
   document.getElementById('supplyTbl').innerHTML=h+'</tbody></table>';
@@ -1284,28 +1431,30 @@ function renderSupply(){
 
 // ── MEMBER USAGE (consumables only)
 function renderMemberUsage(){
-  const rows=S.armoryNews.filter(e=>in30d(e.timestamp)).map(parseArm)
+  const period=S.cardPeriods.supply||'30d';
+  const from=periodToSeconds(period);
+  const rows=S.armoryNews.filter(e=>e.timestamp>from).map(parseArm)
     .filter(e=>e.dir==='out'||e.dir==='loan');
   const ag={};
   rows.forEach(e=>{
     const it=lookupItem(e.item),p=it?.mv||0;
     const t=it?.type||'Unknown';
-    if(!isConsumable(t)) return; // skip weapons/armor
+    if(!isConsumable(t)) return;
     if(!ag[e.member]) ag[e.member]={name:e.member,items:{},total:0,count:0};
     if(!ag[e.member].items[e.item]) ag[e.member].items[e.item]={qty:0,cost:0};
     ag[e.member].items[e.item].qty+=e.qty; ag[e.member].items[e.item].cost+=e.qty*p;
     ag[e.member].total+=e.qty*p; ag[e.member].count+=e.qty;
   });
   const r=Object.values(ag).sort((a,b)=>b.total-a.total);
-  if(!r.length){document.getElementById('memberTbl').innerHTML='<div class="empty">No consumable usage found in last 30 days.</div>';return;}
+  if(!r.length){document.getElementById('memberTbl').innerHTML=`<div class="empty">No consumable usage (${period}).</div>`;return;}
   const grand=r.reduce((s,x)=>s+x.total,0);
-  let h=`<table><thead><tr><th>Member</th><th>Consumables Taken</th><th>Top Item</th><th>30d Cost</th><th>% of Total</th></tr></thead><tbody>`;
+  let h=`<table><thead><tr><th>Member</th><th>Items</th><th>Top Item</th><th>Cost (${period})</th><th>%</th></tr></thead><tbody>`;
   r.forEach(x=>{
     const p=grand>0?((x.total/grand)*100).toFixed(1):'0.0';
     const top=Object.entries(x.items).sort((a,b)=>b[1].cost-a[1].cost)[0];
     h+=`<tr><td class="cn">${x.name}</td><td class="cm">${x.count}</td>
-      <td class="cm" style="font-size:11px">${top?top[0]:'—'}</td><td class="cr">${fmt$(x.total)}</td>
-      <td style="min-width:110px"><div style="font-size:10px;color:var(--muted);margin-bottom:3px">${p}%</div>
+      <td class="cm" style="font-size:10px">${top?top[0]:'—'}</td><td class="cr">${fmt$(x.total)}</td>
+      <td><div style="font-size:9px;color:var(--muted)">${p}%</div>
         <div class="bw"><div class="bf" style="width:${p}%"></div></div></td></tr>`;
   });
   document.getElementById('memberTbl').innerHTML=h+'</tbody></table>';
@@ -1313,32 +1462,72 @@ function renderMemberUsage(){
 
 // ── OC
 function renderOC(){
-  // Parse $ amounts from all stored OC news entries
-  const parsed=S.ocRaw.map(e=>{
-    const ams=(e.news.match(/\$([\d,]+)/g)||[]).map(m=>parseInt(m.replace(/[$,]/g,'')));
-    return{news:e.news,ts:e.timestamp,date:fd(e.timestamp),amount:ams.reduce((s,n)=>s+n,0)};
-  }).filter(e=>e.amount>0);
+  const crimeEntries=S._crimeLog||[];
+  const ocPeriod=S.cardPeriods.oc||'30d';
+  const ocFrom=periodToSeconds(ocPeriod);
 
-  const total=parsed.reduce((s,r)=>s+r.amount,0);
-  document.getElementById('cOC').textContent=fmt$(total);
+  // OC vault income from mainnews (S.ocRaw)
+  const ocTotal=S.ocRaw.filter(e=>e.timestamp>ocFrom).reduce((s,e)=>{
+    const m=(e.news||'').match(/\$([\d,]+)/g)||[];
+    return s+m.reduce((a,v)=>a+parseInt(v.replace(/[$,]/g,'')),0);
+  },0);
+  document.getElementById('cOC').textContent=ocTotal>0?fmt$(ocTotal):'$0';
 
-  if(!parsed.length){
-    let msg='<div class="empty">No OC income entries found.<br>';
-    if(S.ocRaw.length===0) msg+='crimenews returned 0 $ entries — ensure key has faction <code>crimenews</code> access and OC payouts go to the faction vault.';
-    else msg+=`crimenews loaded ${S.ocRaw.length} entries but none matched expected formats.`;
-    document.getElementById('ocTbl').innerHTML=msg+'</div>';
+  if(!crimeEntries.length&&!S.ocRaw.length){
+    document.getElementById('ocTbl').innerHTML=`<div class="empty">No crime news — requires <code>crimenews</code> access.</div>`;
     return;
   }
-  let h=`<table><thead><tr><th>Date</th><th>Amount</th><th>Event</th></tr></thead><tbody>`;
-  parsed.forEach(r=>{
-    h+=`<tr><td class="cm">${r.date}</td><td class="cg">${fmt$(r.amount)}</td>
-      <td style="font-size:11px;color:var(--muted);max-width:500px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.news}">${r.news}</td></tr>`;
+
+  let h='';
+  if(ocTotal===0){
+    h+=`<div style="background:rgba(126,184,255,0.06);border:1px solid rgba(126,184,255,0.2);padding:10px 14px;margin-bottom:14px;font-family:'Space Mono',monospace;font-size:10px;color:var(--accent5);line-height:1.8;">
+      ℹ No vault OC deposits found in mainnews. OC payouts may go to members directly.<br>
+      Use the split calculator above to track payouts manually.
+    </div>`;
+  }
+
+  const displayEntries=(crimeEntries.length?crimeEntries:S.ocRaw).slice(0,100);
+  h+=`<table><thead><tr><th>Date</th><th>Event</th></tr></thead><tbody>`;
+  displayEntries.forEach(e=>{
+    const clean=stripHtml(e.news||'');
+    const isMoney=/\$[\d,]+/.test(e.news||'');
+    const isSuccess=/successfully/i.test(clean);
+    const col=isMoney?'color:var(--accent2)':isSuccess?'color:var(--accent3)':'color:var(--muted)';
+    h+=`<tr><td class="cm" style="white-space:nowrap;font-size:10px">${fd(e.timestamp)}</td>
+      <td style="font-size:10px;${col}">${clean}</td></tr>`;
   });
-  document.getElementById('ocTbl').innerHTML=h+'</tbody></table>';
+  h+='</tbody></table>';
+  document.getElementById('ocTbl').innerHTML=h;
 }
 
 // ── RECEIPTS
-function renderReceipts(){ renderOwed(); renderRcptLog(); updateBadge(); }
+function renderReceipts(){ renderOwed(); renderRcptLog(); renderOutgoing(); updateBadge(); }
+
+function renderOutgoing(){
+  const rows=(S.outgoing||[]).filter(r=>r.item); // filter any blank entries
+  const el=document.getElementById('outgoingTbl');
+  if(!el) return;
+  if(!rows.length){el.innerHTML='<div class="empty">No outgoing items tracked yet.<br>Sync events to detect items you sent.</div>';return;}
+  // Aggregate totals
+  let totalMV=0;
+  rows.forEach(r=>totalMV+=r.qty*(r.mv||0));
+  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Alcohol:'by',Medical:'br',Other:'bm'};
+  let h=`<table><thead><tr><th>Date</th><th>To Member</th><th>Item</th><th>Qty</th><th>Cat</th><th>Total MV</th></tr></thead><tbody>`;
+  rows.slice(0,100).forEach(r=>{
+    const cb=catBadge[r.cat]||'bm';
+    h+=`<tr>
+      <td class="cm" style="font-size:10px;white-space:nowrap">${ft(r.ts)}</td>
+      <td class="cn">${r.toMember}</td>
+      <td style="font-size:11px">${r.item}</td>
+      <td class="cm">${r.qty}</td>
+      <td><span class="badge ${cb}">${r.cat}</span></td>
+      <td class="cy">${fmt$(r.qty*(r.mv||0))}</td>
+    </tr>`;
+  });
+  h+=`</tbody></table>`;
+  if(totalMV>0) h=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);padding:8px 12px;border-bottom:1px solid var(--border);">Total MV sent out: ${fmt$(totalMV)}</div>`+h;
+  el.innerHTML=h;
+}
 
 function calcOwed(member){
   const paidTs=lastPaidTs(member);
@@ -1453,7 +1642,7 @@ function updateBadge(){
   const members=new Set(S.receipts.filter(r=>!r.deleted).map(r=>r.member));
   let n=0; members.forEach(m=>{if(calcOwed(m)>0)n++;});
   const el=document.getElementById('tabRcpt');
-  if(el) el.innerHTML=n>0?`Item Receipts <span class="tbadge">${n}</span>`:'Item Receipts';
+  if(el) el.innerHTML=n>0?`Items <span class="tbadge">${n}</span>`:'Items';
 }
 
 // ── ARMORY LOG
@@ -1480,6 +1669,60 @@ function renderArmoryLog(){
   document.getElementById('logTbl').innerHTML=h+'</tbody></table>';
 }
 
+// ── CARD PERIOD HELPERS
+const CARD_PERIOD_ORDER=['1d','7d','30d','90d','1y','all'];
+
+function cycleCardPeriod(card){
+  const current=S.cardPeriods[card]||'30d';
+  const idx=CARD_PERIOD_ORDER.indexOf(current);
+  const next=CARD_PERIOD_ORDER[(idx+1)%CARD_PERIOD_ORDER.length];
+  S.cardPeriods[card]=next;
+  try{localStorage.setItem('hv_card_periods',JSON.stringify(S.cardPeriods));}catch(e){}
+  // Update matching pill
+  const container=document.getElementById(card+'PeriodPills');
+  if(container) container.querySelectorAll('.period-pill').forEach(p=>{
+    const txt=p.textContent.trim().toLowerCase();
+    const map={'1d':'1d','7d':'7d','30d':'30d','90d':'90d','1y':'1y','all':'all'};
+    p.classList.toggle('on',map[txt]===next);
+  });
+  renderCards();
+  if(card==='supply'){renderSupply();renderMemberUsage();}
+  if(card==='oc'){renderOC();}
+}
+
+function setCardPeriod(card, period, el){
+  S.cardPeriods[card]=period;
+  try{localStorage.setItem('hv_card_periods',JSON.stringify(S.cardPeriods));}catch(e){}
+  const container=el?.closest('.period-pills');
+  if(container) container.querySelectorAll('.period-pill').forEach(p=>p.classList.toggle('on',p===el));
+  renderCards();
+  if(card==='supply'){renderSupply();renderMemberUsage();}
+  if(card==='oc'){renderOC();}
+}
+
+function restoreCardPeriodPills(){
+  ['supply','oc'].forEach(card=>{
+    const period=S.cardPeriods[card]||'30d';
+    const container=document.getElementById(card+'PeriodPills');
+    if(!container) return;
+    container.querySelectorAll('.period-pill').forEach(p=>{
+      const txt=p.textContent.trim().toLowerCase();
+      const map={'1d':'1d','7d':'7d','30d':'30d','90d':'90d','1y':'1y','all':'all','lifetime':'all'};
+      p.classList.toggle('on',map[txt]===period);
+    });
+  });
+}
+
+function periodToSeconds(period){
+  const now=Date.now()/1000;
+  if(period==='1d') return now-86400;
+  if(period==='7d') return now-7*86400;
+  if(period==='30d') return now-30*86400;
+  if(period==='90d') return now-90*86400;
+  if(period==='1y') return now-365*86400;
+  return 0; // 'all'
+}
+
 // ── STAT CARDS
 function renderCards(){
   const vault=S.faction?.money||0;
@@ -1489,22 +1732,36 @@ function renderCards(){
   const vEl=document.getElementById('cVault');
   if(vtEl) vtEl.textContent=vault>0?fmt$(vault):'(AA req)';
   if(vEl) vEl.textContent=vault>0?fmt$(net):'(AA req)';
-  // Supply cost — consumables only (weapons/armor are loaned not consumed)
-  const armParsed=S.armoryNews.filter(e=>in30d(e.timestamp)).map(parseArm).filter(e=>e.dir==='out'||e.dir==='loan');
+
+  // Supply cost — filtered by card period
+  const supplyPeriod=S.cardPeriods.supply||'30d';
+  const supplyFrom=periodToSeconds(supplyPeriod);
+  const armParsed=S.armoryNews.filter(e=>e.timestamp>supplyFrom).map(parseArm).filter(e=>e.dir==='out'||e.dir==='loan');
   let supply=0;
   armParsed.forEach(e=>{
     const it=lookupItem(e.item);
     if(it&&isConsumable(it.type)) supply+=e.qty*(it.mv||0);
   });
   document.getElementById('cSupply').textContent=fmt$(supply);
-  // OC income from crimenews
-  const oc=S.ocRaw.reduce((s,e)=>{
+  const supplySubEl=document.getElementById('cSupplySub');
+  if(supplySubEl) supplySubEl.textContent=`consumables · ${supplyPeriod}`;
+
+  // OC income — filtered by card period
+  const ocPeriod=S.cardPeriods.oc||'30d';
+  const ocFrom=periodToSeconds(ocPeriod);
+  const oc=S.ocRaw.filter(e=>e.timestamp>ocFrom).reduce((s,e)=>{
     const m=(e.news||'').match(/\$([\d,]+)/g);
     return s+(m?m.reduce((a,v)=>a+parseInt(v.replace(/[$,]/g,'')),0):0);
   },0);
   document.getElementById('cOC').textContent=fmt$(oc);
+  const ocSubEl=document.getElementById('cOCSub');
+  if(ocSubEl) ocSubEl.textContent=`vault deposits · ${ocPeriod}`;
+
   const pnl=oc-supply, pEl=document.getElementById('cPnL');
   pEl.textContent=fmt$(pnl); pEl.style.color=pnl>=0?'var(--accent)':'var(--accent4)';
+  const pnlSubEl=document.getElementById('cPnLSub');
+  if(pnlSubEl) pnlSubEl.textContent=`income − costs · ${ocPeriod}`;
+
   const mbs=new Set(S.receipts.filter(r=>!r.deleted).map(r=>r.member));
   let owed=0; mbs.forEach(m=>{owed+=calcOwed(m);});
   document.getElementById('cOwed').textContent=fmt$(owed);
@@ -1540,7 +1797,7 @@ function calcSplit(){
 // TABS / FILTERS
 // ════════════════════════════════════════════
 function switchTab(name){
-  const order=['vault','supply','members','oc','receipts','respect','log','debug','admin'];
+  const order=['vault','supply','members','oc','receipts','respect','war','log','debug','admin'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',order[i]===name));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   const panel=document.getElementById('panel-'+name);
@@ -1550,6 +1807,7 @@ function switchTab(name){
   if(name==='receipts') renderReceipts();
   if(name==='log') renderArmoryLog();
   if(name==='respect') renderRespect();
+  if(name==='war') renderWarPanel();
   if(name==='admin') adminInspectStorage();
 }
 
@@ -1562,27 +1820,40 @@ function renderDebugEvents(){
     document.getElementById('debugTbl').innerHTML='<div class="empty">No events loaded. Hit SYNC EVENTS on Item Receipts tab first.</div>';
     return;
   }
-  let h=`<table><thead><tr><th>Time</th><th>Matched?</th><th>Raw Event Text</th></tr></thead><tbody>`;
+  let h=`<table><thead><tr><th>Time</th><th>Status</th><th>Raw Event Text</th></tr></thead><tbody>`;
   events.slice(0,200).forEach(ev=>{
     const text=ev.event||ev.news||'';
     const ts=ev.timestamp;
-    // Check if it matches any of our receipt patterns
+    const clean=stripHtml(text);
+    // Match against the actual current parsing patterns
     const matched=
-      /has\s+sent\s+you\s+\d+x?\s+/i.test(text)||
-      /sent\s+you\s+\d+x?\s+/i.test(text)||
-      /You were sent\s+\d+x?\s+/i.test(text)||
-      /has\s+given\s+you\s+\d+x?\s+/i.test(text)||
-      /has\s+sent\s+you\s+a\s+/i.test(text);
-    const isItemLike=text.toLowerCase().includes('sent')||text.toLowerCase().includes('given')||
-      text.toLowerCase().includes('plushie')||text.toLowerCase().includes('flower')||
-      text.toLowerCase().includes('xanax')||text.toLowerCase().includes('heather')||
-      text.toLowerCase().includes('dahlia');
-    const rowStyle=matched?'background:rgba(127,255,110,0.04)':isItemLike?'background:rgba(240,192,64,0.04)':'';
-    const badge=matched?'<span class="badge bg">MATCHED</span>':isItemLike?'<span class="badge by">POSSIBLE</span>':'<span class="badge bm">—</span>';
+      /You were sent\s+\d+x?\s+/i.test(clean)||       // Primary format (current API)
+      /You were sent\s+some\s+/i.test(clean)||          // "some Xanax" format
+      /You were sent\s+a\s+/i.test(clean)||             // singular
+      /has\s+sent\s+you\s+(\d+x?|a)\s+/i.test(clean)|| // legacy with [ID]
+      /has\s+given\s+you\s+\d+x?\s+/i.test(clean)||
+      /sent\s+you\s+\d+x?\s+/i.test(clean);
+    // Also check if already parsed into a receipt
+    const parsed=S.receipts.find(r=>r.ts===ev.timestamp);
+    const isItemLike=/sent|given|plushie|flower|xanax|heather|dahlia|wolverine|teddy|sheep/i.test(clean);
+    let badge, rowStyle;
+    if(parsed){
+      badge=`<span class="badge bg">PARSED</span><span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-left:4px;">${parsed.qty}x ${parsed.item} ← ${parsed.member}</span>`;
+      rowStyle='background:rgba(127,255,110,0.04)';
+    } else if(matched){
+      badge='<span class="badge by">MATCHED</span>';
+      rowStyle='background:rgba(240,192,64,0.04)';
+    } else if(isItemLike){
+      badge='<span class="badge bm">POSSIBLE</span>';
+      rowStyle='';
+    } else {
+      badge='<span class="badge bm" style="opacity:0.3">—</span>';
+      rowStyle='';
+    }
     h+=`<tr style="${rowStyle}">
       <td class="cm" style="font-size:10px;white-space:nowrap">${ft(ts)}</td>
-      <td>${badge}</td>
-      <td style="font-size:11px;color:var(--text);word-break:break-word;max-width:500px">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+      <td style="white-space:nowrap">${badge}</td>
+      <td style="font-size:10px;color:var(--text);word-break:break-word">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
     </tr>`;
   });
   document.getElementById('debugTbl').innerHTML=h+'</tbody></table>';
@@ -1667,11 +1938,32 @@ async function dbgRunAll(){
   // Item receipt summary
   report+=`\n=== ITEM RECEIPT PARSE RESULTS ===\n`;
   report+=`Events loaded: ${S.events.length}\n`;
-  report+=`Receipts parsed: ${S.receipts.filter(r=>!r.deleted).length}\n`;
+  report+=`Receipts parsed: ${S.receipts.filter(r=>!r.deleted).length} active (${S.receipts.length} total)\n`;
+  report+=`Outgoing items: ${(S.outgoing||[]).length}\n`;
   if(S._unmatchedEvents&&S._unmatchedEvents.length){
     report+=`Unmatched item-like events (${S._unmatchedEvents.length}):\n`;
     S._unmatchedEvents.slice(0,10).forEach(e=>{ report+=`  ${e}\n`; });
+  } else {
+    report+=`No unmatched events.\n`;
   }
+  report+=`\n=== RESPECT DATA ===\n`;
+  report+=`attacknews (S.crimeNews): ${S.crimeNews.length} entries\n`;
+  report+=`mainnews respect entries (S.attackNews): ${S.attackNews.length}\n`;
+  if(S.crimeNews.length>0){
+    report+=`First 3 attack entries:\n`;
+    S.crimeNews.slice(0,3).forEach((e,i)=>{
+      report+=`  [${i}] ${stripHtml(e.news||'').slice(0,100)}\n`;
+    });
+  }
+  report+=`\n=== OC / VAULT ===\n`;
+  report+=`OC vault entries (S.ocRaw): ${S.ocRaw.length}\n`;
+  report+=`Crime log entries (S._crimeLog): ${(S._crimeLog||[]).length}\n`;
+  if(S.ocRaw.length>0){
+    report+=`First OC entry: ${(S.ocRaw[0]?.news||'').slice(0,100)}\n`;
+  }
+  report+=`\n=== WAR FUNDS ===\n`;
+  report+=`Wars imported: ${S.wars.length}\n`;
+  S.wars.forEach(w=>{ report+=`  ${w.name} | ${w.date} | $${w.grossPayout.toLocaleString()} | ${w.members.length} members\n`; });
   out.textContent=report;
   status.textContent='✓ All tests complete — copy report and share';
 }
@@ -1699,14 +1991,20 @@ function adminExport(type){
   const ts=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
   if(type==='all'){
     data={
-      _meta:{exported:new Date().toISOString(),version:'hv-dashboard-v2'},
+      _meta:{exported:new Date().toISOString(),version:'hv-dashboard-v3'},
       receipts:S.receipts,
       paidLog:S.paidLog,
       rates:S.rates,
+      wars:S.wars,
+      outgoing:S.outgoing||[],
+      cardPeriods:S.cardPeriods,
       events_count:S.events.length,
       faction_name:S.faction?.name||'',
     };
     filename=`highvibes-backup-${ts}.json`;
+  } else if(type==='wars'){
+    data={wars:S.wars};
+    filename=`highvibes-wars-${ts}.json`;
   } else if(type==='receipts'){
     data={receipts:S.receipts};
     filename=`highvibes-receipts-${ts}.json`;
@@ -1791,7 +2089,22 @@ function adminImport(evt){
         try{localStorage.setItem('hv_rates',JSON.stringify(S.rates));}catch(ex){}
         loadRateInputs();
       }
-      renderReceipts(); renderCards(); updateBadge();
+      // Import wars (merge by URL)
+      if(data.wars&&Array.isArray(data.wars)){
+        const existingUrls=new Set(S.wars.map(w=>w.url));
+        let warsAdded=0;
+        data.wars.forEach(w=>{ if(!existingUrls.has(w.url)){S.wars.push(w);warsAdded++;} });
+        if(warsAdded>0) try{localStorage.setItem('hv_wars',JSON.stringify(S.wars));}catch(ex){}
+        if(warsAdded) clog(`Imported ${warsAdded} war(s)`,'ok');
+      }
+      // Import outgoing (merge by ID)
+      if(data.outgoing&&Array.isArray(data.outgoing)){
+        if(!S.outgoing) S.outgoing=[];
+        const existingOut=new Set(S.outgoing.map(r=>r.id));
+        data.outgoing.forEach(r=>{ if(!existingOut.has(r.id)) S.outgoing.push(r); });
+        try{localStorage.setItem('hv_outgoing',JSON.stringify(S.outgoing));}catch(ex){}
+      }
+      renderReceipts(); renderCards(); updateBadge(); renderWarPanel();
       status.style.color='var(--accent2)';
       status.textContent=`✓ Import complete — ${added} receipts added, ${skipped} already existed`;
       clog(`Admin import: +${added} receipts, ${skipped} dupes skipped`,'ok');
@@ -1835,7 +2148,7 @@ function adminAddManualReceipt(){
 
 // ── STORAGE INSPECTOR
 function adminInspectStorage(){
-  const keys=['hv_key','hv_rcpts','hv_paid','hv_rates','hv_sync_rate'];
+  const keys=['hv_key','hv_rcpts','hv_paid','hv_rates','hv_sync_rate','hv_wars','hv_card_periods','hv_outgoing'];
   let out='=== LOCALSTORAGE ===\n\n';
   keys.forEach(k=>{
     const v=localStorage.getItem(k);
@@ -1851,7 +2164,9 @@ function adminInspectStorage(){
     }catch(e){ out+=`[${k}]: ${v.slice(0,80)}…\n\n`; }
   });
   out+=`=== IN-MEMORY STATE ===\n`;
-  out+=`S.receipts: ${S.receipts.length} (${S.receipts.filter(r=>!r.deleted).length} active, ${S.receipts.filter(r=>r.deleted).length} deleted)\n`;
+  out+=`S.receipts: ${S.receipts.length} (${S.receipts.filter(r=>!r.deleted).length} active)\n`;
+  out+=`S.outgoing: ${(S.outgoing||[]).length}\n`;
+  out+=`S.wars: ${S.wars.length}\n`;
   out+=`S.events: ${S.events.length}\n`;
   out+=`S.armoryNews: ${S.armoryNews.length}\n`;
   out+=`S.ocRaw: ${S.ocRaw.length}\n`;
@@ -1877,14 +2192,10 @@ function adminCheckWipeInput(){
   const btn=document.getElementById('btnWipeAll');
   if(!btn) return;
   if(val==='WIPE'){
-    btn.disabled=false;
-    btn.style.opacity='1';
-    btn.style.cursor='pointer';
+    btn.disabled=false; btn.style.opacity='1'; btn.style.cursor='pointer';
     btn.style.background='rgba(255,107,107,0.15)';
   } else {
-    btn.disabled=true;
-    btn.style.opacity='0.4';
-    btn.style.cursor='not-allowed';
+    btn.disabled=true; btn.style.opacity='0.4'; btn.style.cursor='not-allowed';
     btn.style.background='rgba(255,107,107,0.08)';
   }
 }
@@ -1894,21 +2205,17 @@ function adminClearAll(){
   if(val!=='WIPE'){ alert('Type WIPE in the confirmation box first.'); return; }
   const rcptCount=S.receipts.length;
   const paidCount=Object.keys(S.paidLog).length;
-  if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• All payout rates\n• Sync settings\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
-  ['hv_rcpts','hv_paid','hv_rates','hv_sync_rate'].forEach(k=>localStorage.removeItem(k));
-  S.receipts=[];
-  S.paidLog={};
-  S.rates={Plushie:98,Flower:98,Xanax:98,Alcohol:98,Medical:98};
-  RMINS=15;
-  loadRateInputs();
-  buildSyncSelector();
-  renderReceipts(); renderCards(); updateBadge();
-  clog(`Admin: WIPED all data (${rcptCount} receipts, ${paidCount} paid entries)`,'err');
-  // Reset the input
+  const warCount=S.wars.length;
+  if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• ${warCount} war payout record(s)\n• All payout rates & card settings\n• Sync settings\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
+  ['hv_rcpts','hv_paid','hv_rates','hv_sync_rate','hv_wars','hv_card_periods','hv_outgoing'].forEach(k=>localStorage.removeItem(k));
+  S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Alcohol:98,Medical:98};
+  S.wars=[]; S.outgoing=[]; S.cardPeriods={supply:'30d',oc:'30d'}; RMINS=15;
+  loadRateInputs(); buildSyncSelector(); restoreCardPeriodPills();
+  renderReceipts(); renderCards(); updateBadge(); renderWarPanel();
+  clog(`Admin: WIPED all data (${rcptCount} receipts, ${warCount} wars)`,'err');
   const inp=document.getElementById('wipeConfirmInput');
   if(inp) inp.value='';
-  adminCheckWipeInput();
-  adminInspectStorage();
+  adminCheckWipeInput(); adminInspectStorage();
   alert('✓ All data wiped. API key preserved.');
 }
 
@@ -1957,6 +2264,248 @@ function adminRestoreDeleted(){
   clog(`Admin: restored ${count} deleted receipts`,'ok');
 }
 
+// ════════════════════════════════════════════
+// WAR FUNDS
+// ════════════════════════════════════════════
+async function importWarUrl(){
+  const url=(document.getElementById('warUrlInput')?.value||'').trim();
+  const status=document.getElementById('warImportStatus');
+  if(!url||!url.includes('tc-armasync')){
+    status.style.display='block';status.style.color='var(--accent4)';
+    status.textContent='✗ Paste a valid TC ArmaSync payout URL'; return;
+  }
+  if(S.wars.find(w=>w.url===url)){
+    status.style.display='block';status.style.color='var(--accent3)';
+    status.textContent='⚠ This war has already been imported'; return;
+  }
+  status.style.display='block';status.style.color='var(--muted)';status.textContent='Fetching…';
+  try{
+    const r=await fetch(url);
+    const html=await r.text();
+    const war=parseArmaSync(html,url);
+    if(!war){status.style.color='var(--accent4)';status.textContent='✗ Could not parse payout data from page';return;}
+    S.wars.push(war);
+    try{localStorage.setItem('hv_wars',JSON.stringify(S.wars));}catch(e){}
+    status.style.color='var(--accent2)';
+    status.textContent=`✓ Imported: ${war.name} — ${war.members.length} members, ${fmt$(war.grossPayout)} gross`;
+    document.getElementById('warUrlInput').value='';
+    renderWarPanel();
+    clog(`War imported: ${war.name} (${fmt$(war.grossPayout)})`,'ok');
+  }catch(e){
+    status.style.color='var(--accent4)';status.textContent='✗ Fetch failed: '+e.message;
+    clog('War import failed: '+e.message,'err');
+  }
+}
+
+function parseArmaSync(html, url){
+  // Strip HTML tags and normalize whitespace
+  const txt=html.replace(/<[^>]+>/g,' ')
+    .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+    .replace(/\s+/g,' ').trim();
+
+  // War name — stop at "Shared on" or "Payout Results" to avoid trailing junk
+  const vsM=txt.match(/([A-Za-z0-9_\-. ]+)\s+vs\s+([A-Z0-9_\-. ]+?)(?:\s+Shared|\s+Payout|\s*$)/);
+  const name=vsM?vsM[0].replace(/\s+(?:Shared|Payout).*/i,'').trim().slice(0,60):'Unknown War';
+
+  // Gross payout — appears as "Gross Payout $344,000,000"
+  const grossM=txt.match(/Gross Payout\s*\$\s*([\d,]+)/i);
+  const grossPayout=grossM?parseInt(grossM[1].replace(/,/g,'')):0;
+
+  // Our attacks — "Our Attacks 467"
+  const atkM=txt.match(/Our Attacks\s+([\d,]+)/i)||txt.match(/Total War Attacks\s+([\d,]+)/i);
+  const totalAtk=atkM?parseInt(atkM[1].replace(/,/g,'')):0;
+
+  // Shared date — "Shared on Apr 5, 2026"
+  const dateM=txt.match(/Shared on ([A-Za-z]+ \d+,?\s*\d{4})/i);
+  const date=dateM?dateM[1].trim():new Date().toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});
+
+  // Parse members by splitting on "Total Payout $NNN"
+  // The text before each "Total Payout" contains: "MemberName Level N N total hits N.N respect"
+  const members=[];
+  const payParts=txt.split(/Total Payout\s*\$\s*([\d,]+)/);
+  // payParts[0]=header, payParts[1]=first payout amount, payParts[2]=text before 2nd payout, etc.
+  for(let i=0;i<payParts.length-1;i+=2){
+    const payoutStr=payParts[i+1];
+    const payout=parseInt(payoutStr.replace(/,/g,''))||0;
+    const before=payParts[i];
+
+    // Find "MemberName Level N N total hits N.N respect" — confirmed real format
+    const mM=before.match(/([A-Za-z0-9_\-]+)\s+Level\s+\d+\s+\d+\s+total\s+hits?\s+[\d.]+\s+respect/i);
+    // Fallback: just "Name Level N"
+    const mFallback=before.match(/([A-Za-z0-9_\-]+)\s+Level\s+\d+/gi);
+    const mName=mM?mM[1].trim():mFallback?mFallback[mFallback.length-1].replace(/\s+Level\s+\d+/i,'').trim():null;
+
+    if(!mName||members.find(x=>x.name===mName)||payout===0) continue;
+
+    // War hits from within 500 chars before this payout
+    const ctx=before.slice(-500);
+    const wH=ctx.match(/War Hits\s+(\d+)/i);
+    const warHits=wH?parseInt(wH[1]):0;
+
+    // Respect from "N.N respect" or "Respect N.N"
+    const respM=ctx.match(/([\d.]+)\s+respect/i)||ctx.match(/Respect[:\s]+([\d.]+)/i);
+    const respect=respM?parseFloat(respM[1]):0;
+
+    members.push({name:mName,payout,warHits,respect});
+  }
+
+  if(!members.length||!grossPayout) return null;
+  return{url,name,date,grossPayout,totalAtk,members,importedAt:Date.now()};
+}
+
+function setWarPeriod(el, period){
+  S.warPeriod=period;
+  document.querySelectorAll('#panel-war .pill').forEach(p=>p.classList.remove('on'));
+  el.classList.add('on');
+  renderWarPanel();
+}
+
+function clearWarData(){
+  if(!confirm(`Clear all ${S.wars.length} imported war(s)?`)) return;
+  S.wars=[];
+  try{localStorage.removeItem('hv_wars');}catch(e){}
+  renderWarPanel();
+  clog('War data cleared','warn');
+}
+
+function renderWarPanel(){
+  const empty=document.getElementById('warEmpty');
+  const summaryCards=document.getElementById('warSummaryCards');
+  const memberGrid=document.getElementById('warMemberGrid');
+  const warTbl=document.getElementById('warTbl');
+  if(!empty) return;
+
+  if(!S.wars.length){
+    empty.style.display='block';
+    if(summaryCards) summaryCards.style.display='none';
+    if(memberGrid) memberGrid.innerHTML='';
+    if(warTbl) warTbl.style.display='none';
+    return;
+  }
+  empty.style.display='none';
+
+  // Filter by period (based on importedAt timestamp)
+  const period=S.warPeriod||'all';
+  const msAgo={'30d':30,'90d':90,'1y':365}[period];
+  const fromMs=msAgo?Date.now()-msAgo*86400*1000:0;
+  const filtered=S.wars.filter(w=>w.importedAt>=fromMs);
+
+  if(!filtered.length){
+    empty.style.display='block';
+    empty.innerHTML=`No wars in this period. Try LIFETIME.`;
+    if(summaryCards) summaryCards.style.display='none';
+    if(memberGrid) memberGrid.innerHTML='';
+    return;
+  }
+
+  // Aggregate across filtered wars
+  const memberTotals={};
+  let grandPayout=0, grandAtk=0;
+  filtered.forEach(w=>{
+    grandPayout+=w.grossPayout;
+    grandAtk+=w.totalAtk||0;
+    w.members.forEach(m=>{
+      if(!memberTotals[m.name]) memberTotals[m.name]={name:m.name,payout:0,warHits:0,respect:0,wars:0};
+      memberTotals[m.name].payout+=m.payout;
+      memberTotals[m.name].warHits+=m.warHits||0;
+      memberTotals[m.name].respect+=m.respect||0;
+      memberTotals[m.name].wars++;
+    });
+  });
+
+  if(summaryCards){
+    summaryCards.style.display='block';
+    const wn=document.getElementById('wWarName');
+    const wp=document.getElementById('wTotalPayout');
+    const wa=document.getElementById('wTotalAtk');
+    const wd=document.getElementById('wWarDate');
+    if(wn) wn.textContent=filtered.length===1?filtered[0].name:`${filtered.length} wars`;
+    if(wp) wp.textContent=fmt$(grandPayout);
+    if(wa) wa.textContent=grandAtk.toLocaleString()+' war hits';
+    if(wd) wd.textContent=filtered.length===1?filtered[0].date:`${period==='all'?'Lifetime':period}`;
+  }
+
+  // Member payout grid
+  const sorted=Object.values(memberTotals).sort((a,b)=>b.payout-a.payout);
+  if(memberGrid){
+    memberGrid.innerHTML=sorted.map(m=>`
+      <div class="war-member-row">
+        <div>
+          <div class="war-member-name">${m.name}</div>
+          <div class="war-member-hits">${m.warHits} war hits · ${m.wars} war${m.wars!==1?'s':''} · ${m.respect.toFixed(1)} resp</div>
+        </div>
+        <div class="war-member-amt">${fmt$(m.payout)}</div>
+      </div>`).join('');
+  }
+
+  // War history table when multiple wars
+  if(warTbl){
+    if(filtered.length>1){
+      warTbl.style.display='block';
+      let h=`<table><thead><tr><th>War</th><th>Date</th><th>Gross Payout</th><th>Members</th><th></th></tr></thead><tbody>`;
+      [...filtered].reverse().forEach((w,i)=>{
+        h+=`<tr><td class="cn" style="font-size:11px">${w.name}</td>
+          <td class="cm" style="font-size:10px">${w.date}</td>
+          <td class="cy">${fmt$(w.grossPayout)}</td>
+          <td class="cm">${w.members.length}</td>
+          <td><button class="del-btn" title="Remove" onclick="removeWar(${S.wars.indexOf(w)})">✕</button></td></tr>`;
+      });
+      warTbl.innerHTML=h+'</tbody></table>';
+    } else {
+      warTbl.style.display='none';
+    }
+  }
+}
+
+function removeWar(idx){
+  if(!S.wars[idx]) return;
+  if(!confirm(`Remove war: ${S.wars[idx].name}?`)) return;
+  S.wars.splice(idx,1);
+  try{localStorage.setItem('hv_wars',JSON.stringify(S.wars));}catch(e){}
+  renderWarPanel();
+  clog(`War removed`,'warn');
+}
+
+// ════════════════════════════════════════════
+// OUTGOING ITEMS (items YOU sent to faction members)
+// ════════════════════════════════════════════
+function parseOutgoing(){
+  // Track items you sent OUT from your events
+  // Format: "You sent Nx Item to MemberName" or "You gave Nx Item to MemberName"
+  const seen=new Set((S.outgoing||[]).map(r=>r.id));
+  let added=0;
+  S.events.forEach(ev=>{
+    const raw=ev.event||ev.news||'';
+    if(!raw) return;
+    const n=stripHtml(raw);
+    // "You sent 10x Heather to Sassyquatch"
+    const pA=n.match(/^You sent\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\.?$/i);
+    // "You gave 10x Heather to Sassyquatch"
+    const pB=n.match(/^You gave\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\.?$/i);
+    const match=pA||pB;
+    if(match){
+      const qty=parseInt(match[1]);
+      const item=match[2].trim().replace(/[.!,]$/,'');
+      const toMember=match[3].trim();
+      const id=`out_${ev.timestamp}_${item.replace(/\W/g,'').toLowerCase()}_${toMember.replace(/\W/g,'')}`;
+      if(!seen.has(id)){
+        const iData=lookupItem(item);
+        const mv=iData?.mv||0;
+        const cat=detectCat(item)||'Other';
+        if(!S.outgoing) S.outgoing=[];
+        S.outgoing.push({id,toMember,item,qty,mv,cat,ts:ev.timestamp});
+        seen.add(id);
+        added++;
+      }
+    }
+  });
+  if(added>0){
+    S.outgoing.sort((a,b)=>b.ts-a.ts);
+    try{localStorage.setItem('hv_outgoing',JSON.stringify(S.outgoing));}catch(e){}
+    clog(`Outgoing: ${added} new entries tracked`,'ok');
+  }
+}
+
 function filterType(el,type){
   document.querySelectorAll('#typePills .pill').forEach(p=>p.classList.remove('on'));
   el.classList.add('on'); S.typeFilter=type; renderSupply();
@@ -1964,4 +2513,4 @@ function filterType(el,type){
 
 </script>
 </body>
-  </html>
+</html>
