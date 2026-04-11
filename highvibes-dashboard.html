@@ -233,6 +233,8 @@
     <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">KEY:</span>
     <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--accent)" id="keyDisplay"></span>
     <span style="flex:1"></span>
+    <label style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;white-space:nowrap">SYNC:</label>
+    <select id="syncRateSel" onchange="setSyncRate(this.value)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:5px 8px;outline:none;cursor:pointer;max-width:150px;"></select>
     <button class="btn-sm" onclick="togglePostConsole()">CONSOLE</button>
     <button class="btn-danger" onclick="clearKey()">DISCONNECT</button>
   </div>
@@ -265,6 +267,7 @@
     <button class="tab" onclick="switchTab('members')">Member Usage</button>
     <button class="tab" onclick="switchTab('oc')">OC Income</button>
     <button class="tab" id="tabRcpt" onclick="switchTab('receipts')">Item Receipts</button>
+    <button class="tab" onclick="switchTab('respect')">Respect</button>
     <button class="tab" onclick="switchTab('log')">Armory Log</button>
     <button class="tab" onclick="switchTab('debug')">Event Debug</button>
   </div>
@@ -301,9 +304,10 @@
         <div class="fg"><label>Members Required</label><input type="number" id="ocM" placeholder="4" min="1" max="10" oninput="calcSplit()"></div>
         <div class="fg"><label>Faction Share</label>
           <select id="ocFS" onchange="calcSplit()">
-            <option value="auto">Auto (+1 share)</option>
-            <option value="0">0%</option><option value="10">10%</option><option value="20">20%</option>
-            <option value="25">25%</option><option value="33">33%</option><option value="50">50%</option><option value="100">100%</option>
+            <option value="auto">Auto (remainder)</option>
+            <option value="0">0%</option><option value="10">10%</option><option value="15">15%</option>
+            <option value="20">20%</option><option value="25">25%</option><option value="30">30%</option>
+            <option value="33">33%</option><option value="40">40%</option><option value="50">50%</option>
           </select>
         </div>
         <div class="fg"><label>&nbsp;</label><button class="btn-primary" onclick="calcSplit()" style="width:100%">CALC</button></div>
@@ -346,6 +350,44 @@
     <div class="tw" id="rcptTbl"><div class="empty">No receipts logged.</div></div>
   </div>
 
+  <!-- RESPECT -->
+  <div class="panel" id="panel-respect">
+    <!-- Total Faction Respect Card -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;" id="respectCards">
+      <div class="sc" style="--ca:var(--accent);grid-column:1">
+        <div class="sc-label">Total Faction Respect</div>
+        <div class="sc-value" id="rTotalAll">—</div>
+        <div class="sc-sub" style="display:flex;gap:12px;margin-top:4px;">
+          <span>⚔ <span id="rTotalAtk">—</span> attacks</span>
+          <span>🔒 <span id="rTotalOC">—</span> OCs</span>
+        </div>
+      </div>
+      <div class="sc" style="--ca:var(--accent4)">
+        <div class="sc-label">Attack Respect</div>
+        <div class="sc-value" id="rAtkCard">—</div>
+        <div class="sc-sub">from wins &amp; assists</div>
+      </div>
+      <div class="sc" style="--ca:var(--accent2)">
+        <div class="sc-label">OC Respect</div>
+        <div class="sc-value" id="rOCCard">—</div>
+        <div class="sc-sub">from organized crimes</div>
+      </div>
+    </div>
+    <!-- Period selector -->
+    <div class="sh">
+      <span class="st">Respect by Member</span>
+      <div style="display:flex;gap:6px;">
+        <button class="pill on" onclick="setRespectPeriod(this,'1d')">1D</button>
+        <button class="pill" onclick="setRespectPeriod(this,'7d')">7D</button>
+        <button class="pill" onclick="setRespectPeriod(this,'30d')">30D</button>
+        <button class="pill" onclick="setRespectPeriod(this,'90d')">90D</button>
+        <button class="pill" onclick="setRespectPeriod(this,'1y')">1Y</button>
+        <button class="pill" onclick="setRespectPeriod(this,'all')">ALL</button>
+      </div>
+    </div>
+    <div class="tw" id="respectTbl"><div class="empty">No respect data yet.<br>Requires faction mainnews access.</div></div>
+  </div>
+
   <!-- ARMORY LOG -->
   <div class="panel" id="panel-log">
     <div class="sh">
@@ -378,15 +420,27 @@
 // ════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════
-const RMINS = 30;
 const FLOWER_NAMES = new Set(['heather','dahlia','orchid','pansy','lily','crocus','peony','daffodil',
   'violet','cerise','african violet','banana orchid','edelweiss','gerbera','hollyhock']);
 
+// Sync rate options: label → minutes (0 = live ~30s, -1 = daily)
+const SYNC_RATES = [
+  {label:'Live (~30s)', mins:0.5},
+  {label:'1 min', mins:1},
+  {label:'5 min', mins:5},
+  {label:'15 min (Default)', mins:15},
+  {label:'30 min', mins:30},
+  {label:'1 hr', mins:60},
+  {label:'Daily', mins:1440},
+];
+let RMINS = 15; // default
+
 let S = {
   key:'', faction:null, donations:{}, armoryNews:[], events:[],
-  prices:{}, ocRaw:[],
+  prices:{}, ocRaw:[], attackNews:[], crimeNews:[],
   receipts:[], paidLog:{}, rates:{Plushie:98,Flower:98,Xanax:98,Alcohol:98,Medical:98},
-  lastSync:null, loading:false, tab:'vault', typeFilter:'all'
+  lastSync:null, loading:false, tab:'vault', typeFilter:'all',
+  respectPeriod:'30d'
 };
 let rTimer=null, cTimer=null, rStart=null;
 
@@ -425,7 +479,9 @@ function updateRateMeter(){
   try{ S.receipts = JSON.parse(localStorage.getItem('hv_rcpts')||'[]'); }catch(e){}
   try{ S.paidLog  = JSON.parse(localStorage.getItem('hv_paid')||'{}'); }catch(e){}
   try{ const r=JSON.parse(localStorage.getItem('hv_rates')||'{}'); S.rates={...S.rates,...r}; }catch(e){}
+  try{ const sr=localStorage.getItem('hv_sync_rate'); if(sr){RMINS=parseFloat(sr)||15;} }catch(e){}
   loadRateInputs();
+  buildSyncSelector();
   const k=localStorage.getItem('hv_key');
   if(k){ S.key=k; revealDash(); fetchAll(); startCycle(); }
   updateBadge();
@@ -492,6 +548,7 @@ function revealDash(){
   document.getElementById('mainTabs').style.display='flex';
   document.getElementById('refreshBar').style.display='flex';
   document.getElementById('rateMeterWrap').style.display='flex';
+  buildSyncSelector();
   // Start a 5s interval to decay old calls off the meter
   setInterval(updateRateMeter,5000);
 }
@@ -499,7 +556,7 @@ function revealDash(){
 function clearKey(){
   if(!confirm('Disconnect? Receipts and logs will be preserved.')) return;
   localStorage.removeItem('hv_key');
-  S.key='';S.faction=null;S.donations={};S.armoryNews=[];S.events=[];S.prices={};S.ocRaw=[];
+  S.key='';S.faction=null;S.donations={};S.armoryNews=[];S.events=[];S.prices={};S.ocRaw=[];S.attackNews=[];S.crimeNews=[];
   clearInterval(rTimer);clearInterval(cTimer);
   ['keyBar','postConsole','statGrid','mainTabs','refreshBar'].forEach(id=>{
     document.getElementById(id).style.display='none';
@@ -523,7 +580,7 @@ async function tGet(section, sel, extra=''){
   return d;
 }
 
-async function fetchAll(){
+async function fetchAll(isManual=false){
   if(S.loading) return;
   S.loading=true;
   setStatus('loading','SYNCING');
@@ -531,14 +588,15 @@ async function fetchAll(){
   document.getElementById('gErr').style.display='none';
   clog('──── Full sync started ────','info');
 
+  // On manual sync we can afford more API calls (up to 25), fetch wider windows
+  const historyDays = isManual ? 90 : 30;
+
   try{
     clog('Fetching faction data (basic + donations)…','info');
     const fac=await tGet('faction','basic,donations');
     S.faction=fac;
     S.donations=fac.donations||{};
 
-    // Try to get vault money with AA — faction basic may return money=0 without full AA
-    // The 'money' selection on faction endpoint requires AA
     let vaultMoney=fac.money||0;
     if(vaultMoney===0){
       try{
@@ -552,8 +610,8 @@ async function fetchAll(){
     }
     clog(`Faction "${fac.name}" | ${Object.keys(fac.members||{}).length} members | Vault: ${vaultMoney>0?fmt$(vaultMoney):'(AA required)'}`,'ok');
 
-    clog('Fetching armory news (30d window)…','info');
-    const since=Math.floor(Date.now()/1000)-30*24*3600;
+    clog('Fetching armory news…','info');
+    const since=Math.floor(Date.now()/1000)-historyDays*24*3600;
     const [an1,an2]=await Promise.all([
       tGet('faction','armorynews'),
       tGet('faction','armorynews',`&from=${since}`)
@@ -573,10 +631,16 @@ async function fetchAll(){
 
     await syncEvents(true);
 
-    clog('Fetching faction main news (OC income)…','info');
+    clog('Fetching faction main news (OC income + respect)…','info');
     try{
-      const mn=await tGet('faction','mainnews');
-      const all=Object.values(mn.mainnews||{});
+      // Fetch multiple pages of mainnews on manual sync to get more history
+      const pages = isManual ? 3 : 1;
+      let allNews = {};
+      for(let p=0;p<pages;p++){
+        const mn=await tGet('faction','mainnews'+(p>0?`,mainnews&offset=${p*100}`:''));
+        Object.assign(allNews, mn.mainnews||{});
+      }
+      const all=Object.values(allNews);
       S.ocRaw=all.filter(e=>e.news&&(
         /\$[\d,]+/.test(e.news)||
         e.news.toLowerCase().includes('organized crime')||
@@ -585,9 +649,28 @@ async function fetchAll(){
         e.news.toLowerCase().includes('faction received')||
         e.news.toLowerCase().includes('payout')
       )).sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
-      clog(`OC/mainnews entries: ${S.ocRaw.length} (of ${all.length} total)`,'ok');
+
+      // Attack news for respect
+      S.attackNews=all.filter(e=>e.news&&(
+        e.news.toLowerCase().includes('attacked')||
+        e.news.toLowerCase().includes('mugged')||
+        e.news.toLowerCase().includes('hospitalized')||
+        /respect/i.test(e.news)
+      )).sort((a,b)=>b.timestamp-a.timestamp);
+
+      // Crime news for OC respect
+      S.crimeNews=all.filter(e=>e.news&&(
+        /organized crime/i.test(e.news)||
+        /oc\s+success/i.test(e.news)||
+        /crime.*success/i.test(e.news)||
+        /crime.*complete/i.test(e.news)||
+        /kidnapping.*success/i.test(e.news)||
+        /blackmail.*success/i.test(e.news)
+      )).sort((a,b)=>b.timestamp-a.timestamp);
+
+      clog(`OC entries: ${S.ocRaw.length} | Attack news: ${S.attackNews.length} | Crime success: ${S.crimeNews.length}`,'ok');
       if(all.length>0&&S.ocRaw.length===0) clog('No $ entries in mainnews — OC payouts may not be going to faction vault','warn');
-    }catch(e){ clog('OC news failed (non-fatal): '+e.message,'warn'); S.ocRaw=[]; }
+    }catch(e){ clog('OC/mainnews failed (non-fatal): '+e.message,'warn'); S.ocRaw=[]; S.attackNews=[]; S.crimeNews=[]; }
 
     S.lastSync=Date.now();
     renderAll();
@@ -753,7 +836,29 @@ function startCycle(){
     document.getElementById('rFill').style.width=(rem/(RMINS*60*1000)*100)+'%';
   },1000);
 }
-function manualRefresh(){ if(!S.loading){fetchAll();clearInterval(rTimer);clearInterval(cTimer);startCycle();} }
+
+function setSyncRate(val){
+  const mins=parseFloat(val);
+  RMINS=mins;
+  try{localStorage.setItem('hv_sync_rate',String(mins));}catch(e){}
+  clog(`Sync rate set to ${RMINS<1?(RMINS*60).toFixed(0)+'s':RMINS+'min'}`,'info');
+  if(S.key){ clearInterval(rTimer);clearInterval(cTimer);startCycle(); }
+}
+
+function buildSyncSelector(){
+  const sel=document.getElementById('syncRateSel');
+  if(!sel) return;
+  sel.innerHTML='';
+  SYNC_RATES.forEach(r=>{
+    const opt=document.createElement('option');
+    opt.value=r.mins;
+    opt.textContent=r.label;
+    if(Math.abs(r.mins-RMINS)<0.01) opt.selected=true;
+    sel.appendChild(opt);
+  });
+}
+
+function manualRefresh(){ if(!S.loading){fetchAll(true);clearInterval(rTimer);clearInterval(cTimer);startCycle();} }
 
 // ════════════════════════════════════════════
 // HELPERS
@@ -783,25 +888,165 @@ function lookupItem(name){
 
 function parseArm(e){
   const n=e.news||'';
-  // Member took FROM armory = withdrawal (out, red)
-  const tk=n.match(/^(.+?)\s*\[(\d+)\]\s+took\s+(\d+)x?\s+(.+?)\s+from/i);
-  // Armory gave TO member = withdrawal (out, red) — same direction as took
-  const gv=n.match(/^(.+?)\s*\[(\d+)\]\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+the\s+armory/i);
-  // Member gave TO armory = deposit (in, green)
-  const dp=n.match(/^(.+?)\s*\[(\d+)\]\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+(?!the\s+armory)(.+)/i);
-  // Loaned = loan (yellow)
-  const ln=n.match(/^(.+?)\s*\[(\d+)\]\s+loaned\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\s*\[(\d+)\]/i);
-  // Returned = return (yellow)
-  const rt=n.match(/^(.+?)\s*\[(\d+)\]\s+returned\s+(\d+)x?\s+(.+)/i);
-  // Generic gave without "to the armory" — armory gave to member = out
-  const gv2=n.match(/^(.+?)\s*\[(\d+)\]\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\s*\[(\d+)\]/i);
+  // Torn armorynews may or may not include [ID] — make it optional
+  // Pattern: Name [ID] action ... OR Name action ...
+  const NAME = /^(.+?)(?:\s*\[\d+\])?/;
 
-  if(tk)  return{member:tk[1].trim(), qty:parseInt(tk[3])||1, item:tk[4].trim().replace(/\s+from.*$/i,''), dir:'out', ts:e.timestamp};
-  if(ln)  return{member:ln[1].trim(), qty:parseInt(ln[3])||1, item:ln[4].trim(), dir:'loan', ts:e.timestamp};
-  if(rt)  return{member:rt[1].trim(), qty:parseInt(rt[3])||1, item:rt[4].trim().replace(/\s+to.*$/i,'').replace(/[.!]$/,''), dir:'return', ts:e.timestamp};
-  if(gv)  return{member:gv[1].trim(), qty:parseInt(gv[3])||1, item:gv[4].trim(), dir:'in', ts:e.timestamp};
-  if(gv2) return{member:gv2[1].trim(),qty:parseInt(gv2[3])||1,item:gv2[4].trim(),dir:'out', ts:e.timestamp};
-  return{member:'Unknown', qty:1, item:n.slice(0,60), dir:'unknown', ts:e.timestamp};
+  // Member deposited/gave item TO armory = in (green +)
+  const dp=n.match(/^(.+?)(?:\s*\[\d+\])?\s+deposited\s+(\d+)x?\s+(.+?)(?:\s+(?:to|in|into)\s+.*)?$/i);
+  // Member took FROM armory = out (red −)
+  const tk=n.match(/^(.+?)(?:\s*\[\d+\])?\s+took\s+(\d+)x?\s+(.+?)\s+from/i);
+  // Armory gave to member = out
+  const gvTo=n.match(/^(.+?)(?:\s*\[\d+\])?\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+the\s+armory/i);
+  // gave to armory = in
+  const gvArm=n.match(/^(.+?)(?:\s*\[\d+\])?\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+(?!the\s+armory)/i);
+  // Loaned item to member
+  const ln=n.match(/^(.+?)(?:\s*\[\d+\])?\s+loaned\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)(?:\s*\[\d+\])?/i);
+  // Returned item
+  const rt=n.match(/^(.+?)(?:\s*\[\d+\])?\s+returned\s+(\d+)x?\s+(.+?)(?:\s+to.*)?$/i);
+  // Generic gave X to Y (member got from armory officer = out)
+  const gv2=n.match(/^(.+?)(?:\s*\[\d+\])?\s+gave\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)(?:\s*\[\d+\])?$/i);
+
+  if(dp)  return{member:dp[1].trim(), qty:parseInt(dp[2])||1, item:dp[3].trim().replace(/[.!]$/,''), dir:'in', ts:e.timestamp};
+  if(tk)  return{member:tk[1].trim(), qty:parseInt(tk[2])||1, item:tk[3].trim().replace(/\s+from.*$/i,''), dir:'out', ts:e.timestamp};
+  if(ln)  return{member:ln[1].trim(), qty:parseInt(ln[2])||1, item:ln[3].trim(), dir:'loan', ts:e.timestamp};
+  if(rt)  return{member:rt[1].trim(), qty:parseInt(rt[2])||1, item:rt[3].trim().replace(/\s+to.*$/i,'').replace(/[.!]$/,''), dir:'return', ts:e.timestamp};
+  if(gvTo) return{member:gvTo[1].trim(), qty:parseInt(gvTo[2])||1, item:gvTo[3].trim(), dir:'in', ts:e.timestamp};
+  if(gv2) return{member:gv2[1].trim(), qty:parseInt(gv2[2])||1, item:gv2[3].trim(), dir:'out', ts:e.timestamp};
+  if(gvArm) return{member:gvArm[1].trim(), qty:parseInt(gvArm[2])||1, item:gvArm[3].trim(), dir:'in', ts:e.timestamp};
+  return{member:n.split(/\s+/)[0]||'Unknown', qty:0, item:n.slice(0,60), dir:'unknown', ts:e.timestamp};
+}
+
+function inPeriod(ts, period){
+  const now=Date.now()/1000;
+  const age=now-ts;
+  if(period==='1d') return age<86400;
+  if(period==='7d') return age<7*86400;
+  if(period==='30d') return age<30*86400;
+  if(period==='90d') return age<90*86400;
+  if(period==='1y') return age<365*86400;
+  return true; // 'all'
+}
+
+function setRespectPeriod(el, period){
+  document.querySelectorAll('#panel-respect .pill').forEach(p=>p.classList.remove('on'));
+  el.classList.add('on');
+  S.respectPeriod=period;
+  renderRespect();
+}
+
+function parseRespectFromNews(newsArr, period){
+  // Parse respect gained from mainnews/attacking news
+  // Torn attack news format examples:
+  // "PlayerA attacked PlayerB and won, gaining X respect"
+  // "PlayerA mugged PlayerB gaining $X and X respect"
+  // "The faction gained X respect from the OC"
+  // "PlayerA [ID] attacked PlayerB [ID] ... respect gained: X"
+  const memberRespect={};
+  const ocRespect=[];
+  const atkRespect=[];
+
+  newsArr.forEach(e=>{
+    if(!inPeriod(e.timestamp, period)) return;
+    const n=e.news||'';
+
+    // Attack respect: "Name [ID] attacked ... gaining X respect" or "... respect gained: X"
+    const atkMatch=n.match(/^(.+?)(?:\s*\[\d+\])?\s+(?:attacked|mugged|hospitalized).+?(?:gaining|gained|gain)\s+([\d.]+)\s+respect/i);
+    if(atkMatch){
+      const mem=atkMatch[1].trim();
+      const resp=parseFloat(atkMatch[2])||0;
+      if(!memberRespect[mem]) memberRespect[mem]={atk:0,oc:0};
+      memberRespect[mem].atk+=resp;
+      atkRespect.push({member:mem,resp,ts:e.timestamp,raw:n});
+      return;
+    }
+
+    // Alternate attack: "... X respect" at end
+    const atkMatch2=n.match(/^(.+?)(?:\s*\[\d+\])?\s+(?:attacked|mugged).+?\s+([\d.]+)\s+respect/i);
+    if(atkMatch2){
+      const mem=atkMatch2[1].trim();
+      const resp=parseFloat(atkMatch2[2])||0;
+      if(!memberRespect[mem]) memberRespect[mem]={atk:0,oc:0};
+      memberRespect[mem].atk+=resp;
+      return;
+    }
+
+    // OC/crime success respect
+    const ocMatch=n.match(/(?:organized crime|oc|crime).+?(?:gained?|awarded?|earning?)\s+([\d.]+)\s+respect/i);
+    const ocMatch2=n.match(/([\d.]+)\s+respect.+?(?:organized crime|oc|crime)/i);
+    const ocFactionMatch=n.match(/faction.+?gained?\s+([\d.]+)\s+respect/i);
+    const ocSuccessResp=ocMatch?parseFloat(ocMatch[1]):ocMatch2?parseFloat(ocMatch2[1]):ocFactionMatch?parseFloat(ocFactionMatch[1]):0;
+
+    if(ocSuccessResp>0){
+      // OC respect is faction-wide; attribute to initiator if found
+      const initiatorMatch=n.match(/^(.+?)(?:\s*\[\d+\])?\s+(?:initiated|organized|led|completed)/i);
+      const mem=initiatorMatch?initiatorMatch[1].trim():'Faction';
+      if(!memberRespect[mem]) memberRespect[mem]={atk:0,oc:0};
+      memberRespect[mem].oc+=ocSuccessResp;
+      ocRespect.push({member:mem,resp:ocSuccessResp,ts:e.timestamp,raw:n});
+    }
+  });
+
+  return{memberRespect,atkRespect,ocRespect};
+}
+
+function renderRespect(){
+  const period=S.respectPeriod||'30d';
+  const allNews=[...S.attackNews,...S.crimeNews,...S.ocRaw];
+  // Dedupe by timestamp+news
+  const seen=new Set();
+  const deduped=allNews.filter(e=>{
+    const k=e.timestamp+'|'+(e.news||'').slice(0,40);
+    if(seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  const{memberRespect,atkRespect,ocRespect}=parseRespectFromNews(deduped,period);
+
+  // Total tallies
+  let totalAtk=0,totalOC=0;
+  Object.values(memberRespect).forEach(v=>{totalAtk+=v.atk;totalOC+=v.oc;});
+  const totalAll=totalAtk+totalOC;
+
+  // Update summary cards
+  document.getElementById('rTotalAll').textContent=totalAll>0?totalAll.toFixed(1):'0';
+  document.getElementById('rTotalAtk').textContent=totalAtk.toFixed(1);
+  document.getElementById('rTotalOC').textContent=totalOC.toFixed(1);
+  document.getElementById('rAtkCard').textContent=totalAtk>0?totalAtk.toFixed(1):'0';
+  document.getElementById('rOCCard').textContent=totalOC>0?totalOC.toFixed(1):'0';
+
+  const entries=Object.entries(memberRespect).map(([name,v])=>({name,atk:v.atk,oc:v.oc,total:v.atk+v.oc}))
+    .sort((a,b)=>b.total-a.total);
+
+  if(!entries.length){
+    const msg=S.attackNews.length===0&&S.crimeNews.length===0
+      ?'No respect data found.<br>Requires faction mainnews access with attack &amp; crime news.'
+      :'No respect entries found for this period.<br>Try expanding the time window.';
+    document.getElementById('respectTbl').innerHTML=`<div class="empty">${msg}</div>`;
+    return;
+  }
+
+  const maxTotal=entries[0]?.total||1;
+  let h=`<table><thead><tr>
+    <th>Member</th><th>⚔ Attack Resp</th><th>🔒 OC Resp</th><th>Total</th><th style="min-width:120px">Share</th>
+  </tr></thead><tbody>`;
+  entries.forEach(x=>{
+    const pct=totalAll>0?((x.total/totalAll)*100).toFixed(1):'0.0';
+    const barW=maxTotal>0?((x.total/maxTotal)*100).toFixed(1):'0';
+    h+=`<tr>
+      <td class="cn">${x.name}</td>
+      <td style="color:var(--accent4);font-family:'Space Mono',monospace;font-size:12px">${x.atk>0?x.atk.toFixed(2):'—'}</td>
+      <td style="color:var(--accent2);font-family:'Space Mono',monospace;font-size:12px">${x.oc>0?x.oc.toFixed(2):'—'}</td>
+      <td style="color:var(--accent3);font-family:'Space Mono',monospace;font-size:13px;font-weight:700">${x.total.toFixed(2)}</td>
+      <td>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:3px">${pct}%</div>
+        <div class="bw"><div class="bf" style="width:${barW}%;background:var(--accent3)"></div></div>
+      </td>
+    </tr>`;
+  });
+  h+='</tbody></table>';
+  document.getElementById('respectTbl').innerHTML=h;
 }
 
 function in30d(ts){ return Date.now()/1000-ts<30*24*3600; }
@@ -815,7 +1060,7 @@ function setStatus(t,txt){
 // ════════════════════════════════════════════
 function renderAll(){
   renderVault(); renderSupply(); renderMemberUsage();
-  renderOC(); renderReceipts(); renderArmoryLog(); renderCards();
+  renderOC(); renderReceipts(); renderArmoryLog(); renderCards(); renderRespect();
   if(S.tab==='debug') renderDebugEvents();
 }
 
@@ -1108,9 +1353,20 @@ function calcSplit(){
   const mem=parseInt(document.getElementById('ocM').value)||0;
   const mode=document.getElementById('ocFS').value;
   if(!pay||!mem){document.getElementById('splitR').style.display='none';return;}
-  const fp=mode==='auto'?1/(mem+1):parseFloat(mode)/100;
+  let fp;
+  if(mode==='auto'){
+    // Auto: faction gets the remainder after splitting equally among members
+    fp=1/(mem+1);
+  } else {
+    // Fixed %: cap so total never exceeds 100%
+    const raw=parseFloat(mode)/100;
+    // Each member share = (1-raw)/mem; must be ≥ 0
+    fp=Math.min(raw,1-0); // just cap at <1 so per-member can't go negative
+    if(mem>0&&fp>=(1)) fp=0.99; // safety
+  }
+  const memberShare=(1-fp)/mem;
   document.getElementById('sFaction').textContent=ff$(pay*fp);
-  document.getElementById('sPerMem').textContent=ff$(pay*(1-fp)/mem);
+  document.getElementById('sPerMem').textContent=ff$(pay*memberShare);
   document.getElementById('sPct').textContent=(fp*100).toFixed(1)+'%';
   document.getElementById('splitR').style.display='grid';
 }
@@ -1119,7 +1375,7 @@ function calcSplit(){
 // TABS / FILTERS
 // ════════════════════════════════════════════
 function switchTab(name){
-  const order=['vault','supply','members','oc','receipts','log','debug'];
+  const order=['vault','supply','members','oc','receipts','respect','log','debug'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',order[i]===name));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   const panel=document.getElementById('panel-'+name);
@@ -1128,6 +1384,7 @@ function switchTab(name){
   if(name==='debug') renderDebugEvents();
   if(name==='receipts') renderReceipts();
   if(name==='log') renderArmoryLog();
+  if(name==='respect') renderRespect();
 }
 
 function renderDebugEvents(){
