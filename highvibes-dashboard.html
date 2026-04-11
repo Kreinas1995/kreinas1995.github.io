@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Highvibes | Faction Budget v2.00.000</title>
+<title>Highvibes | Faction Budget v2.4.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -20,7 +20,7 @@
   .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border);gap:8px;}
   .logo-name{font-size:22px;font-weight:800;letter-spacing:-0.5px;color:var(--accent);line-height:1;}
   .logo-sub{font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;}
-  .header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+  .header-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;}
   .status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted2);flex-shrink:0;}
   .status-dot.live{background:var(--accent);box-shadow:0 0 8px var(--accent);animation:blink 2s infinite;}
   .status-dot.loading{background:var(--accent3);box-shadow:0 0 8px var(--accent3);animation:blink 0.5s infinite;}
@@ -83,11 +83,10 @@
   .sc-period{font-size:8px;color:var(--accent3);font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:1px;}
 
   /* TABS — scroll horizontally, no content overflow */
-  .tabs{display:none;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
-  .tabs::-webkit-scrollbar{display:none;}
-  .tab{background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:10px 12px;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-bottom:-1px;}
+  .tabs{display:none;border-bottom:1px solid var(--border);margin-bottom:16px;flex-wrap:wrap;}
+  .tab{background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-family:'Syne',sans-serif;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:8px 10px;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-bottom:-1px;}
   .tab:hover{color:var(--text);}
-  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);background:rgba(127,255,110,0.05);}
   .tbadge{display:inline-block;background:var(--accent4);color:var(--bg);font-size:9px;font-weight:800;padding:1px 4px;border-radius:2px;margin-left:4px;vertical-align:middle;}
 
   .panel{display:none;}
@@ -238,10 +237,10 @@
       <div>
         <div class="logo-name">⬡ HIGHVIBES</div>
         <div class="logo-sub">Faction Budget Dashboard</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="showChangelog()" title="View changelog / check for updates">
-        <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.00.000</div>
-        <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;padding-left:2px;">changelog</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer;" onclick="showChangelog()" title="View changelog">
+          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.4.0</div>
+          <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;">changelog</div>
+        </div>
       </div>
     </div>
     <div class="header-right">
@@ -254,7 +253,7 @@
           <span id="rateMeterPerMin" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-left:2px;"></span>
         </div>
       </div>
-      <button class="btn-danger" id="btnDisconnect" onclick="clearKey()" style="display:none;padding:6px 18px;font-size:9px;white-space:nowrap;min-width:110px;text-align:center;">✕ DISCONNECT</button>
+      <button class="btn-danger" id="btnDisconnect" onclick="clearKey()" style="display:none;padding:6px 14px;font-size:9px;white-space:nowrap;width:100%;text-align:center;">✕ DISCONNECT</button>
     </div>
   </div>
 
@@ -283,19 +282,55 @@
   <!-- API SETUP -->
   <div id="apiSetup" class="api-setup">
     <h2>⚙ API Key Setup</h2>
-    <p>
-      Key stored only in <code>localStorage</code> — sent directly to <code>api.torn.com</code> only.<br>
-      Requires faction: <code>basic</code> <code>donations</code> <code>armorynews</code> <code>mainnews</code> <code>attacknews</code> <code>crimenews</code> + user: <code>events</code> + torn: <code>items</code><br>
-      Recommended: <strong>Limited Access</strong> key with <strong>AA</strong> enabled.
-    </p>
-    <div class="api-row">
+    <div class="api-row" style="margin-bottom:12px;">
       <input type="password" class="api-input" id="apiKeyInput" placeholder="Enter 16-character Torn API key"
         maxlength="16" autocomplete="off" onkeydown="if(event.key==='Enter')saveKey()">
       <button class="btn-connect" id="btnConnect" onclick="saveKey()">CONNECT</button>
     </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <a id="btnGetCustomKey" href="#" target="_blank" onclick="openCustomKeyUrl(event)"
+        style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:10px;padding:7px 12px;text-decoration:none;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;cursor:pointer;"
+        onmouseover="this.style.background='rgba(126,184,255,0.08)'" onmouseout="this.style.background='var(--surface2)'">
+        🔑 GET CUSTOM API KEY
+      </a>
+    </div>
+    <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);line-height:1.9;padding:10px 12px;background:var(--bg);border:1px solid var(--border);">
+      <div style="color:var(--muted2);font-size:9px;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">Required permissions</div>
+      <div><span style="color:var(--muted);margin-right:4px;">user:</span><code>basic</code> <code>events</code> <code>inventory</code></div>
+      <div><span style="color:var(--muted);margin-right:4px;">faction:</span><code>basic</code> <code>donations</code> <code>money</code> <code>armorynews</code> <code>mainnews</code> <code>attacknews</code> <code>crimenews</code></div>
+      <div><span style="color:var(--muted);margin-right:4px;">torn:</span><code>items</code> <code>calendar</code></div>
+      <div style="margin-top:6px;font-size:9px;color:var(--muted2);">Key stored in <code>localStorage</code> only — sent directly to <code>api.torn.com</code>. Enable <strong style="color:var(--muted)">AA (Faction API Access)</strong> on your faction position.</div>
+    </div>
     <div class="console-wrap" id="cWrap">
       <div class="console-head"><span>⬡ API Console</span><button class="console-clear-btn" onclick="clearConsole()">CLEAR</button></div>
       <div class="console-lines" id="cLines"></div>
+    </div>
+  </div>
+
+  <!-- INITIALIZE SCREEN -->
+  <div id="initScreen" style="display:none;background:var(--surface);border:1px solid var(--border);padding:24px;margin-bottom:16px;">
+    <div style="font-size:16px;font-weight:800;color:var(--accent);margin-bottom:4px;">⬡ CONNECTED — <span id="initPlayerName"></span></div>
+    <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:20px;line-height:2;">
+      Ready to pull your faction's full history.<br>
+      <span style="color:var(--accent3);">⚠ This may take a few minutes and only needs to run once.</span><br>
+      Pulls all available events, armory news, faction news, and vault data as far back as the API allows.
+    </div>
+    <button class="btn-connect" id="btnInitialize" onclick="runInitialize()" style="width:100%;justify-content:center;font-size:14px;padding:14px 0;">
+      ⬡ INITIALIZE DASHBOARD
+    </button>
+    <div id="initProgress" style="display:none;margin-top:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+        <span id="initStepLabel" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);">Starting…</span>
+        <span id="initETA" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);"></span>
+      </div>
+      <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:5px;">
+        <div id="initBar" style="height:100%;width:0%;background:var(--accent);transition:width 0.4s;border-radius:3px;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:10px;">
+        <span id="initCallCount" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted2);">0 API calls</span>
+        <span id="initPct" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted2);">0%</span>
+      </div>
+      <div id="initLog" style="background:var(--bg);border:1px solid var(--border);padding:10px 12px;font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);max-height:180px;overflow-y:auto;line-height:1.9;"></div>
     </div>
   </div>
 
@@ -587,27 +622,26 @@
 
   <!-- EVENT DEBUG -->
   <div class="panel" id="panel-debug">
-    <div style="background:rgba(240,192,64,0.06);border:1px solid rgba(240,192,64,0.2);padding:14px 18px;margin-bottom:18px;font-family:'Space Mono',monospace;font-size:11px;color:var(--accent3);line-height:1.8;">
-      ⚠ API Debug Panel — tests each endpoint and shows exact raw response format.<br>
-      Run each test, then share the output to tune parsing. Item events shown in full below.
-    </div>
-
     <!-- Endpoint tester -->
-    <div style="background:var(--surface);border:1px solid var(--border);padding:18px;margin-bottom:18px;">
-      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">ENDPOINT TESTER</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+    <div style="background:var(--surface);border:1px solid var(--border);padding:14px;margin-bottom:14px;">
+      <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;font-family:'Space Mono',monospace;">ENDPOINT TESTER</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
         <button class="btn-sm" onclick="dbgTest('user','events','events')">user/events</button>
+        <button class="btn-sm" onclick="dbgTest('user','inventory','inventory')">user/inventory</button>
         <button class="btn-sm" onclick="dbgTest('faction','basic','basic')">faction/basic</button>
+        <button class="btn-sm" onclick="dbgTest('faction','money','money')" style="border-color:var(--accent3);color:var(--accent3);">faction/money ★</button>
         <button class="btn-sm" onclick="dbgTest('faction','donations','donations')">faction/donations</button>
         <button class="btn-sm" onclick="dbgTest('faction','armorynews','armorynews')">faction/armorynews</button>
         <button class="btn-sm" onclick="dbgTest('faction','mainnews','mainnews')">faction/mainnews</button>
         <button class="btn-sm" onclick="dbgTest('faction','attacknews','attacknews')">faction/attacknews</button>
         <button class="btn-sm" onclick="dbgTest('faction','crimenews','crimenews')">faction/crimenews</button>
-        <button class="btn-sm" onclick="dbgRunAll()">▶ RUN ALL</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <button class="btn-primary" onclick="dbgRunAll()" style="font-size:10px;padding:6px 14px;">▶ RUN ALL</button>
         <button class="btn-sm" onclick="dbgCopy()" style="border-color:var(--accent2);color:var(--accent2);">⎘ COPY REPORT</button>
       </div>
-      <div id="dbgStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:8px;"></div>
-      <div id="dbgOut" style="background:var(--bg);border:1px solid var(--border);padding:12px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);max-height:320px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;">Run a test to see raw API output.</div>
+      <div id="dbgStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px;"></div>
+      <div id="dbgOut" style="background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);max-height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;">Run a test to see raw API output.</div>
     </div>
 
     <!-- Item events viewer -->
@@ -627,13 +661,32 @@
       ⚠ ADMIN PANEL — Data management, export/import, and diagnostics. Changes here directly affect stored data.
     </div>
 
+    <!-- FULL API DIAGNOSTIC -->
+    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:8px;font-family:'Space Mono',monospace;">🔬 FULL API DIAGNOSTIC</div>
+      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.8;">Tests every API selection including <span style="color:var(--accent3)">faction/money ★</span> (vault). Diagnose why vault shows ---. Rate-limited to 75 calls/min.</div>
+      <button class="btn-primary" id="btnAdminDiag" onclick="adminRunFullDiagnostic()" style="margin-bottom:12px;">▶ RUN FULL DIAGNOSTIC</button>
+      <div id="adminDiagWrap" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span id="adminDiagPct" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">0%</span>
+          <span id="adminDiagETA" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">ETA: calculating…</span>
+        </div>
+        <div style="height:4px;background:var(--border);overflow:hidden;margin-bottom:10px;">
+          <div id="adminDiagBar" style="height:100%;width:0%;background:var(--accent3);transition:width 0.3s;"></div>
+        </div>
+        <pre id="adminDiagOut" style="display:none;background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:9px;color:var(--text);max-height:320px;overflow-y:auto;white-space:pre-wrap;line-height:1.6;margin:0;"></pre>
+      </div>
+    </div>
+
     <!-- VERSION -->
     <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent);margin-bottom:14px;font-family:'Space Mono',monospace;">⬡ VERSION HISTORY</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn-sm" onclick="showChangelog()" style="border-color:var(--accent);color:var(--accent);">📋 VIEW CHANGELOG</button>
-        <button class="btn-sm" onclick="checkForUpdate()" style="border-color:var(--accent2);color:var(--accent2);">🔄 CHECK FOR UPDATE</button>
+        <button class="btn-sm" onclick="checkForUpdate(true)" style="border-color:var(--accent2);color:var(--accent2);">🔄 CHECK FOR UPDATE</button>
+        <button class="btn-sm" onclick="adminReInitialize()" style="border-color:var(--accent5);color:var(--accent5);">⬡ RE-INITIALIZE</button>
       </div>
+      <div id="adminUpdateStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:10px;min-height:16px;"></div>
     </div>
 
     <!-- DATA EXPORT -->
@@ -732,10 +785,34 @@
 // ════════════════════════════════════════════
 // VERSION & CHANGELOG
 // ════════════════════════════════════════════
-const APP_VERSION = '2.1.0';
-const VERSION_URL = 'https://raw.githubusercontent.com/highvibes-torn/dashboard/main/version.json'; // update as needed
+const APP_VERSION = '2.4.0';
+const VERSION_URL = 'https://raw.githubusercontent.com/kreinas1995/highvibes/main/version.json';
 
 const CHANGELOG = [
+  { v:'2.4.0', date:'2026-04-10', notes:[
+    '[+] Initialize screen: shown on first connect, pulls full historical data with progress bar + ETA',
+    '[+] Admin: Full API Diagnostic — tests all 12 selections including faction/money ★, shows exact response',
+    '[+] Admin: Re-Initialize button to re-run deep historical fetch without wiping data',
+    '[*] Rate limit: hard-capped at 75 calls/min with precise rateSleep() — replaces blunt 30s waits',
+    '[*] Debug events: shows up to 500 events (all loaded), OUTGOING badge for sent items, improved matching',
+    '[*] Debug Run All: now includes faction/money in test suite',
+  ]},
+  { v:'2.3.0', date:'2026-04-10', notes:[
+    '[*] Flower set corrected: Cerise/Violet/Tribhujanga replaced with Cherry Blossom/Ceibo Flower/Tribulus Omanense (now matches Torn Museum wiki)',
+    '[*] Outgoing parse: added "You sent an Item" and "You sent some Item" singular formats (confirmed from live log)',
+    '[*] Incoming receipts: added "Name sent NNx Item to you" and "Name sent a Item to you" formats (live log)',
+    '[*] FLOWER_NAMES lookup updated to match corrected flower names for receipt categorization',
+    '[*] Tab highlight: switchTab now matches tabs by onclick content, not broken position index — Inventory tab now highlights correctly',
+  ]},
+  { v:'2.2.0', date:'2026-04-10', notes:[
+    '[*] Vault: faction/money now fetched as dedicated separate call (was incorrectly reading from basic)',
+    '[*] Outgoing items: now parsed from armory news (gave/loaned consumables) — user/events never contained these',
+    '[*] Tabs: wrap into 2 rows on mobile, no horizontal scroll, active tab has background tint',
+    '[*] Header: Disconnect button moves below status row, stacks cleanly on mobile',
+    '[*] Version badge: displays correct version, VERSION_URL fixed to kreinas1995/highvibes',
+    '[*] Check For Update: now shows inline result in Admin panel with error detail on fail',
+    '[*] Debug panel: cleaned up, added faction/money ★ test button, removed warning banner',
+  ]},
   { v:'2.1.0', date:'2026-04-10', notes:[
     '[+] Inventory: points price fetched from torn/items and stored with 365-day local history',
     '[+] Inventory: 1-year price chart with buy/sell timing advice (above/below avg)',
@@ -814,11 +891,14 @@ function showChangelog(updateAvailable=false, latestVersion=null){
   document.getElementById('changelogModal').style.display='block';
 }
 
-async function checkForUpdate(){
+async function checkForUpdate(fromAdmin=false){
   const badge=document.getElementById('versionBadge');
   const sub=document.getElementById('versionSub');
+  const adminStatus=document.getElementById('adminUpdateStatus');
+  if(adminStatus&&fromAdmin) adminStatus.textContent='Checking…';
   try{
     const r=await fetch(VERSION_URL+'?_='+Date.now());
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     const latest=d.version||APP_VERSION;
     if(latest!==APP_VERSION){
@@ -826,17 +906,20 @@ async function checkForUpdate(){
       badge.style.borderColor='var(--accent3)';badge.style.color='var(--accent3)';
       sub.textContent='update available';
       clog(`Update available: v${latest} (current: v${APP_VERSION})`,'warn');
+      if(adminStatus) adminStatus.innerHTML=`<span style="color:var(--accent3)">⬆ Update available: v${latest}</span>`;
+      document.getElementById('btnDoUpdate').style.display='flex';
       return {available:true,latest};
     } else {
       badge.textContent=`v${APP_VERSION}`;
       badge.style.borderColor='';badge.style.color='';
       sub.textContent='changelog';
       clog(`Version up to date: v${APP_VERSION}`,'ok');
+      if(adminStatus) adminStatus.innerHTML=`<span style="color:var(--accent2)">✓ Up to date (v${APP_VERSION})</span>`;
       return {available:false,latest};
     }
   }catch(e){
-    // No version server — just show current
-    clog('Version check skipped (no server configured)','info');
+    clog(`Version check failed: ${e.message} — check VERSION_URL in source`,'warn');
+    if(adminStatus) adminStatus.innerHTML=`<span style="color:var(--accent4)">✗ Check failed: ${e.message}</span>`;
     return {available:false,latest:APP_VERSION};
   }
 }
@@ -851,10 +934,12 @@ function doUpdate(){
 // STATE
 // ════════════════════════════════════════════
 const FLOWER_NAMES = new Set([
-  'heather','dahlia','orchid','pansy','lily','crocus','peony','daffodil',
-  'violet','cerise','african violet','banana orchid','edelweiss','gerbera',
-  'hollyhock','tribhujanga','rose','sunflower','carnation','blue orchid',
-  'chrysanthemum','morning glory','tulip','bird of paradise','plumeria'
+  // Museum set flowers (exact names)
+  'african violet','banana orchid','ceibo flower','cherry blossom','crocus',
+  'dahlia','edelweiss','heather','orchid','peony','tribulus omanense',
+  // Non-museum flower items (type=flower but not in set)
+  'bunch of flowers','daffodil','dozen roses','dozen white roses',
+  'funeral wreath','single red rose','white lily'
 ]);
 
 // Sync rate options: label → minutes (0 = live ~30s, -1 = daily)
@@ -890,7 +975,17 @@ let rTimer=null, cTimer=null, rStart=null;
 // API RATE TRACKING — no hard stop, soft buffer at limit
 // ════════════════════════════════════════════
 let apiCallLog=[];
-const API_LIMIT=100; // Torn rate limit per minute
+const API_LIMIT=75; // Hard cap at 75/min (Torn max is 100, we stay safe)
+
+// Returns true and waits if we're near the rate limit
+async function rateSleep(){
+  const now=Date.now();
+  apiCallLog=apiCallLog.filter(t=>now-t<60000);
+  if(apiCallLog.length>=API_LIMIT){
+    const ms=Math.max(0,apiCallLog[0]+60100-now);
+    if(ms>0) await new Promise(r=>setTimeout(r,ms));
+  }
+}
 
 function trackApiCall(){
   const now=Date.now();
@@ -920,16 +1015,9 @@ function updateRateMeter(){
   }
 }
 
-// Smart rate-limit aware fetch: if near limit, wait 30s before continuing
+// Rate-limit aware fetch
 async function rateSafeGet(section, sel, extra=''){
-  const now=Date.now();
-  const recent=apiCallLog.filter(t=>now-t<60000).length;
-  if(recent>=API_LIMIT-3){
-    clog(`Rate limit approached (${recent}/${API_LIMIT}) — waiting 30s…`,'warn');
-    setStatus('loading','RATE WAIT');
-    await new Promise(r=>setTimeout(r,30000));
-    clog('Rate limit buffer cleared, resuming…','info');
-  }
+  await rateSleep();
   return tGet(section,sel,extra);
 }
 
@@ -987,6 +1075,17 @@ function togglePostConsole(){
 // ════════════════════════════════════════════
 // API KEY
 // ════════════════════════════════════════════
+function openCustomKeyUrl(e){
+  e.preventDefault();
+  // Build exact custom key URL with all required selections and versioned title
+  const title=encodeURIComponent(`Faction Dashboard v${APP_VERSION}`);
+  const user=encodeURIComponent('basic,events,inventory');
+  const faction=encodeURIComponent('basic,donations,money,armorynews,mainnews,attacknews,crimenews');
+  const torn=encodeURIComponent('items,calendar');
+  const url=`https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=${title}&user=${user}&faction=${faction}&torn=${torn}`;
+  window.open(url,'_blank');
+}
+
 async function saveKey(){
   const v=document.getElementById('apiKeyInput').value.trim();
   if(!v||v.length<10){ clog('Key must be ≥10 characters','err'); return; }
@@ -1000,14 +1099,18 @@ async function saveKey(){
     const t=await tGet('user','basic');
     clog(`Authenticated: ${t.name} [${t.player_id}] — Level ${t.level}`,'ok');
     localStorage.setItem('hv_key',v);
-    revealDash();
-    fetchAll();
-    startCycle();
+    const wasInit=localStorage.getItem('hv_initialized')==='true';
+    if(wasInit){
+      revealDash(); fetchAll(); startCycle();
+    } else {
+      document.getElementById('apiSetup').style.display='none';
+      document.getElementById('initScreen').style.display='block';
+      document.getElementById('initPlayerName').textContent=t.name||'';
+    }
   }catch(e){
     clog('Auth failed: '+e.message,'err');
     setStatus('error','KEY ERROR');
-    btn.disabled=false;
-    btn.innerHTML='CONNECT';
+    btn.disabled=false; btn.innerHTML='CONNECT';
     S.key='';
   }
 }
@@ -1043,6 +1146,254 @@ function clearKey(){
 }
 
 // ════════════════════════════════════════════
+// INITIALIZE — deep historical fetch, runs once
+// ════════════════════════════════════════════
+async function runInitialize(){
+  const btn=document.getElementById('btnInitialize');
+  const prog=document.getElementById('initProgress');
+  const stepEl=document.getElementById('initStepLabel');
+  const etaEl=document.getElementById('initETA');
+  const barEl=document.getElementById('initBar');
+  const callEl=document.getElementById('initCallCount');
+  const pctEl=document.getElementById('initPct');
+  const logEl=document.getElementById('initLog');
+
+  btn.disabled=true;
+  btn.innerHTML='<div class="spin"></div>INITIALIZING…';
+  prog.style.display='block';
+  let calls=0;
+  const t0=Date.now();
+
+  function ilog(msg){ logEl.innerHTML+=`<div>${msg}</div>`; logEl.scrollTop=logEl.scrollHeight; }
+  function setP(p,step){
+    barEl.style.width=p+'%'; pctEl.textContent=p+'%'; stepEl.textContent=step;
+    callEl.textContent=calls+' API calls';
+    const el=Date.now()-t0;
+    if(p>5&&el>500){
+      const rem=el/p*(100-p);
+      etaEl.textContent=rem<60000?`ETA ~${Math.ceil(rem/1000)}s`:`ETA ~${Math.ceil(rem/60000)}m ${Math.ceil((rem%60000)/1000)}s`;
+    }
+  }
+
+  // Paginated fetch — uses &to= for older pages
+  async function pages(section,sel,maxPg=25){
+    const all={};
+    let toTs=0; let pg=0;
+    while(pg<maxPg){
+      await rateSleep();
+      const extra=toTs>0?`&to=${toTs}`:'';
+      try{
+        const url=`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}${extra}`;
+        trackApiCall(); calls++;
+        const r=await fetch(url); const d=await r.json();
+        if(d.error){ ilog(`⚠ ${section}/${sel}: [${d.error.code}] ${d.error.error}`); break; }
+        const mk=Object.keys(d).find(k=>k!=='_metadata'&&typeof d[k]==='object'&&d[k]!==null);
+        if(!mk) break;
+        const vals=Object.values(d[mk]||{});
+        if(!vals.length) break;
+        vals.forEach((e,i)=>{ all[e.id||(e.timestamp+'_'+pg+'_'+i)]=e; });
+        const ts=vals.map(e=>e.timestamp||0).filter(Boolean);
+        if(!ts.length) break;
+        const oldest=Math.min(...ts);
+        if(oldest===toTs) break;
+        toTs=oldest-1; pg++;
+        ilog(`  ${section}/${sel} p${pg}: +${vals.length} → total ${Object.keys(all).length} (oldest: ${new Date(oldest*1000).toLocaleDateString()})`);
+        if(vals.length<25) break; // last page
+      }catch(e){ ilog(`✗ ${section}/${sel}: ${e.message}`); break; }
+    }
+    return Object.values(all);
+  }
+
+  try{
+    setP(5,'faction/basic + donations');
+    await rateSleep();
+    const fac=await tGet('faction','basic,donations'); calls++;
+    S.faction=fac; S.donations=fac.donations||{};
+    let mTotal=0; Object.values(S.donations).forEach(d=>{ mTotal+=d.money_balance||0; });
+    S.faction._memberTotal=mTotal;
+    ilog(`✓ faction/basic: ${Object.keys(fac.members||{}).length} members | member balances: ${fmt$(mTotal)}`);
+
+    setP(10,'faction/money (vault total)');
+    await rateSleep();
+    try{
+      const vm=await tGet('faction','money'); calls++;
+      S.faction.money=vm.money||0;
+      ilog(`✓ faction/money: ${fmt$(S.faction.money)}`);
+    }catch(e){ ilog(`⚠ faction/money: ${e.message} — vault will show ---`); }
+    S.faction._factionAvailable=(S.faction.money||0)>0?(S.faction.money||0)-mTotal:0;
+
+    setP(15,'torn/items (price data)');
+    await rateSleep();
+    const items=await tGet('torn','items'); calls++;
+    S.prices={};
+    Object.entries(items.items||{}).forEach(([id,it])=>{ S.prices[id]={id,name:it.name,type:it.type||'',mv:it.market_value||0}; });
+    ilog(`✓ torn/items: ${Object.keys(S.prices).length} items`);
+
+    setP(18,'user/events (all pages)');
+    ilog('Fetching user/events…');
+    const evArr=await pages('user','events',30);
+    S.events=evArr.sort((a,b)=>b.timestamp-a.timestamp);
+    ilog(`✓ user/events: ${S.events.length} total`);
+    setP(33,'user/events done');
+
+    setP(35,'faction/armorynews (all pages)');
+    ilog('Fetching faction/armorynews…');
+    const armArr=await pages('faction','armorynews',30);
+    S.armoryNews=armArr.sort((a,b)=>b.timestamp-a.timestamp);
+    ilog(`✓ faction/armorynews: ${S.armoryNews.length} total`);
+    setP(52,'armorynews done');
+
+    setP(54,'faction/mainnews (all pages)');
+    ilog('Fetching faction/mainnews…');
+    const mainArr=await pages('faction','mainnews',20);
+    const mainAll=mainArr.sort((a,b)=>b.timestamp-a.timestamp);
+    S.attackNews=mainAll.filter(e=>e.news&&/respect/i.test(e.news));
+    S.ocRaw=mainAll.filter(e=>e.news&&/faction received \$[\d,]+/i.test(e.news));
+    ilog(`✓ faction/mainnews: ${mainAll.length} (${S.attackNews.length} respect, ${S.ocRaw.length} OC)`);
+    setP(67,'mainnews done');
+
+    setP(69,'faction/attacknews + crimenews');
+    const atkArr=await pages('faction','attacknews',20);
+    S.crimeNews=atkArr.sort((a,b)=>b.timestamp-a.timestamp);
+    ilog(`✓ faction/attacknews: ${S.crimeNews.length}`);
+    const crArr=await pages('faction','crimenews',20);
+    S._crimeLog=crArr.sort((a,b)=>b.timestamp-a.timestamp);
+    ilog(`✓ faction/crimenews: ${S._crimeLog.length}`);
+    setP(82,'news done');
+
+    setP(84,'user/inventory');
+    await rateSleep();
+    try{
+      const inv=await tGet('user','inventory'); calls++;
+      S.inventory=Object.values(inv.inventory||{});
+      ilog(`✓ user/inventory: ${S.inventory.length} stacks`);
+    }catch(e){ ilog(`⚠ user/inventory: ${e.message}`); S.inventory=[]; }
+
+    setP(92,'Parsing receipts & outgoing…');
+    parseReceipts(); parseOutgoing(); saveReceipts();
+    ilog(`✓ Receipts: ${S.receipts.filter(r=>!r.deleted).length} | Outgoing: ${(S.outgoing||[]).length}`);
+    S.lastSync=Date.now();
+    localStorage.setItem('hv_initialized','true');
+
+    const secs=Math.round((Date.now()-t0)/1000);
+    setP(100,'✓ Complete!');
+    etaEl.textContent=`Done in ${secs}s`;
+    callEl.textContent=calls+' total API calls';
+    ilog(`✓ INITIALIZED — ${calls} calls in ${secs}s`);
+
+    await new Promise(r=>setTimeout(r,1500));
+    document.getElementById('initScreen').style.display='none';
+    revealDash(); renderAll(); startCycle();
+    fetchPointPrice().catch(()=>{}); checkForUpdate().catch(()=>{});
+  }catch(e){
+    ilog(`✗ FAILED: ${e.message}`);
+    barEl.style.background='var(--accent4)';
+    stepEl.textContent='✗ Error — see log';
+    btn.disabled=false; btn.innerHTML='↻ RETRY INITIALIZE';
+  }
+}
+
+function adminReInitialize(){
+  if(!confirm('Re-run full initialization?\n\nThis will re-pull all history. Existing receipts and paid logs are preserved. Only runs data fetch, not wipe.')) return;
+  localStorage.removeItem('hv_initialized');
+  // Show init screen
+  ['statGrid','mainTabs','refreshBar','keyBar','postConsole'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.style.display='none';
+  });
+  document.getElementById('btnDisconnect').style.display='none';
+  document.getElementById('rateMeterWrap').style.display='none';
+  // Reset progress UI
+  const prog=document.getElementById('initProgress');
+  if(prog){ prog.style.display='none'; }
+  const logEl=document.getElementById('initLog');
+  if(logEl) logEl.innerHTML='';
+  const barEl=document.getElementById('initBar');
+  if(barEl){ barEl.style.width='0%'; barEl.style.background='var(--accent)'; }
+  document.getElementById('initPlayerName').textContent='';
+  document.getElementById('initScreen').style.display='block';
+  document.getElementById('btnInitialize').disabled=false;
+  document.getElementById('btnInitialize').innerHTML='⬡ INITIALIZE DASHBOARD';
+}
+
+// ════════════════════════════════════════════
+// ADMIN FULL API DIAGNOSTIC
+// ════════════════════════════════════════════
+async function adminRunFullDiagnostic(){
+  const out=document.getElementById('adminDiagOut');
+  const bar=document.getElementById('adminDiagBar');
+  const eta=document.getElementById('adminDiagETA');
+  const pctEl=document.getElementById('adminDiagPct');
+  const btn=document.getElementById('btnAdminDiag');
+  if(!S.key){ alert('Connect API key first.'); return; }
+
+  btn.disabled=true;
+  btn.innerHTML='<div class="spin" style="display:inline-block;width:12px;height:12px;border:2px solid rgba(0,0,0,0.2);border-top-color:var(--bg);border-radius:50%;animation:rot 0.6s linear infinite;vertical-align:middle;margin-right:6px;"></div>RUNNING…';
+  document.getElementById('adminDiagWrap').style.display='block';
+  out.style.display='block'; out.textContent='';
+
+  const tests=[
+    ['user','basic','user/basic'],
+    ['user','events','user/events'],
+    ['user','inventory','user/inventory'],
+    ['faction','basic','faction/basic'],
+    ['faction','money','faction/money ★ (VAULT TOTAL)'],
+    ['faction','donations','faction/donations'],
+    ['faction','armorynews','faction/armorynews'],
+    ['faction','mainnews','faction/mainnews'],
+    ['faction','attacknews','faction/attacknews'],
+    ['faction','crimenews','faction/crimenews'],
+    ['torn','items','torn/items'],
+    ['torn','calendar','torn/calendar'],
+  ];
+
+  let report='=== HIGHVIBES FULL API DIAGNOSTIC ===\n\n';
+  const t0=Date.now();
+
+  for(let i=0;i<tests.length;i++){
+    const [sec,sel,label]=tests[i];
+    const p=Math.round(i/tests.length*100);
+    bar.style.width=p+'%'; pctEl.textContent=p+'%';
+    const el=Date.now()-t0;
+    const rem=i>0?Math.max(0,el/i*(tests.length-i)):0;
+    eta.textContent=rem>0?(rem<60000?`ETA ~${Math.ceil(rem/1000)}s`:`ETA ~${Math.ceil(rem/60000)}m`):'…';
+
+    await rateSleep();
+    try{
+      const url=`https://api.torn.com/${sec}/?selections=${sel}&key=${S.key}`;
+      trackApiCall();
+      const r=await fetch(url); const d=await r.json();
+      if(d.error){
+        report+=`[FAIL] ${label}\n       Error [${d.error.code}]: ${d.error.error}\n\n`;
+      } else {
+        const mk=Object.keys(d).find(k=>k!=='_metadata'&&typeof d[k]==='object'&&d[k]!==null);
+        const mv=mk?d[mk]:null;
+        const cnt=mv?(Array.isArray(mv)?mv.length:Object.keys(mv).length):'—';
+        if(sel==='money'){
+          report+=`[OK]   ${label}\n       money = ${d.money!=null?'$'+Number(d.money).toLocaleString():'KEY NOT PRESENT IN RESPONSE'}\n       All keys: ${Object.keys(d).join(', ')}\n\n`;
+        } else {
+          report+=`[OK]   ${label}\n       "${mk}": ${cnt} entries | keys: ${Object.keys(d).slice(0,6).join(', ')}\n`;
+          if(mv&&(sel.includes('news')||sel==='events')){
+            Object.values(mv).slice(0,3).forEach((e,idx)=>{
+              const txt=(e.event||e.news||JSON.stringify(e)).slice(0,110);
+              report+=`       [${idx}] ts=${e.timestamp} ${txt}\n`;
+            });
+          }
+          report+='\n';
+        }
+      }
+    }catch(e){ report+=`[ERR]  ${label}: ${e.message}\n\n`; }
+    out.textContent=report; out.scrollTop=out.scrollHeight;
+  }
+
+  bar.style.width='100%'; pctEl.textContent='100%';
+  const secs=Math.round((Date.now()-t0)/1000);
+  eta.textContent=`Done in ${secs}s`;
+  report+=`=== COMPLETE in ${secs}s ===`;
+  out.textContent=report;
+  btn.disabled=false; btn.innerHTML='▶ RUN FULL DIAGNOSTIC';
+}
+
+// ════════════════════════════════════════════
 // FETCH
 // ════════════════════════════════════════════
 async function tGet(section, sel, extra=''){
@@ -1074,22 +1425,24 @@ async function fetchAll(isManual=false){
     S.faction=fac;
     S.donations=fac.donations||{};
 
-    // 2. Vault money — member total always available from donations
-    let vaultMoney=fac.money||0;
+    // 2. Vault money — faction/basic does NOT return money field reliably.
+    //    Must call faction/money separately (requires AA permission).
+    let vaultMoney=0;
     let memberTotal=0;
     Object.values(S.donations).forEach(d=>{ memberTotal+=d.money_balance||0; });
     S.faction._memberTotal=memberTotal;
 
-    // With AA key, fac.money = total vault. If it's 0 try the dedicated money selection.
-    if(vaultMoney===0){
-      try{
-        const vm=await tGet('faction','money');
-        vaultMoney=vm.money||0;
-        if(vaultMoney>0){ S.faction.money=vaultMoney; clog(`Vault (money): ${fmt$(vaultMoney)}`,'ok'); }
-      }catch(e2){
-        // AA not enabled or key lacks permission — display --- for vault total, member balances still shown
-        clog(`Vault total unavailable (${e2.message}) — member balances shown`,'warn');
+    try{
+      const vm=await tGet('faction','money');
+      vaultMoney=vm.money||0;
+      S.faction.money=vaultMoney;
+      if(vaultMoney>0){
+        clog(`Vault: ${fmt$(vaultMoney)} total | Members: ${fmt$(memberTotal)} | Available: ${fmt$(vaultMoney-memberTotal)}`,'ok');
+      } else {
+        clog(`faction/money returned 0 — check AA permission on key`,'warn');
       }
+    }catch(e2){
+      clog(`faction/money failed [${e2.message}] — vault shows ---`,'warn');
     }
 
     S.faction._factionAvailable = vaultMoney>0 ? vaultMoney-memberTotal : 0;
@@ -1171,15 +1524,7 @@ async function fetchAll(isManual=false){
         clog(`Fetching ${idList.length} OC completion details (rate-safe)…`,'info');
         let ocTotal=0; const ocDetails=[];
         for(const ocId of idList){
-          // Rate-safe: pause before each OC detail fetch if approaching limit
-          const now2=Date.now();
-          const recentCalls=apiCallLog.filter(t=>now2-t<60000).length;
-          if(recentCalls>=API_LIMIT-3){
-            clog(`Rate limit approached (${recentCalls}/${API_LIMIT}) — waiting 30s…`,'warn');
-            setStatus('loading','RATE WAIT');
-            await new Promise(r=>setTimeout(r,30000));
-            clog('Resuming OC fetches…','info');
-          }
+          await rateSleep();
           try{
             const oc=await tGet('faction',`crimes&ID=${ocId}`,'');
             const crime=oc.crime||oc;
@@ -1301,11 +1646,19 @@ function parseReceipts(){
     // "You were sent 10x Heather from Sassyquatch"
     const pA=news.match(/^You were sent\s+(\d+)x?\s+(.+?)\s+from\s+(.+?)\.?$/i);
 
-    // "You were sent some Xanax from Stabbatha" — "some" = qty 1 (or variable; log as 1)
+    // "You were sent some Xanax from Stabbatha" — "some" = qty 1
     const pSome=news.match(/^You were sent\s+some\s+(.+?)\s+from\s+(.+?)\.?$/i);
 
-    // "You were sent a Item from Name" — singular
-    const pA1=news.match(/^You were sent\s+a\s+(.+?)\s+from\s+(.+?)\.?$/i);
+    // "You were sent a/an Item from Name" — singular
+    const pA1=news.match(/^You were sent\s+an?\s+(.+?)\s+from\s+(.+?)\.?$/i);
+
+    // ALTERNATE FORMAT seen in live logs:
+    // "DanTheHighMan sent 100x Teddy Bear Plushie to you"
+    const pAlt=news.match(/^(.+?)\s+sent\s+(\d+)x?\s+(.+?)\s+to\s+you\.?$/i);
+    // "DanTheHighMan sent a Crocus to you"
+    const pAltSing=news.match(/^(.+?)\s+sent\s+an?\s+(.+?)\s+to\s+you\.?$/i);
+    // "DanTheHighMan sent some Xanax to you"
+    const pAltSome=news.match(/^(.+?)\s+sent\s+some\s+(.+?)\s+to\s+you\.?$/i);
 
     // Legacy formats with [ID] brackets
     const pB=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+sent\s+you\s+(\d+)x?\s+(.+?)\.?$/i);
@@ -1323,6 +1676,15 @@ function parseReceipts(){
     } else if(pA1){
       member=pA1[2].trim(); memberId=xid;
       qty=1; item=pA1[1].trim();
+    } else if(pAlt){
+      member=pAlt[1].trim(); memberId=xid;
+      qty=parseInt(pAlt[2])||1; item=pAlt[3].trim();
+    } else if(pAltSing){
+      member=pAltSing[1].trim(); memberId=xid;
+      qty=1; item=pAltSing[2].trim();
+    } else if(pAltSome){
+      member=pAltSome[1].trim(); memberId=xid;
+      qty=1; item=pAltSome[2].trim();
     } else if(pB){
       member=pB[1].trim(); memberId=pB[2];
       qty=parseInt(pB[3]); item=pB[4].trim();
@@ -1739,15 +2101,17 @@ function renderVault(){
 }
 
 // ── INVENTORY (Plushie/Flower set tracker)
-// Canonical Torn museum sets — all 13 plushies, all 11 flowers (matching wiki/API item names)
+// Canonical Torn museum sets — verified against wiki/Museum page April 2026
+// Plushie set (13): all non-Dong plushies
 const PLUSHIE_SET = [
   'Camel Plushie','Cat Plushie','Chamois Plushie','Dog Plushie','Duck Plushie',
   'Jaguar Plushie','Kitten Plushie','Lion Plushie','Monkey Plushie','Panda Plushie',
   'Sheep Plushie','Teddy Bear Plushie','Wolverine Plushie'
 ];
+// Exotic flower set (11): exact names from wiki/Museum
 const FLOWER_SET = [
-  'African Violet','Banana Orchid','Cerise','Crocus','Dahlia',
-  'Edelweiss','Heather','Orchid','Peony','Tribhujanga','Violet'
+  'African Violet','Banana Orchid','Ceibo Flower','Cherry Blossom','Crocus',
+  'Dahlia','Edelweiss','Heather','Orchid','Peony','Tribulus Omanense'
 ];
 
 // Points per complete set — Torn Museum: 1 set = 10 points (both plushies and flowers)
@@ -2453,8 +2817,12 @@ function calcSplit(){
 // TABS / FILTERS
 // ════════════════════════════════════════════
 function switchTab(name){
-  const order=['vault','supply','members','oc','receipts','respect','war','log','debug','admin'];
-  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',order[i]===name));
+  // Match tabs by their onclick content, not position (position-based was broken with inventory)
+  document.querySelectorAll('.tab').forEach(t=>{
+    const onclick=t.getAttribute('onclick')||'';
+    const match=onclick.match(/switchTab\('([^']+)'\)/);
+    t.classList.toggle('active', match?match[1]===name:false);
+  });
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   const panel=document.getElementById('panel-'+name);
   if(panel) panel.classList.add('active');
@@ -2464,6 +2832,7 @@ function switchTab(name){
   if(name==='log') renderArmoryLog();
   if(name==='respect') renderRespect();
   if(name==='war') renderWarPanel();
+  if(name==='inventory') renderInventory();
   if(name==='admin') adminInspectStorage();
 }
 
@@ -2471,29 +2840,30 @@ function renderDebugEvents(){
   const search=(document.getElementById('debugSearch')?.value||'').toLowerCase();
   let events=S.events||[];
   if(search) events=events.filter(e=>(e.event||e.news||'').toLowerCase().includes(search));
-  document.getElementById('debugCount').textContent=`${events.length} events`;
+  const total=events.length;
+  document.getElementById('debugCount').textContent=`${total} events`;
   if(!events.length){
-    document.getElementById('debugTbl').innerHTML='<div class="empty">No events loaded. Hit SYNC EVENTS on Item Receipts tab first.</div>';
+    document.getElementById('debugTbl').innerHTML='<div class="empty">No events loaded. Hit Sync or run Initialize.</div>';
     return;
   }
+  // Show up to 500 events (all that are loaded)
   let h=`<table><thead><tr><th>Time</th><th>Status</th><th>Raw Event Text</th></tr></thead><tbody>`;
-  events.slice(0,200).forEach(ev=>{
+  events.slice(0,500).forEach(ev=>{
     const text=ev.event||ev.news||'';
     const ts=ev.timestamp;
     const clean=stripHtml(text);
-    // Match against the actual current parsing patterns
-    const matched=
-      /You were sent\s+\d+x?\s+/i.test(clean)||       // Primary format (current API)
-      /You were sent\s+some\s+/i.test(clean)||          // "some Xanax" format
-      /You were sent\s+a\s+/i.test(clean)||             // singular
-      /has\s+sent\s+you\s+(\d+x?|a)\s+/i.test(clean)|| // legacy with [ID]
-      /has\s+given\s+you\s+\d+x?\s+/i.test(clean)||
-      /sent\s+you\s+\d+x?\s+/i.test(clean);
-    // Also check if already parsed into a receipt
     const parsed=S.receipts.find(r=>r.ts===ev.timestamp);
-    const isItemLike=/sent|given|plushie|flower|xanax|heather|dahlia|wolverine|teddy|sheep/i.test(clean);
-    let badge, rowStyle;
-    if(parsed){
+    const isOutgoing=(S.outgoing||[]).find(r=>r.ts===ev.timestamp&&r.src==='events');
+    const matched=
+      /You were sent\s+(\d+x?|some|an?)\s+/i.test(clean)||
+      /\w+\s+sent\s+(\d+x?|an?|some)\s+.+to\s+you/i.test(clean)||
+      /has\s+(sent|given)\s+you\s+/i.test(clean);
+    const isItemLike=/sent|given|plushie|flower|xanax|heather|dahlia|wolverine|teddy|sheep|edelweiss|crocus/i.test(clean);
+    let badge,rowStyle;
+    if(isOutgoing){
+      badge=`<span class="badge bb">OUTGOING</span><span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-left:4px;">${isOutgoing.qty}x ${isOutgoing.item} → ${isOutgoing.toMember}</span>`;
+      rowStyle='background:rgba(126,184,255,0.04)';
+    } else if(parsed){
       badge=`<span class="badge bg">PARSED</span><span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-left:4px;">${parsed.qty}x ${parsed.item} ← ${parsed.member}</span>`;
       rowStyle='background:rgba(127,255,110,0.04)';
     } else if(matched){
@@ -2503,7 +2873,7 @@ function renderDebugEvents(){
       badge='<span class="badge bm">POSSIBLE</span>';
       rowStyle='';
     } else {
-      badge='<span class="badge bm" style="opacity:0.3">—</span>';
+      badge='<span class="badge bm" style="opacity:0.25">—</span>';
       rowStyle='';
     }
     h+=`<tr style="${rowStyle}">
@@ -2512,6 +2882,7 @@ function renderDebugEvents(){
       <td style="font-size:10px;color:var(--text);word-break:break-word">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
     </tr>`;
   });
+  if(total>500) h+=`<tr><td colspan="3" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);text-align:center;padding:8px;">Showing 500 of ${total} events</td></tr>`;
   document.getElementById('debugTbl').innerHTML=h+'</tbody></table>';
 }
 // ════════════════════════════════════════════
@@ -2555,6 +2926,7 @@ async function dbgRunAll(){
   const tests=[
     ['user','events','events'],
     ['faction','basic','basic'],
+    ['faction','money','money'],
     ['faction','donations','donations'],
     ['faction','armorynews','armorynews'],
     ['faction','mainnews','mainnews'],
@@ -3131,39 +3503,87 @@ function removeWar(idx){
 // OUTGOING ITEMS (items YOU sent to faction members)
 // ════════════════════════════════════════════
 function parseOutgoing(){
-  // Track items you sent OUT from your events
-  // Format: "You sent Nx Item to MemberName" or "You gave Nx Item to MemberName"
+  // "You sent X to Y" never appears in the key-owner's user/events —
+  // those are only visible to the RECEIVER. Outgoing items are tracked via:
+  //   1. Armory news: "Andrewj4776 gave Nx Item to MemberName" (dir=out)
+  //   2. Armory news: "Andrewj4776 loaned Nx Item to MemberName" (dir=loan)
+  //   3. User events fallback: "You gave/sent Nx Item to Name" if ever present
+
   const seen=new Set((S.outgoing||[]).map(r=>r.id));
   let added=0;
+  if(!S.outgoing) S.outgoing=[];
+
+  // Source 1: armory news — find entries where OUR name did the giving/loaning
+  // We determine "our" name from S.faction members matching our key (use S._myName if set)
+  // Fallback: include ALL gave/loaned entries as outgoing (co-leader view)
+  S.armoryNews.forEach(ev=>{
+    const parsed=parseArm(ev);
+    if(!parsed||parsed.qty===0) return;
+    // Only track out/loan direction (items leaving to a member)
+    if(parsed.dir!=='out'&&parsed.dir!=='loan') return;
+    // Skip if item has no category (weapons/armor — not consumables we track)
+    const iData=lookupItem(parsed.item);
+    const t=iData?.type||'';
+    if(!isConsumable(t)) return;
+    const id=`arm_${ev.timestamp}_${parsed.item.replace(/\W/g,'').toLowerCase()}_${parsed.member.replace(/\W/g,'')}`;
+    if(!seen.has(id)){
+      const mv=iData?.mv||0;
+      const cat=detectCat(parsed.item)||'Other';
+      S.outgoing.push({id,toMember:parsed.member,item:parsed.item,qty:parsed.qty,mv,cat,ts:ev.timestamp,src:'armory'});
+      seen.add(id);
+      added++;
+    }
+  });
+
+  // Source 2: user events — all "You sent/gave" formats from real Torn logs:
+  // "You sent 20x Bottle of Beer to DanTheHighMan"
+  // "You sent an Edelweiss to DanTheHighMan"          (singular "an")
+  // "You sent a Crocus to DanTheHighMan"              (singular "a")
+  // "You sent some Xanax to DanTheHighMan"            (qty unknown → 1)
   S.events.forEach(ev=>{
     const raw=ev.event||ev.news||'';
     if(!raw) return;
     const n=stripHtml(raw);
-    // "You sent 10x Heather to Sassyquatch"
-    const pA=n.match(/^You sent\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\.?$/i);
-    // "You gave 10x Heather to Sassyquatch"
-    const pB=n.match(/^You gave\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\.?$/i);
-    const match=pA||pB;
-    if(match){
-      const qty=parseInt(match[1]);
-      const item=match[2].trim().replace(/[.!,]$/,'');
-      const toMember=match[3].trim();
-      const id=`out_${ev.timestamp}_${item.replace(/\W/g,'').toLowerCase()}_${toMember.replace(/\W/g,'')}`;
-      if(!seen.has(id)){
-        const iData=lookupItem(item);
-        const mv=iData?.mv||0;
-        const cat=detectCat(item)||'Other';
-        if(!S.outgoing) S.outgoing=[];
-        S.outgoing.push({id,toMember,item,qty,mv,cat,ts:ev.timestamp});
-        seen.add(id);
-        added++;
-      }
+
+    let qty=0, item='', toMember='';
+
+    // "You sent/gave NNx Item to Name"
+    const pQty=n.match(/^You (?:sent|gave)\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\.?$/i);
+    // "You sent/gave an/a Item to Name"
+    const pSingA=n.match(/^You (?:sent|gave)\s+an?\s+(.+?)\s+to\s+(.+?)\.?$/i);
+    // "You sent/gave some Item to Name"
+    const pSome=n.match(/^You (?:sent|gave)\s+some\s+(.+?)\s+to\s+(.+?)\.?$/i);
+
+    if(pQty){
+      qty=parseInt(pQty[1])||1; item=pQty[2].trim().replace(/[.!,]$/,''); toMember=pQty[3].trim();
+    } else if(pSingA){
+      qty=1; item=pSingA[1].trim().replace(/[.!,]$/,''); toMember=pSingA[2].trim();
+    } else if(pSome){
+      qty=1; item=pSome[1].trim().replace(/[.!,]$/,''); toMember=pSome[2].trim();
+    } else {
+      return;
+    }
+
+    // Strip any trailing HTML link from toMember (e.g. "to <a>Name</a>")
+    toMember=toMember.replace(/<[^>]+>/g,'').trim();
+
+    const id=`out_${ev.timestamp}_${item.replace(/\W/g,'').toLowerCase()}_${toMember.replace(/\W/g,'')}`;
+    if(!seen.has(id)){
+      const iData=lookupItem(item);
+      const mv=iData?.mv||0;
+      const cat=detectCat(item)||'Other';
+      S.outgoing.push({id,toMember,item,qty,mv,cat,ts:ev.timestamp,src:'events'});
+      seen.add(id);
+      added++;
     }
   });
+
   if(added>0){
     S.outgoing.sort((a,b)=>b.ts-a.ts);
     try{localStorage.setItem('hv_outgoing',JSON.stringify(S.outgoing));}catch(e){}
     clog(`Outgoing: ${added} new entries tracked`,'ok');
+  } else {
+    clog(`Outgoing: 0 new (${S.outgoing.length} stored)`,'info');
   }
 }
 
