@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Highvibes | Faction Budget</title>
+<title>Highvibes | Faction Budget v2.00.000</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -190,6 +190,23 @@
   .rate-meter-label.warn{color:var(--accent3);}
   .rate-meter-label.crit{color:var(--accent4);}
 
+  /* EXEMPT BADGE */
+  .be{background:rgba(90,106,122,0.15);color:var(--muted);border:1px solid rgba(90,106,122,0.3);}
+  .btn-exempt{background:transparent;color:var(--muted);border:1px solid var(--muted2);font-family:'Space Mono',monospace;font-size:9px;padding:5px 8px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;}
+  .btn-exempt:hover{color:var(--text);border-color:var(--muted);}
+  .btn-unexempt{background:transparent;color:var(--muted2);border:1px solid var(--muted2);font-family:'Space Mono',monospace;font-size:8px;padding:3px 6px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;}
+
+  /* PAID COLLAPSIBLE */
+  .oc-paid-summary{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;margin-bottom:4px;}
+  .oc-paid-summary:hover{border-color:var(--muted2);}
+
+  /* INVENTORY SETS */
+  .inv-card{background:var(--surface);border:1px solid var(--border);padding:14px 16px;position:relative;}
+  .inv-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--ca,var(--accent));}
+  .inv-sets-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:16px;}
+  @media(min-width:600px){.inv-sets-grid{grid-template-columns:repeat(3,1fr);}}
+  @media(min-width:900px){.inv-sets-grid{grid-template-columns:repeat(4,1fr);}}
+
   /* WAR FUNDS CARD */
   .war-card{background:var(--surface);border:1px solid var(--border);padding:16px;margin-bottom:16px;}
   .war-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;}
@@ -221,6 +238,10 @@
       <div class="logo-name">⬡ HIGHVIBES</div>
       <div class="logo-sub">Faction Budget Dashboard</div>
     </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;" onclick="showChangelog()" title="View changelog / check for updates">
+      <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;padding:3px 8px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.00.000 · CURRENT</div>
+      <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted2);letter-spacing:1px;">tap to view changelog</div>
+    </div>
     <div class="header-right">
       <div style="display:flex;align-items:center;gap:8px;">
         <div class="status-dot" id="sDot"></div>
@@ -228,9 +249,30 @@
         <div class="rate-meter-wrap" id="rateMeterWrap" style="display:none;margin-left:4px;">
           <div class="rate-meter-bar"><div class="rate-meter-fill" id="rateMeterFill" style="width:0%"></div></div>
           <span class="rate-meter-label" id="rateMeterLabel" style="font-size:9px;">0/100</span>
+          <span id="rateMeterPerMin" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-left:2px;"></span>
         </div>
       </div>
       <button class="btn-danger" id="btnDisconnect" onclick="clearKey()" style="display:none;padding:5px 10px;font-size:9px;">✕ DC</button>
+    </div>
+  </div>
+
+  <!-- CHANGELOG MODAL -->
+  <div id="changelogModal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(10,13,15,0.92);overflow-y:auto;">
+    <div style="max-width:660px;margin:40px auto;padding:16px;">
+      <div style="background:var(--surface);border:1px solid var(--border);padding:24px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <div>
+            <div style="font-size:14px;font-weight:800;color:var(--accent);letter-spacing:-0.5px;">⬡ HIGHVIBES — CHANGELOG</div>
+            <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:3px;">vMAJOR.MINOR.PATCH — large overhaul · medium change · small bugfix</div>
+          </div>
+          <button onclick="document.getElementById('changelogModal').style.display='none'" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
+        </div>
+        <div id="changelogContent" style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text);line-height:2;"></div>
+        <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn-primary" onclick="doUpdate()" id="btnDoUpdate" style="display:none;">⬆ RELOAD & APPLY UPDATE</button>
+          <button class="btn-sm" onclick="document.getElementById('changelogModal').style.display='none'">CLOSE</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -325,6 +367,7 @@
   <div class="tabs" id="mainTabs">
     <button class="tab active" onclick="switchTab('vault')">Vault</button>
     <button class="tab" onclick="switchTab('supply')">Supply</button>
+    <button class="tab" onclick="switchTab('inventory')">Inventory</button>
     <button class="tab" onclick="switchTab('members')">Members</button>
     <button class="tab" onclick="switchTab('oc')">OC</button>
     <button class="tab" id="tabRcpt" onclick="switchTab('receipts')">Items</button>
@@ -353,6 +396,18 @@
       <div class="pill" onclick="filterType(this,'Plushie')">Plushies</div>
     </div>
     <div class="tw" id="supplyTbl"><div class="empty">No data yet.</div></div>
+  </div>
+
+  <!-- INVENTORY (Plushie/Flower sets from your items) -->
+  <div class="panel" id="panel-inventory">
+    <div style="background:rgba(126,184,255,0.06);border:1px solid rgba(126,184,255,0.2);padding:10px 16px;margin-bottom:16px;font-family:'Space Mono',monospace;font-size:10px;color:var(--accent5);line-height:1.8;">
+      ℹ Reads your personal inventory via <code>user/inventory</code>. Shows plushie &amp; flower set completion, point value, and trade value. Museum Day 10% bonus shown separately.
+    </div>
+    <div class="inv-sets-grid" id="invSetsGrid"><div class="empty" style="grid-column:1/-1">Connect API and sync to load inventory.</div></div>
+    <div style="margin-top:16px;">
+      <div class="sh"><span class="st">Raw Inventory — Plushies &amp; Flowers</span></div>
+      <div class="tw" id="invTbl"><div class="empty">No data yet.</div></div>
+    </div>
   </div>
 
   <!-- MEMBER USAGE -->
@@ -409,6 +464,12 @@
       <span class="st">All Item Receipts</span>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <input type="text" class="ls" id="rcptSearch" placeholder="Filter member or item…" oninput="renderRcptLog()">
+        <select id="rcptStatusFilter" onchange="renderRcptLog()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:5px 8px;outline:none;cursor:pointer;">
+          <option value="all">All</option>
+          <option value="owed">Owed only</option>
+          <option value="paid">Paid only</option>
+          <option value="exempt">Exempt only</option>
+        </select>
         <button class="btn-sm" id="btnSync" onclick="syncEvents()">↻ SYNC</button>
       </div>
     </div>
@@ -559,6 +620,15 @@
       ⚠ ADMIN PANEL — Data management, export/import, and diagnostics. Changes here directly affect stored data.
     </div>
 
+    <!-- VERSION -->
+    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent);margin-bottom:14px;font-family:'Space Mono',monospace;">⬡ VERSION HISTORY</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn-sm" onclick="showChangelog()" style="border-color:var(--accent);color:var(--accent);">📋 VIEW CHANGELOG</button>
+        <button class="btn-sm" onclick="checkForUpdate()" style="border-color:var(--accent2);color:var(--accent2);">🔄 CHECK FOR UPDATE</button>
+      </div>
+    </div>
+
     <!-- DATA EXPORT -->
     <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent2);margin-bottom:14px;font-family:'Space Mono',monospace;">⬇ EXPORT DATA</div>
@@ -653,10 +723,118 @@
 
 <script>
 // ════════════════════════════════════════════
+// VERSION & CHANGELOG
+// ════════════════════════════════════════════
+const APP_VERSION = '1.4.0';
+const VERSION_URL = 'https://raw.githubusercontent.com/highvibes-torn/dashboard/main/version.json'; // update as needed
+
+const CHANGELOG = [
+  { v:'1.4.0', date:'2026-04-10', notes:[
+    '[+] Inventory tab: plushie/flower set tracker from user items (sets complete, point value, trade value)',
+    '[+] Museum Day 10% bonus shown as separate line in inventory',
+    '[+] Version system: vMAJOR.MINOR.PATCH with update checker at each sync',
+    '[+] Changelog modal (tap version badge or Admin panel)',
+    '[+] Exempt button on receipts — marks a receipt as no payout needed (not deleted, just excluded)',
+    '[+] Paid members collapse to single tap-to-expand line in Outstanding Balances',
+    '[+] Receipt log status filter dropdown (All / Owed / Paid / Exempt)',
+    '[+] Rate meter now shows usage/min below the bar',
+    '[*] API rate limit removed — tracker continues syncing; applies 30s buffer when ≥100 calls/min',
+    '[*] Vault balance now computed from donations even without AA key (member sum visible always)',
+    '[*] OC parsing now handles crimeID link format from crimes tab',
+    '[*] Flower list expanded: edelweiss and all missing flowers added',
+    '[*] Event log filter is now a dropdown menu',
+  ]},
+  { v:'1.3.0', date:'2026-04-08', notes:[
+    '[+] War funds tracker with TC ArmaSync import',
+    '[+] Per-member hit efficiency ($/hit) in war panel',
+    '[+] Outgoing items tracker (items you sent to members)',
+    '[*] Armory log improved: distinguish deposit/loan/return/withdrawal',
+  ]},
+  { v:'1.2.0', date:'2026-04-05', notes:[
+    '[+] Respect tab: attack, chain, war bonus breakdown by member',
+    '[+] API rate meter in header',
+    '[+] Card period cycling (tap stat card to change time window)',
+    '[*] OC income parsing improved for both mainnews and crimenews',
+  ]},
+  { v:'1.1.0', date:'2026-04-01', notes:[
+    '[+] Item receipt system: auto-parse sent items from user events',
+    '[+] Payout calculator by category with configurable rates',
+    '[+] Mark Paid flow with payment log',
+    '[+] Admin panel: export/import/wipe/audit',
+  ]},
+  { v:'1.0.0', date:'2026-03-25', notes:[
+    '[+] Initial release: faction vault breakdown, supply cost, OC income, member usage',
+    '[+] API key setup with localStorage persistence',
+    '[+] Auto-sync cycle with configurable rate',
+  ]},
+];
+
+function showChangelog(updateAvailable=false, latestVersion=null){
+  const el=document.getElementById('changelogContent');
+  let html='';
+  CHANGELOG.forEach((entry,i)=>{
+    const isCurrent=entry.v===APP_VERSION;
+    const isLatest=i===0;
+    html+=`<div style="margin-bottom:18px;${i>0?'opacity:0.7':''}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="color:${isCurrent?'var(--accent)':'var(--muted)'};font-weight:700;">v${entry.v}</span>
+        <span style="color:var(--muted2);font-size:9px;">${entry.date}</span>
+        ${isCurrent?'<span class="badge bg" style="font-size:8px;">CURRENT</span>':''}
+        ${updateAvailable&&latestVersion===entry.v?'<span class="badge by" style="font-size:8px;">LATEST</span>':''}
+      </div>
+      ${entry.notes.map(n=>{
+        const color=n.startsWith('[+]')?'var(--accent2)':n.startsWith('[*]')?'var(--accent3)':'var(--accent4)';
+        return `<div style="color:${color};padding-left:8px;font-size:10px;">${n}</div>`;
+      }).join('')}
+    </div>`;
+  });
+  el.innerHTML=html;
+  const updateBtn=document.getElementById('btnDoUpdate');
+  if(updateBtn) updateBtn.style.display=updateAvailable?'flex':'none';
+  document.getElementById('changelogModal').style.display='block';
+}
+
+async function checkForUpdate(){
+  const badge=document.getElementById('versionBadge');
+  const sub=document.getElementById('versionSub');
+  try{
+    const r=await fetch(VERSION_URL+'?_='+Date.now());
+    const d=await r.json();
+    const latest=d.version||APP_VERSION;
+    if(latest!==APP_VERSION){
+      badge.textContent=`v${APP_VERSION} · UPDATE v${latest}`;
+      badge.style.borderColor='var(--accent3)';badge.style.color='var(--accent3)';
+      sub.textContent='tap to view changelog & update';
+      clog(`Update available: v${latest} (current: v${APP_VERSION})`,'warn');
+      return {available:true,latest};
+    } else {
+      badge.textContent=`v${APP_VERSION} · CURRENT`;
+      badge.style.borderColor='';badge.style.color='';
+      clog(`Version up to date: v${APP_VERSION}`,'ok');
+      return {available:false,latest};
+    }
+  }catch(e){
+    // No version server — just show current
+    clog('Version check skipped (no server configured)','info');
+    return {available:false,latest:APP_VERSION};
+  }
+}
+
+function doUpdate(){
+  if(confirm('Reload and apply update?\n\nYour data in localStorage will be preserved. The page will reload.')){
+    location.reload(true);
+  }
+}
+
+// ════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════
-const FLOWER_NAMES = new Set(['heather','dahlia','orchid','pansy','lily','crocus','peony','daffodil',
-  'violet','cerise','african violet','banana orchid','edelweiss','gerbera','hollyhock']);
+const FLOWER_NAMES = new Set([
+  'heather','dahlia','orchid','pansy','lily','crocus','peony','daffodil',
+  'violet','cerise','african violet','banana orchid','edelweiss','gerbera',
+  'hollyhock','tribhujanga','rose','sunflower','carnation','blue orchid',
+  'chrysanthemum','morning glory','tulip','bird of paradise','plumeria'
+]);
 
 // Sync rate options: label → minutes (0 = live ~30s, -1 = daily)
 const SYNC_RATES = [
@@ -679,19 +857,20 @@ let S = {
   cardPeriods:{supply:'30d', oc:'30d'},
   wars:[], warPeriod:'all',
   outgoing:[], // items sent from you to faction members
+  inventory:[], // user's personal inventory items
+  exemptReceipts:new Set(), // receipt IDs exempt from payout
 };
 let rTimer=null, cTimer=null, rStart=null;
 
 // ════════════════════════════════════════════
-// API RATE TRACKING
+// API RATE TRACKING — no hard stop, soft buffer at limit
 // ════════════════════════════════════════════
 let apiCallLog=[];
-const API_LIMIT=100;
+const API_LIMIT=100; // Torn rate limit per minute
 
 function trackApiCall(){
   const now=Date.now();
   apiCallLog.push(now);
-  // Keep only calls within last 60s
   apiCallLog=apiCallLog.filter(t=>now-t<60000);
   updateRateMeter();
 }
@@ -703,11 +882,31 @@ function updateRateMeter(){
   const pct=Math.min(100,Math.round(count/API_LIMIT*100));
   const fill=document.getElementById('rateMeterFill');
   const label=document.getElementById('rateMeterLabel');
+  const perMin=document.getElementById('rateMeterPerMin');
   if(!fill) return;
   fill.style.width=pct+'%';
-  fill.className='rate-meter-fill'+(pct>=75?' crit':pct>=50?' warn':'');
-  label.className='rate-meter-label'+(pct>=75?' crit':pct>=50?' warn':'');
+  fill.className='rate-meter-fill'+(pct>=90?' crit':pct>=60?' warn':'');
+  label.className='rate-meter-label'+(pct>=90?' crit':pct>=60?' warn':'');
   label.textContent=`${count}/${API_LIMIT}`;
+  if(perMin){
+    // Estimate calls/min from last 10s window
+    const recent=apiCallLog.filter(t=>now-t<10000).length;
+    const cpm=Math.round(recent*6);
+    perMin.textContent=cpm>0?` ${cpm}/min`:'';
+  }
+}
+
+// Smart rate-limit aware fetch: if near limit, wait 30s before continuing
+async function rateSafeGet(section, sel, extra=''){
+  const now=Date.now();
+  const recent=apiCallLog.filter(t=>now-t<60000).length;
+  if(recent>=API_LIMIT-3){
+    clog(`Rate limit approached (${recent}/${API_LIMIT}) — waiting 30s…`,'warn');
+    setStatus('loading','RATE WAIT');
+    await new Promise(r=>setTimeout(r,30000));
+    clog('Rate limit buffer cleared, resuming…','info');
+  }
+  return tGet(section,sel,extra);
 }
 
 // ════════════════════════════════════════════
@@ -721,6 +920,7 @@ function updateRateMeter(){
   try{ S.wars=JSON.parse(localStorage.getItem('hv_wars')||'[]'); }catch(e){}
   try{ const cp=JSON.parse(localStorage.getItem('hv_card_periods')||'{}'); S.cardPeriods={...S.cardPeriods,...cp}; }catch(e){}
   try{ S.outgoing=JSON.parse(localStorage.getItem('hv_outgoing')||'[]'); }catch(e){}
+  try{ const ex=JSON.parse(localStorage.getItem('hv_exempt')||'[]'); S.exemptReceipts=new Set(ex); }catch(e){}
   loadRateInputs();
   buildSyncSelector();
   // Restore period pill states
@@ -838,37 +1038,34 @@ async function fetchAll(isManual=false){
 
   try{
     // 1. Faction basic + donations (1 call)
+    await rateSafeGet('faction','basic'); // warm check
     clog('Fetching faction data…','info');
     const fac=await tGet('faction','basic,donations');
     S.faction=fac;
     S.donations=fac.donations||{};
 
-    // 2. Vault money
-    // The Torn API returns fac.money for AA keys on faction/basic.
-    // For non-AA keys: compute from donations sum + faction's remaining funds.
-    // The donations response includes each member's money_balance.
-    // Total vault = sum(member balances) + faction_remaining_funds.
-    // fac.money IS the total vault for AA keys.
-    // For non-AA we compute: memberTotal + (fac.money if >0 else try donations endpoint)
+    // 2. Vault money — always compute member total from donations
     let vaultMoney=fac.money||0;
     let memberTotal=0;
     Object.values(S.donations).forEach(d=>{ memberTotal+=d.money_balance||0; });
     S.faction._memberTotal=memberTotal;
 
+    // Vault balance from donations even without AA key:
+    // If no AA, fac.money is 0, but we can still show member sum + note
     if(vaultMoney===0){
-      // Non-AA fallback: try faction money selection
+      // Non-AA: vault = member total (faction unassigned unknown)
+      S.faction._vaultFromDonations = memberTotal;
       try{
         const vm=await tGet('faction','money');
         vaultMoney=vm.money||0;
         if(vaultMoney>0){ S.faction.money=vaultMoney; clog(`Vault (money selection): ${fmt$(vaultMoney)}`,'ok'); }
       }catch(e2){
-        clog(`Vault API failed [${e2.message}] — showing member balances only`,'warn');
+        clog(`Vault AA required for total — showing member balances: ${fmt$(memberTotal)}`,'warn');
       }
     }
 
-    // Faction available (unassigned) funds = vault - member balances
     S.faction._factionAvailable = vaultMoney>0 ? vaultMoney-memberTotal : 0;
-    clog(`"${fac.name}" | ${Object.keys(fac.members||{}).length} members | Vault: ${vaultMoney>0?fmt$(vaultMoney):'(AA req)'} | Members: ${fmt$(memberTotal)} | Available: ${vaultMoney>0?fmt$(S.faction._factionAvailable):'(AA req)'}`,'ok');
+    clog(`"${fac.name}" | ${Object.keys(fac.members||{}).length} members | Vault: ${vaultMoney>0?fmt$(vaultMoney):'(AA req, members: '+fmt$(memberTotal)+')'} | Available: ${vaultMoney>0?fmt$(S.faction._factionAvailable):'(AA req)'}`,'ok');
 
     // 3. Armory news (1 call)
     clog('Fetching armory news…','info');
@@ -888,13 +1085,20 @@ async function fetchAll(isManual=false){
     // 5. User events for item receipts (1 call)
     await syncEvents(true);
 
+    // 5b. User inventory (1 call) — for plushie/flower set tracking
+    clog('Fetching user inventory…','info');
+    try{
+      const inv=await tGet('user','inventory');
+      S.inventory=Object.values(inv.inventory||{});
+      clog(`Inventory: ${S.inventory.length} item stacks`,'ok');
+    }catch(e){ clog('Inventory fetch failed: '+e.message,'warn'); S.inventory=[]; }
+
     // 6. Main news — chains/respect + OC vault deposits (1 call)
     clog('Fetching main news…','info');
     try{
       const mn=await tGet('faction','mainnews');
       const mainAll=Object.values(mn.mainnews||{});
       S.attackNews=mainAll.filter(e=>e.news&&/respect/i.test(e.news)).sort((a,b)=>b.timestamp-a.timestamp);
-      // OC deposits appear as "The faction received $X" or "organised crime" payout lines
       S.ocRaw=mainAll.filter(e=>e.news&&(
         /faction received \$[\d,]+/i.test(e.news)||
         /payout.*\$[\d,]+/i.test(e.news)||
@@ -903,10 +1107,10 @@ async function fetchAll(isManual=false){
         /organised crime.*\$[\d,]+/i.test(e.news)
       )).sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
       clog(`Main news: ${mainAll.length} | ${S.attackNews.length} respect | ${S.ocRaw.length} OC $ entries`,'ok');
-      if(mainAll.length>0&&S.ocRaw.length===0) clog('No OC vault deposits found in mainnews — OC may pay members directly','warn');
+      if(mainAll.length>0&&S.ocRaw.length===0) clog('No OC vault deposits in mainnews — OC may pay members directly','warn');
     }catch(e){ clog('Main news failed: '+e.message,'warn'); S.attackNews=[]; S.ocRaw=[]; }
 
-    // 7. Attacking news — individual attack respect (1 call)
+    // 7. Attack news — individual attack respect (1 call)
     clog('Fetching attack news…','info');
     try{
       const atk=await tGet('faction','attacknews');
@@ -914,33 +1118,42 @@ async function fetchAll(isManual=false){
       clog(`Attack news: ${S.crimeNews.length} entries`,'ok');
     }catch(e){ clog('Attack news failed: '+e.message,'warn'); S.crimeNews=[]; }
 
-    // 8. Crimes news — OC activity log + fetch completed OC details for $ and respect
+    // 8. Crimes news — OC activity log
+    // NEW: also handles factions.php?step=your#/tab=crimes&crimeID=XXXXX link format
     clog('Fetching crimes news…','info');
     try{
       const cr=await tGet('faction','crimenews');
       const crAll=Object.values(cr.crimenews||{});
       S._crimeLog=crAll.sort((a,b)=>b.timestamp-a.timestamp);
 
-      // Extract OC IDs from success entries — "The faction successfully kidnapped someone! [view]"
-      // The view link in the raw HTML contains the OC ID: organisedcrimes.php?step=log&ID=XXXXX
-      const ocIdPattern=/organisedcrimes\.php\?step=log&(?:amp;)?ID=(\d+)/gi;
+      // Extract OC IDs — both classic organisedcrimes URL and new crimeID= hash format
       const ocIds=new Set();
       crAll.forEach(e=>{
         const raw=e.news||'';
-        let m;
-        while((m=ocIdPattern.exec(raw))!==null) ocIds.add(m[1]);
-        ocIdPattern.lastIndex=0;
+        // Classic: organisedcrimes.php?step=log&ID=XXXXX
+        const m1=[...raw.matchAll(/organisedcrimes\.php\?step=log&(?:amp;)?ID=(\d+)/gi)];
+        m1.forEach(m=>ocIds.add(m[1]));
+        // New format: tab=crimes&crimeID=XXXXX or crimeID=XXXXX
+        const m2=[...raw.matchAll(/crimeID=(\d+)/gi)];
+        m2.forEach(m=>ocIds.add(m[1]));
       });
 
-      // Fetch OC details for each completed crime (capped at 10 most recent to save API calls)
       if(ocIds.size>0){
         const idList=[...ocIds].slice(0,10);
-        clog(`Fetching ${idList.length} OC completion details…`,'info');
+        clog(`Fetching ${idList.length} OC completion details (rate-safe)…`,'info');
         let ocTotal=0; const ocDetails=[];
         for(const ocId of idList){
+          // Rate-safe: pause before each OC detail fetch if approaching limit
+          const now2=Date.now();
+          const recentCalls=apiCallLog.filter(t=>now2-t<60000).length;
+          if(recentCalls>=API_LIMIT-3){
+            clog(`Rate limit approached (${recentCalls}/${API_LIMIT}) — waiting 30s…`,'warn');
+            setStatus('loading','RATE WAIT');
+            await new Promise(r=>setTimeout(r,30000));
+            clog('Resuming OC fetches…','info');
+          }
           try{
             const oc=await tGet('faction',`crimes&ID=${ocId}`,'');
-            // crimes endpoint returns crime details including reward
             const crime=oc.crime||oc;
             const reward=crime.money_gain||crime.money||0;
             const respect=crime.respect_gain||crime.respect||0;
@@ -948,12 +1161,11 @@ async function fetchAll(isManual=false){
               ocDetails.push({id:ocId,reward,respect,ts:crime.time_completed||0});
               ocTotal+=reward;
             }
-          }catch(e2){ /* individual fetch failure is non-fatal */ }
+          }catch(e2){ clog(`OC ${ocId} detail failed: ${e2.message}`,'warn'); }
         }
         if(ocTotal>0){
-          clog(`OC $ total from ${ocDetails.length} completed crimes: ${fmt$(ocTotal)}`,'ok');
+          clog(`OC $ from ${ocDetails.length} crimes: ${fmt$(ocTotal)}`,'ok');
           S._ocDetails=ocDetails;
-          // Build synthetic entries for S.ocRaw if not already populated from mainnews
           if(S.ocRaw.length===0&&ocDetails.length>0){
             S.ocRaw=ocDetails.filter(d=>d.reward>0).map(d=>({
               news:`The faction received $${d.reward.toLocaleString()} from organised crime`,
@@ -964,10 +1176,9 @@ async function fetchAll(isManual=false){
           clog('OC crime details: no $ rewards found (crimes may pay members directly)','warn');
         }
       } else {
-        clog(`Crimes news: ${crAll.length} entries (no completed OC IDs found in crimenews)`, 'info');
+        clog(`Crimes news: ${crAll.length} entries (no OC IDs found)`,'info');
       }
 
-      // Also check if crimenews itself has $ entries (vault-payout mode)
       const crMoney=crAll.filter(e=>e.news&&/\$[\d,]+/.test(e.news));
       if(crMoney.length>0&&S.ocRaw.length===0){
         S.ocRaw=crMoney.sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
@@ -976,10 +1187,22 @@ async function fetchAll(isManual=false){
     }catch(e){ clog('Crimes news failed: '+e.message,'warn'); S._crimeLog=[];}
 
     S.lastSync=Date.now();
+
+    // 9. User inventory for plushie/flower set tracker
+    try{
+      const inv=await tGet('user','inventory');
+      S.inventory=Object.values(inv.inventory||{});
+      clog(`Inventory: ${S.inventory.length} item stacks`,'ok');
+    }catch(e){ clog('Inventory fetch failed (needs user/inventory access): '+e.message,'warn'); S.inventory=[]; }
+
     renderAll();
     setStatus('live','LIVE');
     document.getElementById('rLast').textContent='Updated '+new Date(S.lastSync).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     clog('──── Sync complete ✓ ────','ok');
+
+    // Version check at end of each sync (silent)
+    checkForUpdate().catch(()=>{});
+
   }catch(e){
     clog('Sync error: '+e.message,'err');
     document.getElementById('gErr').textContent='⚠ '+e.message;
@@ -1140,6 +1363,15 @@ function detectCat(name){
 }
 
 function saveReceipts(){ try{localStorage.setItem('hv_rcpts',JSON.stringify(S.receipts));}catch(e){} }
+
+// ── EXEMPT
+function toggleExempt(id){
+  if(S.exemptReceipts.has(id)) S.exemptReceipts.delete(id);
+  else S.exemptReceipts.add(id);
+  try{localStorage.setItem('hv_exempt',JSON.stringify([...S.exemptReceipts]));}catch(e){}
+  renderReceipts(); renderCards();
+}
+function isExempt(id){ return S.exemptReceipts.has(id); }
 
 // ════════════════════════════════════════════
 // PAYOUT RATES
@@ -1394,6 +1626,7 @@ function setStatus(t,txt){
 function renderAll(){
   renderVault(); renderSupply(); renderMemberUsage();
   renderOC(); renderReceipts(); renderArmoryLog(); renderCards(); renderRespect();
+  renderInventory();
   if(S.tab==='debug') renderDebugEvents();
   if(S.tab==='war') renderWarPanel();
 }
@@ -1418,11 +1651,11 @@ function renderVault(){
   const mp=denominator>0?Math.round(mTotal/denominator*100):0;
   const factionAvail=vault>0?net:0;
 
-  // Update stat cards
+  // Update stat cards — member total always available from donations
   const vtEl=document.getElementById('cVaultTotal');
   const vEl=document.getElementById('cVault');
-  if(vtEl) vtEl.textContent=vault>0?fmt$(vault):'(AA req)';
-  if(vEl)  vEl.textContent=vault>0?fmt$(factionAvail):'(AA req)';
+  if(vtEl) vtEl.textContent=vault>0?fmt$(vault):fmt$(mTotal)+' (members)';
+  if(vEl)  vEl.textContent=vault>0?fmt$(factionAvail):'(AA req for total)';
 
   let h=`<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">FACTION VAULT BREAKDOWN</div>`;
   if(vaultUnknown) h+=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);margin-bottom:12px;padding:8px 12px;border:1px solid rgba(240,192,64,0.2);background:rgba(240,192,64,0.05)">⚠ Vault total requires Full Access (AA) key. Member balances shown below.</div>`;
@@ -1474,7 +1707,123 @@ function renderVault(){
   document.getElementById('vaultCard').innerHTML=h;
 }
 
-// Consumable item types — weapons/armor are loaned not consumed, don't count toward supply cost
+// ── INVENTORY (Plushie/Flower set tracker)
+// Torn set definitions — all canonical plushies and flowers
+const PLUSHIE_SET = ['Camel Plushie','Cat Plushie','Dog Plushie','Donkey Plushie','Duck Plushie',
+  'Elephant Plushie','Monkey Plushie','Panda Plushie','Penguin Plushie','Rabbit Plushie',
+  'Sheep Plushie','Stag Plushie','Teddy Bear Plushie','Tiger Plushie','Wolverine Plushie'];
+const FLOWER_SET = ['African Violet','Banana Orchid','Cerise','Crocus','Dahlia','Daffodil',
+  'Edelweiss','Gerbera','Heather','Hollyhock','Lily','Orchid','Pansy','Peony',
+  'Tribhujanga','Violet'];
+
+// Points per complete set (Torn trade-in values — approximate)
+const PLUSHIE_SET_PTS = 2250;   // pts per full plushie set
+const FLOWER_SET_PTS  = 2000;   // pts per full flower set
+const MUSEUM_DAY_BONUS = 0.10;  // 10% bonus on Museum Day
+
+function renderInventory(){
+  const grid=document.getElementById('invSetsGrid');
+  const tbl=document.getElementById('invTbl');
+  if(!grid) return;
+
+  if(!S.inventory.length){
+    grid.innerHTML='<div class="empty" style="grid-column:1/-1">No inventory data. Sync required (needs <code>user/inventory</code> access).</div>';
+    if(tbl) tbl.innerHTML='<div class="empty">No data yet.</div>';
+    return;
+  }
+
+  // Build a name→qty map from inventory
+  const inv={};
+  S.inventory.forEach(it=>{
+    const n=(it.name||'').trim();
+    if(n) inv[n]=(inv[n]||0)+(it.quantity||1);
+  });
+
+  // Count sets
+  const plushieCounts=PLUSHIE_SET.map(n=>inv[n]||0);
+  const flowerCounts=FLOWER_SET.map(n=>inv[n]||0);
+  const plushieSets=Math.min(...plushieCounts);
+  const flowerSets=Math.min(...flowerCounts);
+
+  // Value calculations
+  // Trade value: get MV from S.prices for each item * qty
+  let plushieMV=0, flowerMV=0;
+  PLUSHIE_SET.forEach(n=>{ const it=lookupItem(n); plushieMV+=(it?.mv||0)*(inv[n]||0); });
+  FLOWER_SET.forEach(n=>{ const it=lookupItem(n); flowerMV+=(it?.mv||0)*(inv[n]||0); });
+
+  const totalPts=(plushieSets*PLUSHIE_SET_PTS)+(flowerSets*FLOWER_SET_PTS);
+  const museumBonus=totalPts*MUSEUM_DAY_BONUS;
+
+  // Set completion bars
+  const plushiePct=PLUSHIE_SET.length>0?Math.round((Math.min(...plushieCounts.filter(c=>c>0).concat(plushieCounts))/Math.max(...plushieCounts)||0)*100):0;
+  const minP=Math.min(...plushieCounts), maxP=Math.max(...plushieCounts)||1;
+  const minF=Math.min(...flowerCounts), maxF=Math.max(...flowerCounts)||1;
+
+  grid.innerHTML=`
+    <div style="background:var(--surface);border:1px solid var(--border);padding:16px;grid-column:1/-1;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent5);margin-bottom:14px;font-family:'Space Mono',monospace;">SET TRACKER</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
+
+        <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">PLUSHIE SETS</div>
+          <div style="font-size:26px;font-weight:800;color:var(--accent5);">${plushieSets}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">complete sets · ${PLUSHIE_SET_PTS.toLocaleString()} pts each</div>
+          <div style="height:3px;background:var(--border);margin-top:8px;border-radius:2px;overflow:hidden;">
+            <div style="height:100%;background:var(--accent5);width:${maxP>0?Math.round(minP/maxP*100):0}%"></div>
+          </div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:4px;">lowest: ${minP} · highest: ${maxP}</div>
+        </div>
+
+        <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">FLOWER SETS</div>
+          <div style="font-size:26px;font-weight:800;color:var(--accent2);">${flowerSets}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">complete sets · ${FLOWER_SET_PTS.toLocaleString()} pts each</div>
+          <div style="height:3px;background:var(--border);margin-top:8px;border-radius:2px;overflow:hidden;">
+            <div style="height:100%;background:var(--accent2);width:${maxF>0?Math.round(minF/maxF*100):0}%"></div>
+          </div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:4px;">lowest: ${minF} · highest: ${maxF}</div>
+        </div>
+
+        <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">TOTAL POINTS</div>
+          <div style="font-size:26px;font-weight:800;color:var(--accent3);">${totalPts.toLocaleString()}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">if traded now (both sets)</div>
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+            <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent3);">+${museumBonus.toLocaleString()} pts Museum Day bonus</div>
+            <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);">+10% on total if traded on Museum Day</div>
+          </div>
+        </div>
+
+        <div style="background:var(--surface2);padding:12px;border:1px solid var(--border);">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">MARKET VALUE</div>
+          <div style="font-size:20px;font-weight:800;color:var(--accent);">${fmt$(plushieMV+flowerMV)}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px;">all plushies + flowers at MV</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:4px;">
+            Plushies: ${fmt$(plushieMV)}<br>Flowers: ${fmt$(flowerMV)}
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  // Per-item breakdown table
+  if(!tbl) return;
+  const allSetItems=[...PLUSHIE_SET.map(n=>({n,type:'Plushie'})),...FLOWER_SET.map(n=>({n,type:'Flower'}))];
+  let th=`<table><thead><tr><th>Item</th><th>Type</th><th>In Inventory</th><th>Unit MV</th><th>Total MV</th></tr></thead><tbody>`;
+  allSetItems.forEach(({n,type})=>{
+    const qty=inv[n]||0;
+    const it=lookupItem(n);
+    const mv=it?.mv||0;
+    const cls=qty===0?'cr':qty<3?'cy':'cm';
+    th+=`<tr>
+      <td class="cn" style="font-size:11px;">${n}</td>
+      <td><span class="badge ${type==='Plushie'?'bb':'bg'}">${type}</span></td>
+      <td class="${cls};font-weight:${qty===0?'700':'400'}">${qty===0?'MISSING':qty}</td>
+      <td class="cm">${fmt$(mv)}</td>
+      <td class="${qty>0?'cy':'cm'}">${qty>0?fmt$(qty*mv):'—'}</td>
+    </tr>`;
+  });
+  tbl.innerHTML=th+'</tbody></table>';
+}
 const CONSUMABLE_TYPES = new Set([
   'medical','drug','alcohol','candy','energy drink','booster','temporary',
   'flower','plushie','virus','explosive'
@@ -1617,7 +1966,7 @@ function renderOutgoing(){
 
 function calcOwed(member){
   const paidTs=lastPaidTs(member);
-  return S.receipts.filter(r=>!r.deleted&&r.member===member&&r.ts>paidTs)
+  return S.receipts.filter(r=>!r.deleted&&!r.exempt&&r.member===member&&r.ts>paidTs)
     .reduce((s,r)=>s+r.qty*r.mv*getRate(r.cat),0);
 }
 function lastPaidTs(member){
@@ -1633,46 +1982,76 @@ function renderOwed(){
     members[r.member].count+=r.qty;
     if(r.memberId&&r.memberId!=='0') members[r.member].memberId=r.memberId;
   });
-  // Enrich member IDs from donations data (keyed by Torn player ID)
   Object.entries(S.donations||{}).forEach(([id,d])=>{
     const nm=S.faction?.members?.[id]?.name||d.name||'';
     if(nm&&members[nm]&&!members[nm].memberId) members[nm].memberId=id;
   });
-  // Also enrich from faction members list
   Object.entries(S.faction?.members||{}).forEach(([id,m])=>{
     if(m.name&&members[m.name]&&!members[m.name].memberId) members[m.name].memberId=id;
   });
 
   const entries=Object.values(members);
   if(!entries.length){document.getElementById('owedGrid').innerHTML='<div class="empty">No item receipts yet.<br>Click SYNC EVENTS to load.</div>';return;}
-  let html='', totalOwed=0;
+
+  // Split owed vs paid
+  const owedEntries=[], paidEntries=[];
+  let totalOwed=0;
   entries.sort((a,b)=>calcOwed(b.name)-calcOwed(a.name)).forEach(m=>{
-    const owed=calcOwed(m.name); totalOwed+=owed;
-    const paid=owed<1;
+    const owed=calcOwed(m.name);
+    if(owed>=1){ owedEntries.push(m); totalOwed+=owed; }
+    else paidEntries.push(m);
+  });
+
+  let html='';
+
+  // Owed cards
+  owedEntries.forEach(m=>{
+    const owed=calcOwed(m.name);
     const paidTs=lastPaidTs(m.name);
     const cats=Object.entries(m.cats).map(([c,q])=>`${q}x ${c}`).join(' · ');
-    // Vault pay link — opens Torn faction controls and pre-searches the member
-    // Torn URL format: factions.php?step=your opens controls panel
-    // We use a bookmark-style deep link with the member name in the hash for reference
     const amtInt=Math.round(owed);
     const vaultUrl=m.memberId&&m.memberId!=='0'
       ? `https://www.torn.com/factions.php?step=your#tab=controls&to=${m.memberId}&amount=${amtInt}`
       : `https://www.torn.com/factions.php?step=your`;
-    const vaultBtn=paid?'':`<a href="${vaultUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:6px 10px;text-decoration:none;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;" onmouseover="this.style.background='rgba(126,184,255,0.1)'" onmouseout="this.style.background='transparent'">⇒ PAY ${ff$(owed)}</a>`;
-    html+=`<div class="oc ${paid?'paid-card':''}">
+    const vaultBtn=`<a href="${vaultUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:6px 10px;text-decoration:none;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;" onmouseover="this.style.background='rgba(126,184,255,0.1)'" onmouseout="this.style.background='transparent'">⇒ PAY ${ff$(owed)}</a>`;
+    html+=`<div class="oc">
       <div class="oc-name">${m.name}${m.memberId&&m.memberId!=='0'?`<span style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-left:6px;">#${m.memberId}</span>`:''}</div>
-      <div class="oc-amt ${paid?'zero':''}">${ff$(owed)}</div>
+      <div class="oc-amt">${ff$(owed)}</div>
       <div class="oc-sub">${cats}<br>Total items received: ${m.count}${paidTs?'<br>Last paid: '+fd(paidTs):''}</div>
       <div class="oc-actions">
-        ${paid
-          ?`<span class="badge bg">PAID ✓</span>`
-          :`<button class="btn-paid" onclick="markPaid('${m.name.replace(/'/g,"\\'")}',${owed})">✓ MARK PAID</button>`}
+        <button class="btn-paid" onclick="markPaid('${m.name.replace(/'/g,"\\'")}',${owed})">✓ MARK PAID</button>
         ${vaultBtn}
         <button class="btn-viewlog" onclick="switchTab('receipts');filterRcptMember('${m.name.replace(/'/g,"\\'")}')">VIEW LOG</button>
       </div>
     </div>`;
   });
-  document.getElementById('owedGrid').innerHTML=html;
+
+  // Paid members — collapsed as a single row, tap to expand
+  if(paidEntries.length){
+    const paidId='paidCollapse_'+Date.now();
+    html+=`<div style="grid-column:1/-1;">
+      <div onclick="document.getElementById('${paidId}').style.display=document.getElementById('${paidId}').style.display==='none'?'grid':'none'"
+        style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:4px;user-select:none;">
+        <span style="color:var(--accent2)">▸</span>
+        <span>${paidEntries.length} paid member${paidEntries.length!==1?'s':''} — all clear</span>
+        <span style="margin-left:auto;font-size:9px;opacity:0.6">tap to expand</span>
+      </div>
+      <div id="${paidId}" style="display:none;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:8px;">`;
+    paidEntries.forEach(m=>{
+      const paidTs=lastPaidTs(m.name);
+      html+=`<div class="oc paid-card" style="opacity:0.55;">
+        <div class="oc-name" style="font-size:13px;">${m.name}</div>
+        <div class="oc-amt zero" style="font-size:16px;">$0</div>
+        <div class="oc-sub">${paidTs?'Last paid: '+fd(paidTs):'No payment recorded'}</div>
+        <div class="oc-actions"><span class="badge bg">PAID ✓</span>
+          <button class="btn-viewlog" onclick="switchTab('receipts');filterRcptMember('${m.name.replace(/'/g,"\\'")}')">VIEW LOG</button>
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  }
+
+  document.getElementById('owedGrid').innerHTML=html||'<div class="empty">No outstanding balances.</div>';
   document.getElementById('cOwed').textContent=fmt$(totalOwed);
 }
 
@@ -1687,15 +2066,30 @@ function markPaid(member, amount){
 
 function renderRcptLog(){
   const search=(document.getElementById('rcptSearch')?.value||'').toLowerCase();
+  const statusFilter=(document.getElementById('rcptStatusFilter')?.value||'all');
   let rows=S.receipts.filter(r=>!r.deleted);
   if(search) rows=rows.filter(r=>r.member.toLowerCase().includes(search)||r.item.toLowerCase().includes(search));
+  // Apply status filter
+  rows=rows.filter(r=>{
+    const paidTs=lastPaidTs(r.member), isPaid=r.ts<=paidTs;
+    const exempt=isExempt(r.id);
+    if(statusFilter==='owed') return !isPaid&&!exempt;
+    if(statusFilter==='paid') return isPaid;
+    if(statusFilter==='exempt') return exempt;
+    return true;
+  });
   if(!rows.length){document.getElementById('rcptTbl').innerHTML='<div class="empty">No receipts found.</div>';return;}
   const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Alcohol:'by',Medical:'br'};
   let h=`<table><thead><tr><th>Date/Time</th><th>Member</th><th>Item</th><th>Qty</th><th>Cat</th><th>Unit MV</th><th>Owed</th><th>Status</th><th></th></tr></thead><tbody>`;
   rows.forEach(r=>{
     const paidTs=lastPaidTs(r.member), isPaid=r.ts<=paidTs;
-    const owed=r.qty*r.mv*getRate(r.cat);
+    const exempt=isExempt(r.id);
+    const owed=exempt?0:r.qty*r.mv*getRate(r.cat);
     const cb=catBadge[r.cat]||'bm';
+    let statusBadge;
+    if(exempt) statusBadge='<span class="badge be">EXEMPT</span>';
+    else if(isPaid) statusBadge='<span class="badge bg">PAID</span>';
+    else statusBadge='<span class="badge by">OWED</span>';
     h+=`<tr>
       <td class="cm" style="font-size:11px;white-space:nowrap">${ft(r.ts)}</td>
       <td class="cn">${r.member}</td>
@@ -1703,9 +2097,12 @@ function renderRcptLog(){
       <td class="cm">${r.qty}</td>
       <td><span class="badge ${cb}">${r.cat}</span></td>
       <td class="cm">${fmt$(r.mv)}</td>
-      <td class="${isPaid?'cm':'cy'}">${ff$(owed)}</td>
-      <td>${isPaid?'<span class="badge bg">PAID</span>':'<span class="badge by">OWED</span>'}</td>
-      <td><button class="del-btn" title="Delete entry" onclick="delReceipt('${r.id}')">✕</button></td>
+      <td class="${exempt||isPaid?'cm':'cy'}">${exempt?'—':ff$(owed)}</td>
+      <td>${statusBadge}</td>
+      <td style="display:flex;gap:3px;align-items:center;">
+        <button class="${exempt?'btn-unexempt':'btn-exempt'}" title="${exempt?'Remove exempt':'Mark exempt — no payout needed'}" onclick="toggleExempt('${r.id}')">${exempt?'↩ UNEXEMPT':'EXEMPT'}</button>
+        <button class="del-btn" title="Delete entry" onclick="delReceipt('${r.id}')">✕</button>
+      </td>
     </tr>`;
   });
   document.getElementById('rcptTbl').innerHTML=h+'</tbody></table>';
@@ -2604,4 +3001,4 @@ function filterType(el,type){
 
 </script>
 </body>
-</html>
+  </html>
