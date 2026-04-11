@@ -168,14 +168,14 @@
   .pill.on,.pill:hover{border-color:var(--accent);color:var(--accent);background:rgba(127,255,110,0.06);}
 
   /* API RATE METER */
-  .rate-meter-wrap{display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
-  .rate-meter-bar{width:90px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+  .rate-meter-wrap{display:inline-flex;align-items:center;gap:5px;}
+  .rate-meter-bar{width:50px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
   .rate-meter-fill{height:100%;background:var(--accent2);border-radius:2px;transition:width 0.5s,background 0.5s;}
   .rate-meter-fill.warn{background:var(--accent3);}
   .rate-meter-fill.crit{background:var(--accent4);}
-  .rate-meter-label{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;transition:color 0.3s;}
-  .rate-meter-label.warn{color:var(--accent3);animation:blink 0.8s infinite;}
-  .rate-meter-label.crit{color:var(--accent4);animation:blink 0.4s infinite;}
+  .rate-meter-label{font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:0;transition:color 0.3s;}
+  .rate-meter-label.warn{color:var(--accent3);}
+  .rate-meter-label.crit{color:var(--accent4);}
 
   /* SPINNER */
   .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(10,13,15,0.5);border-top-color:var(--bg);border-radius:50%;animation:rot 0.6s linear infinite;flex-shrink:0;}
@@ -191,19 +191,15 @@
       <div class="logo-sub">Faction Budget Dashboard</div>
     </div>
     <div class="header-right">
-      <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-        <div style="display:flex;align-items:center;gap:6px;">
-          <div class="status-dot" id="sDot"></div>
-          <span class="status-text" id="sText">NO KEY</span>
-        </div>
-        <div class="rate-meter-wrap" id="rateMeterWrap" style="display:none;">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span class="rate-meter-label" id="rateMeterLabel">0/100 calls/min</span>
-          </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="status-dot" id="sDot"></div>
+        <span class="status-text" id="sText">NO KEY</span>
+        <div class="rate-meter-wrap" id="rateMeterWrap" style="display:none;margin-left:4px;">
           <div class="rate-meter-bar"><div class="rate-meter-fill" id="rateMeterFill" style="width:0%"></div></div>
+          <span class="rate-meter-label" id="rateMeterLabel" style="font-size:9px;">0/100</span>
         </div>
       </div>
-      <button class="btn-sm" id="btnRefresh" onclick="manualRefresh()" disabled>↻ REFRESH</button>
+      <button class="btn-danger" id="btnDisconnect" onclick="clearKey()" style="display:none;padding:5px 10px;font-size:9px;">✕ DC</button>
     </div>
   </div>
 
@@ -214,7 +210,7 @@
     <h2>⚙ API Key Setup</h2>
     <p>
       Key stored only in <code>localStorage</code> — sent directly to <code>api.torn.com</code> only.<br>
-      Requires faction: <code>basic</code> <code>donations</code> <code>armorynews</code> <code>mainnews</code> + user: <code>events</code> + torn: <code>items</code><br>
+      Requires faction: <code>basic</code> <code>donations</code> <code>armorynews</code> <code>mainnews</code> <code>attacknews</code> <code>crimenews</code> + user: <code>events</code> + torn: <code>items</code><br>
       Recommended: <strong>Limited Access</strong> key with <strong>AA</strong> enabled.
     </p>
     <div class="api-row">
@@ -234,9 +230,8 @@
     <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--accent)" id="keyDisplay"></span>
     <span style="flex:1"></span>
     <label style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;white-space:nowrap">SYNC:</label>
-    <select id="syncRateSel" onchange="setSyncRate(this.value)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:5px 8px;outline:none;cursor:pointer;max-width:150px;"></select>
+    <select id="syncRateSel" onchange="setSyncRate(this.value)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:5px 8px;outline:none;cursor:pointer;max-width:140px;"></select>
     <button class="btn-sm" onclick="togglePostConsole()">CONSOLE</button>
-    <button class="btn-danger" onclick="clearKey()">DISCONNECT</button>
   </div>
   <div class="key-bar-post-console" id="postConsole">
     <div class="console-head"><span>⬡ API Console</span><button class="console-clear-btn" onclick="clearConsole()">CLEAR</button></div>
@@ -245,7 +240,8 @@
 
   <!-- REFRESH BAR -->
   <div class="refresh-bar" id="refreshBar">
-    <span id="rLabel">Next refresh in 30:00</span>
+    <span id="rLabel">Next refresh in 15:00</span>
+    <button class="btn-sm" id="btnRefresh" onclick="manualRefresh()" disabled style="padding:4px 10px;font-size:9px;white-space:nowrap;">↻ NOW</button>
     <div class="rp"><div class="rp-fill" id="rFill" style="width:100%"></div></div>
     <span id="rLast" style="color:var(--muted2)">Never synced</span>
   </div>
@@ -270,6 +266,7 @@
     <button class="tab" onclick="switchTab('respect')">Respect</button>
     <button class="tab" onclick="switchTab('log')">Armory Log</button>
     <button class="tab" onclick="switchTab('debug')">Event Debug</button>
+    <button class="tab" onclick="switchTab('admin')" style="color:var(--accent4);">⚙ Admin</button>
   </div>
 
   <!-- VAULT -->
@@ -400,10 +397,29 @@
   <!-- EVENT DEBUG -->
   <div class="panel" id="panel-debug">
     <div style="background:rgba(240,192,64,0.06);border:1px solid rgba(240,192,64,0.2);padding:14px 18px;margin-bottom:18px;font-family:'Space Mono',monospace;font-size:11px;color:var(--accent3);line-height:1.8;">
-      ⚠ This tab shows your raw user events exactly as returned by the API.<br>
-      Use it to identify the exact text format of item-sent events so parsing can be tuned.<br>
-      If you see flower/plushie send events that aren't being caught, copy the exact text and share it.
+      ⚠ API Debug Panel — tests each endpoint and shows exact raw response format.<br>
+      Run each test, then share the output to tune parsing. Item events shown in full below.
     </div>
+
+    <!-- Endpoint tester -->
+    <div style="background:var(--surface);border:1px solid var(--border);padding:18px;margin-bottom:18px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">ENDPOINT TESTER</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+        <button class="btn-sm" onclick="dbgTest('user','events','events')">user/events</button>
+        <button class="btn-sm" onclick="dbgTest('faction','basic','basic')">faction/basic</button>
+        <button class="btn-sm" onclick="dbgTest('faction','donations','donations')">faction/donations</button>
+        <button class="btn-sm" onclick="dbgTest('faction','armorynews','armorynews')">faction/armorynews</button>
+        <button class="btn-sm" onclick="dbgTest('faction','mainnews','mainnews')">faction/mainnews</button>
+        <button class="btn-sm" onclick="dbgTest('faction','attacknews','attacknews')">faction/attacknews</button>
+        <button class="btn-sm" onclick="dbgTest('faction','crimenews','crimenews')">faction/crimenews</button>
+        <button class="btn-sm" onclick="dbgRunAll()">▶ RUN ALL</button>
+        <button class="btn-sm" onclick="dbgCopy()" style="border-color:var(--accent2);color:var(--accent2);">⎘ COPY REPORT</button>
+      </div>
+      <div id="dbgStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:8px;"></div>
+      <div id="dbgOut" style="background:var(--bg);border:1px solid var(--border);padding:12px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);max-height:320px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;">Run a test to see raw API output.</div>
+    </div>
+
+    <!-- Item events viewer -->
     <div class="sh">
       <span class="st">Raw User Events</span>
       <div style="display:flex;gap:10px;align-items:center;">
@@ -412,6 +428,101 @@
       </div>
     </div>
     <div class="tw" id="debugTbl"><div class="empty">Sync events first to see raw data.</div></div>
+  </div>
+
+  <!-- ADMIN -->
+  <div class="panel" id="panel-admin">
+    <div style="background:rgba(255,107,107,0.06);border:1px solid rgba(255,107,107,0.2);padding:12px 16px;margin-bottom:20px;font-family:'Space Mono',monospace;font-size:10px;color:var(--accent4);line-height:1.8;">
+      ⚠ ADMIN PANEL — Data management, export/import, and diagnostics. Changes here directly affect stored data.
+    </div>
+
+    <!-- DATA EXPORT -->
+    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent2);margin-bottom:14px;font-family:'Space Mono',monospace;">⬇ EXPORT DATA</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        <button class="btn-sm" onclick="adminExport('all')" style="border-color:var(--accent2);color:var(--accent2);">⬇ Full Backup (JSON)</button>
+        <button class="btn-sm" onclick="adminExport('receipts')">⬇ Receipts Only</button>
+        <button class="btn-sm" onclick="adminExport('paidlog')">⬇ Paid Log</button>
+        <button class="btn-sm" onclick="adminExport('rates')">⬇ Payout Rates</button>
+        <button class="btn-sm" onclick="adminExport('rawevents')">⬇ Raw Events (last sync)</button>
+        <button class="btn-sm" onclick="adminExportDebugHtml()">⬇ Debug Report (HTML)</button>
+      </div>
+      <div id="adminExportStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);margin-top:10px;display:none;"></div>
+    </div>
+
+    <!-- DATA IMPORT -->
+    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:14px;font-family:'Space Mono',monospace;">⬆ IMPORT / RESTORE</div>
+      <div style="margin-bottom:12px;font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);line-height:1.7;">
+        Upload a previously exported JSON backup. Receipts and paid log will be merged (not overwritten).<br>
+        Import will not delete existing data — only add entries that don't already exist.
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <label style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:7px 14px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent3)'" onmouseout="this.style.borderColor='var(--border)'">
+          📂 CHOOSE FILE <input type="file" accept=".json" onchange="adminImport(event)" style="display:none;">
+        </label>
+        <span id="adminImportStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);"></span>
+      </div>
+    </div>
+
+    <!-- MANUAL RECEIPT ENTRY -->
+    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent5);margin-bottom:14px;font-family:'Space Mono',monospace;">✎ MANUAL RECEIPT ENTRY</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;align-items:end;" id="manualRcptForm">
+        <div class="fg"><label>Member Name</label><input type="text" id="mr_member" placeholder="Sassyquatch" class="api-input" style="font-size:12px;letter-spacing:0;padding:8px 10px;"></div>
+        <div class="fg"><label>Item Name</label><input type="text" id="mr_item" placeholder="Heather" class="api-input" style="font-size:12px;letter-spacing:0;padding:8px 10px;"></div>
+        <div class="fg"><label>Qty</label><input type="number" id="mr_qty" placeholder="10" min="1" class="api-input" style="font-size:12px;letter-spacing:0;padding:8px 10px;"></div>
+        <div class="fg"><label>Category</label>
+          <select id="mr_cat" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:12px;padding:8px 10px;outline:none;">
+            <option value="Flower">Flower</option>
+            <option value="Plushie">Plushie</option>
+            <option value="Xanax">Xanax</option>
+            <option value="Alcohol">Alcohol</option>
+            <option value="Medical">Medical</option>
+          </select>
+        </div>
+        <button class="btn-primary" onclick="adminAddManualReceipt()" style="height:38px;white-space:nowrap;">+ ADD</button>
+      </div>
+      <div id="manualRcptStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);margin-top:10px;display:none;"></div>
+    </div>
+
+    <!-- DANGER ZONE -->
+    <div style="background:rgba(255,107,107,0.04);border:2px solid rgba(255,107,107,0.4);padding:20px;margin-bottom:16px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent4);margin-bottom:14px;font-family:'Space Mono',monospace;">☠ DANGER ZONE</div>
+      <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);line-height:1.8;margin-bottom:16px;">
+        These actions are <span style="color:var(--accent4);font-weight:700;">permanent and cannot be undone.</span><br>
+        Export a backup first. The API key will not be deleted — only local receipt and settings data.
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+        <button class="btn-sm" onclick="adminClearKey('hv_rcpts')" style="color:var(--accent4);border-color:var(--accent4);">✕ Clear Receipts Only</button>
+        <button class="btn-sm" onclick="adminClearKey('hv_paid')" style="color:var(--accent4);border-color:var(--accent4);">✕ Clear Paid Log Only</button>
+      </div>
+      <div style="background:var(--bg);border:1px solid rgba(255,107,107,0.3);padding:16px;">
+        <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent4);margin-bottom:10px;">WIPE ALL DATA — Type <code style="color:var(--accent4);background:rgba(255,107,107,0.1);">WIPE</code> to unlock:</div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input type="text" id="wipeConfirmInput" placeholder="Type WIPE here…" oninput="adminCheckWipeInput()" style="background:var(--surface2);border:1px solid rgba(255,107,107,0.3);color:var(--accent4);font-family:'Space Mono',monospace;font-size:12px;padding:8px 12px;outline:none;width:200px;letter-spacing:2px;">
+          <button id="btnWipeAll" onclick="adminClearAll()" disabled style="background:rgba(255,107,107,0.08);border:1px solid var(--accent4);color:var(--accent4);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:not-allowed;letter-spacing:1px;text-transform:uppercase;opacity:0.4;transition:all 0.2s;">☠ WIPE ALL DATA</button>
+        </div>
+        <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:8px;">Deletes: receipts · paid log · payout rates · sync settings</div>
+      </div>
+    </div>
+
+    <!-- STORAGE INSPECTOR -->
+    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">🗄 LOCALSTORAGE INSPECTOR</div>
+      <button class="btn-sm" onclick="adminInspectStorage()">🔍 Inspect All Keys</button>
+      <div id="adminStorageOut" style="background:var(--bg);border:1px solid var(--border);padding:12px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);max-height:240px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;margin-top:12px;display:none;"></div>
+    </div>
+
+    <!-- RECEIPT AUDIT TABLE -->
+    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">📋 RECEIPT AUDIT — ALL ENTRIES (including deleted)</div>
+      <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+        <button class="btn-sm" onclick="adminRenderAudit()">🔍 Load Audit Table</button>
+        <button class="btn-sm" onclick="adminRestoreDeleted()" style="border-color:var(--accent2);color:var(--accent2);">↩ Restore All Deleted</button>
+      </div>
+      <div class="tw" id="adminAuditTbl" style="display:none;"></div>
+    </div>
   </div>
 
 </div>
@@ -469,7 +580,7 @@ function updateRateMeter(){
   fill.style.width=pct+'%';
   fill.className='rate-meter-fill'+(pct>=75?' crit':pct>=50?' warn':'');
   label.className='rate-meter-label'+(pct>=75?' crit':pct>=50?' warn':'');
-  label.textContent=`${count}/${API_LIMIT} calls/min (${pct}%)`;
+  label.textContent=`${count}/${API_LIMIT}`;
 }
 
 // ════════════════════════════════════════════
@@ -544,10 +655,11 @@ function revealDash(){
   document.getElementById('keyBar').style.display='flex';
   document.getElementById('keyDisplay').textContent=S.key.slice(0,4)+'••••••••'+S.key.slice(-2);
   document.getElementById('btnRefresh').disabled=false;
+  document.getElementById('btnDisconnect').style.display='inline-flex';
   document.getElementById('statGrid').style.display='grid';
   document.getElementById('mainTabs').style.display='flex';
   document.getElementById('refreshBar').style.display='flex';
-  document.getElementById('rateMeterWrap').style.display='flex';
+  document.getElementById('rateMeterWrap').style.display='inline-flex';
   buildSyncSelector();
   // Start a 5s interval to decay old calls off the meter
   setInterval(updateRateMeter,5000);
@@ -562,6 +674,7 @@ function clearKey(){
     document.getElementById(id).style.display='none';
   });
   document.getElementById('rateMeterWrap').style.display='none';
+  document.getElementById('btnDisconnect').style.display='none';
   document.getElementById('apiSetup').style.display='block';
   document.getElementById('apiKeyInput').value='';
   setStatus('','NO KEY');
@@ -588,95 +701,80 @@ async function fetchAll(isManual=false){
   document.getElementById('gErr').style.display='none';
   clog('──── Full sync started ────','info');
 
-  // On manual sync we can afford more API calls (up to 25), fetch wider windows
-  const historyDays = isManual ? 90 : 30;
-
   try{
-    clog('Fetching faction data (basic + donations)…','info');
+    // 1. Faction basic + donations (1 call)
+    clog('Fetching faction data…','info');
     const fac=await tGet('faction','basic,donations');
     S.faction=fac;
     S.donations=fac.donations||{};
 
+    // 2. Vault money — correct endpoint is faction/?selections=donations
+    //    The vault total is returned in the faction basic response as fac.money
+    //    If 0, try dedicated money selection (requires AA)
     let vaultMoney=fac.money||0;
     if(vaultMoney===0){
       try{
-        const facMoney=await tGet('faction','money');
-        vaultMoney=facMoney.money||0;
-        S.faction.money=vaultMoney;
-        if(vaultMoney>0) clog(`Vault balance fetched via AA: ${fmt$(vaultMoney)}`,'ok');
-      }catch(e2){
-        clog('Vault balance requires AA access — money shows as 0: '+e2.message,'warn');
-      }
+        // Torn API: GET /faction/?selections=donations returns vault info with AA
+        const vm=await tGet('faction','donations');
+        // The vault total comes back as vm.money on some key levels
+        vaultMoney=vm.money||0;
+        if(vaultMoney>0){ S.faction.money=vaultMoney; clog(`Vault: ${fmt$(vaultMoney)}`,'ok'); }
+        else clog('Vault 0 — key may need Full Access (AA)','warn');
+      }catch(e2){ clog('Vault AA call failed: '+e2.message,'warn'); }
     }
-    clog(`Faction "${fac.name}" | ${Object.keys(fac.members||{}).length} members | Vault: ${vaultMoney>0?fmt$(vaultMoney):'(AA required)'}`,'ok');
+    clog(`"${fac.name}" | ${Object.keys(fac.members||{}).length} members | Vault: ${vaultMoney>0?fmt$(vaultMoney):'(AA req)'}`,'ok');
 
+    // 3. Armory news (1 call)
     clog('Fetching armory news…','info');
-    const since=Math.floor(Date.now()/1000)-historyDays*24*3600;
-    const [an1,an2]=await Promise.all([
-      tGet('faction','armorynews'),
-      tGet('faction','armorynews',`&from=${since}`)
-    ]);
-    const nm={};
-    [an1,an2].forEach(src=>Object.entries(src.armorynews||{}).forEach(([k,v])=>{nm[k]=v;}));
-    S.armoryNews=Object.values(nm).sort((a,b)=>b.timestamp-a.timestamp);
-    clog(`Armory news: ${S.armoryNews.length} entries`,'ok');
+    const armRes=await tGet('faction','armorynews');
+    S.armoryNews=Object.values(armRes.armorynews||{}).sort((a,b)=>b.timestamp-a.timestamp);
+    clog(`Armory: ${S.armoryNews.length} entries`,'ok');
 
+    // 4. Item prices (1 call)
     clog('Fetching item prices…','info');
     const items=await tGet('torn','items');
     S.prices={};
     Object.entries(items.items||{}).forEach(([id,it])=>{
       S.prices[id]={id,name:it.name,type:it.type||'',mv:it.market_value||0};
     });
-    clog(`Item prices: ${Object.keys(S.prices).length} items loaded`,'ok');
+    clog(`Prices: ${Object.keys(S.prices).length} items`,'ok');
 
+    // 5. User events for item receipts (1 call)
     await syncEvents(true);
 
-    clog('Fetching faction main news (OC income + respect)…','info');
+    // 6. Main news — chains/respect milestones + war results (1 call)
+    clog('Fetching main news (respect/chain events)…','info');
     try{
-      // Fetch multiple pages of mainnews on manual sync to get more history
-      const pages = isManual ? 3 : 1;
-      let allNews = {};
-      for(let p=0;p<pages;p++){
-        const mn=await tGet('faction','mainnews'+(p>0?`,mainnews&offset=${p*100}`:''));
-        Object.assign(allNews, mn.mainnews||{});
-      }
-      const all=Object.values(allNews);
-      S.ocRaw=all.filter(e=>e.news&&(
-        /\$[\d,]+/.test(e.news)||
-        e.news.toLowerCase().includes('organized crime')||
-        e.news.toLowerCase().includes('oc payout')||
-        e.news.toLowerCase().includes('crime payout')||
-        e.news.toLowerCase().includes('faction received')||
-        e.news.toLowerCase().includes('payout')
-      )).sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
+      const mn=await tGet('faction','mainnews');
+      const mainAll=Object.values(mn.mainnews||{});
+      // Chain-completed events have format: "Achieved a chain of X and Y.YY respect"
+      S.attackNews=mainAll.filter(e=>e.news&&/respect/i.test(e.news)).sort((a,b)=>b.timestamp-a.timestamp);
+      clog(`Main news: ${mainAll.length} total, ${S.attackNews.length} respect entries`,'ok');
+    }catch(e){ clog('Main news failed: '+e.message,'warn'); S.attackNews=[]; }
 
-      // Attack news for respect
-      S.attackNews=all.filter(e=>e.news&&(
-        e.news.toLowerCase().includes('attacked')||
-        e.news.toLowerCase().includes('mugged')||
-        e.news.toLowerCase().includes('hospitalized')||
-        /respect/i.test(e.news)
-      )).sort((a,b)=>b.timestamp-a.timestamp);
+    // 7. Attacking news — individual attack respect (1 call)
+    clog('Fetching attacking news…','info');
+    try{
+      const atk=await tGet('faction','attacknews');
+      S.crimeNews=Object.values(atk.attacknews||{}).sort((a,b)=>b.timestamp-a.timestamp);
+      clog(`Attack news: ${S.crimeNews.length} entries`,'ok');
+    }catch(e){ clog('Attack news failed: '+e.message,'warn'); S.crimeNews=[]; }
 
-      // Crime news for OC respect
-      S.crimeNews=all.filter(e=>e.news&&(
-        /organized crime/i.test(e.news)||
-        /oc\s+success/i.test(e.news)||
-        /crime.*success/i.test(e.news)||
-        /crime.*complete/i.test(e.news)||
-        /kidnapping.*success/i.test(e.news)||
-        /blackmail.*success/i.test(e.news)
-      )).sort((a,b)=>b.timestamp-a.timestamp);
-
-      clog(`OC entries: ${S.ocRaw.length} | Attack news: ${S.attackNews.length} | Crime success: ${S.crimeNews.length}`,'ok');
-      if(all.length>0&&S.ocRaw.length===0) clog('No $ entries in mainnews — OC payouts may not be going to faction vault','warn');
-    }catch(e){ clog('OC/mainnews failed (non-fatal): '+e.message,'warn'); S.ocRaw=[]; S.attackNews=[]; S.crimeNews=[]; }
+    // 8. Crimes news — OC completions with $ and respect (1 call)
+    clog('Fetching crimes news (OC income)…','info');
+    try{
+      const cr=await tGet('faction','crimenews');
+      const crAll=Object.values(cr.crimenews||{});
+      // OC success entries contain $ amounts
+      S.ocRaw=crAll.filter(e=>e.news&&/\$[\d,]+/.test(e.news)).sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
+      clog(`Crimes news: ${crAll.length} total, ${S.ocRaw.length} with $ amounts`,'ok');
+      if(crAll.length>0&&S.ocRaw.length===0) clog('No $ in crimes news — OC payout may go to members not vault','warn');
+    }catch(e){ clog('Crimes news failed: '+e.message,'warn'); S.ocRaw=[]; }
 
     S.lastSync=Date.now();
     renderAll();
     setStatus('live','LIVE');
-    const d=new Date(S.lastSync);
-    document.getElementById('rLast').textContent='Updated '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    document.getElementById('rLast').textContent='Updated '+new Date(S.lastSync).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     clog('──── Sync complete ✓ ────','ok');
   }catch(e){
     clog('Sync error: '+e.message,'err');
@@ -710,54 +808,82 @@ async function syncEvents(silent=false){
 // ════════════════════════════════════════════
 // RECEIPT PARSING
 // ════════════════════════════════════════════
+function stripHtml(s){
+  // Extract text from HTML — handle both proper tags and the malformed href format Torn uses
+  // e.g. "<a href = http://...>Name</a>" → "Name"
+  return s.replace(/<a[^>]*>([^<]*)<\/a>/gi,'$1').replace(/<[^>]+>/g,'').trim();
+}
+
 function parseReceipts(){
   const seen=new Set(S.receipts.map(r=>r.id));
   let added=0;
   let unmatched=[];
 
   S.events.forEach(ev=>{
-    const news=ev.event||ev.news||'';
+    const raw=ev.event||ev.news||'';
+    if(!raw) return;
+
+    // Strip all HTML first to get clean text for matching
+    const news=stripHtml(raw);
     if(!news) return;
 
-    // Try all known Torn item-sent event formats:
-    // 1. "MemberName [12345] has sent you 10x Heather"       (most common)
-    // 2. "MemberName [12345] sent you 10x Heather"
-    // 3. "You were sent 10x Heather from MemberName [12345]" (older format)
-    // 4. "MemberName [12345] has given you 10x Heather"
     let member, memberId, qty, item;
 
-    const p1=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+sent\s+you\s+(\d+)x?\s+(.+?)(?:\s*<.*)?$/i);
-    const p2=news.match(/^(.+?)\s*\[(\d+)\]\s+sent\s+you\s+(\d+)x?\s+(.+?)(?:\s*<.*)?$/i);
-    const p3=news.match(/You were sent\s+(\d+)x?\s+(.+?)\s+from\s+(.+?)\s*\[(\d+)\]/i);
-    const p4=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+given\s+you\s+(\d+)x?\s+(.+?)(?:\s*<.*)?$/i);
-    // 5. Trade completed format: may appear as "Chedburn has accepted the trade" — skip those
-    // 6. "MemberName [ID] has sent you a Heather" (singular, no qty)
-    const p5=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+sent\s+you\s+a\s+(.+?)(?:\s*<.*)?$/i);
+    // FORMAT A (current API): "You were sent 10x Heather from Sassyquatch"
+    // (after HTML stripping, the <a> tag becomes just the name)
+    const pA=news.match(/^You were sent\s+(\d+)x?\s+(.+?)\s+from\s+(.+?)(?:\s*\[(\d+)\])?\.?$/i);
 
-    if(p1){ member=p1[1].trim();memberId=p1[2];qty=parseInt(p1[3]);item=p1[4].trim(); }
-    else if(p2){ member=p2[1].trim();memberId=p2[2];qty=parseInt(p2[3]);item=p2[4].trim(); }
-    else if(p3){ member=p3[3].trim();memberId=p3[4];qty=parseInt(p3[1]);item=p3[2].trim(); }
-    else if(p4){ member=p4[1].trim();memberId=p4[2];qty=parseInt(p4[3]);item=p4[4].trim(); }
-    else if(p5){ member=p5[1].trim();memberId=p5[2];qty=1;item=p5[3].trim(); }
-    else{
-      // Log unmatched events that might be item sends for debugging
-      if(news.toLowerCase().includes('sent')||news.toLowerCase().includes('given')||news.toLowerCase().includes('plushie')||news.toLowerCase().includes('flower')||news.toLowerCase().includes('xanax')){
+    // FORMAT B: "Name [ID] has sent you 10x Item"
+    const pB=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+sent\s+you\s+(\d+)x?\s+(.+?)\.?$/i);
+
+    // FORMAT C: "Name [ID] sent you 10x Item"
+    const pC=news.match(/^(.+?)\s*\[(\d+)\]\s+sent\s+you\s+(\d+)x?\s+(.+?)\.?$/i);
+
+    // FORMAT D: "Name [ID] has given you 10x Item"
+    const pD=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+given\s+you\s+(\d+)x?\s+(.+?)\.?$/i);
+
+    // FORMAT E: "Name [ID] has sent you a Item" (singular)
+    const pE=news.match(/^(.+?)\s*\[(\d+)\]\s+has\s+sent\s+you\s+a\s+(.+?)\.?$/i);
+
+    // FORMAT F: "You were sent a Item from Name" (singular, no qty)
+    const pF=news.match(/^You were sent\s+a\s+(.+?)\s+from\s+(.+?)(?:\s*\[(\d+)\])?\.?$/i);
+
+    if(pA){
+      member=pA[3].trim(); memberId=pA[4]||'0';
+      qty=parseInt(pA[1]); item=pA[2].trim();
+    } else if(pB){
+      member=pB[1].trim(); memberId=pB[2];
+      qty=parseInt(pB[3]); item=pB[4].trim();
+    } else if(pC){
+      member=pC[1].trim(); memberId=pC[2];
+      qty=parseInt(pC[3]); item=pC[4].trim();
+    } else if(pD){
+      member=pD[1].trim(); memberId=pD[2];
+      qty=parseInt(pD[3]); item=pD[4].trim();
+    } else if(pE){
+      member=pE[1].trim(); memberId=pE[2];
+      qty=1; item=pE[3].trim();
+    } else if(pF){
+      member=pF[2].trim(); memberId=pF[3]||'0';
+      qty=1; item=pF[1].trim();
+    } else {
+      if(/sent|given|plushie|flower|xanax|heather|dahlia/i.test(news)){
         unmatched.push(news.slice(0,120));
       }
       return;
     }
 
-    // Clean item name — strip HTML tags, trailing punctuation
-    item=item.replace(/<[^>]+>/g,'').replace(/[.!]$/,'').trim();
+    // Clean item name — strip any residual HTML, trailing punctuation
+    item=item.replace(/<[^>]+>/g,'').replace(/[.!,]$/,'').trim();
 
     const cat=detectCat(item);
     if(!cat){
-      // Log items we see but can't categorize — useful for debugging
-      clog(`Uncategorized item: "${item}" from ${member}`, 'warn');
+      clog(`Uncategorized item: "${item}" from ${member}`,'warn');
       return;
     }
 
-    const id=`r_${ev.timestamp}_${memberId}_${item.replace(/\W/g,'').toLowerCase()}`;
+    // Use timestamp + member + item as dedup key (memberId may be 0 for format A)
+    const id=`r_${ev.timestamp}_${memberId||member.replace(/\W/g,'')}_${item.replace(/\W/g,'').toLowerCase()}`;
     if(seen.has(id)) return;
 
     const iData=lookupItem(item);
@@ -772,7 +898,7 @@ function parseReceipts(){
   else clog('No new receipt entries found in events','info');
 
   if(unmatched.length>0){
-    clog(`${unmatched.length} events had item-related keywords but didn't match any pattern — check Event Debug tab`,'warn');
+    clog(`${unmatched.length} unmatched item-like events — check Event Debug tab`,'warn');
     S._unmatchedEvents=unmatched;
   }
 
@@ -935,101 +1061,92 @@ function setRespectPeriod(el, period){
   renderRespect();
 }
 
-function parseRespectFromNews(newsArr, period){
-  // Parse respect gained from mainnews/attacking news
-  // Torn attack news format examples:
-  // "PlayerA attacked PlayerB and won, gaining X respect"
-  // "PlayerA mugged PlayerB gaining $X and X respect"
-  // "The faction gained X respect from the OC"
-  // "PlayerA [ID] attacked PlayerB [ID] ... respect gained: X"
-  const memberRespect={};
-  const ocRespect=[];
-  const atkRespect=[];
-
-  newsArr.forEach(e=>{
-    if(!inPeriod(e.timestamp, period)) return;
-    const n=e.news||'';
-
-    // Attack respect: "Name [ID] attacked ... gaining X respect" or "... respect gained: X"
-    const atkMatch=n.match(/^(.+?)(?:\s*\[\d+\])?\s+(?:attacked|mugged|hospitalized).+?(?:gaining|gained|gain)\s+([\d.]+)\s+respect/i);
-    if(atkMatch){
-      const mem=atkMatch[1].trim();
-      const resp=parseFloat(atkMatch[2])||0;
-      if(!memberRespect[mem]) memberRespect[mem]={atk:0,oc:0};
-      memberRespect[mem].atk+=resp;
-      atkRespect.push({member:mem,resp,ts:e.timestamp,raw:n});
-      return;
-    }
-
-    // Alternate attack: "... X respect" at end
-    const atkMatch2=n.match(/^(.+?)(?:\s*\[\d+\])?\s+(?:attacked|mugged).+?\s+([\d.]+)\s+respect/i);
-    if(atkMatch2){
-      const mem=atkMatch2[1].trim();
-      const resp=parseFloat(atkMatch2[2])||0;
-      if(!memberRespect[mem]) memberRespect[mem]={atk:0,oc:0};
-      memberRespect[mem].atk+=resp;
-      return;
-    }
-
-    // OC/crime success respect
-    const ocMatch=n.match(/(?:organized crime|oc|crime).+?(?:gained?|awarded?|earning?)\s+([\d.]+)\s+respect/i);
-    const ocMatch2=n.match(/([\d.]+)\s+respect.+?(?:organized crime|oc|crime)/i);
-    const ocFactionMatch=n.match(/faction.+?gained?\s+([\d.]+)\s+respect/i);
-    const ocSuccessResp=ocMatch?parseFloat(ocMatch[1]):ocMatch2?parseFloat(ocMatch2[1]):ocFactionMatch?parseFloat(ocFactionMatch[1]):0;
-
-    if(ocSuccessResp>0){
-      // OC respect is faction-wide; attribute to initiator if found
-      const initiatorMatch=n.match(/^(.+?)(?:\s*\[\d+\])?\s+(?:initiated|organized|led|completed)/i);
-      const mem=initiatorMatch?initiatorMatch[1].trim():'Faction';
-      if(!memberRespect[mem]) memberRespect[mem]={atk:0,oc:0};
-      memberRespect[mem].oc+=ocSuccessResp;
-      ocRespect.push({member:mem,resp:ocSuccessResp,ts:e.timestamp,raw:n});
-    }
-  });
-
-  return{memberRespect,atkRespect,ocRespect};
-}
 
 function renderRespect(){
   const period=S.respectPeriod||'30d';
-  const allNews=[...S.attackNews,...S.crimeNews,...S.ocRaw];
-  // Dedupe by timestamp+news
-  const seen=new Set();
-  const deduped=allNews.filter(e=>{
-    const k=e.timestamp+'|'+(e.news||'').slice(0,40);
-    if(seen.has(k)) return false;
-    seen.add(k);
-    return true;
+
+  // S.attackNews = mainnews entries containing "respect" (chain completions, rank-ups)
+  // S.crimeNews  = faction attacknews (individual attack entries like "Name attacked X (+3.43)")
+  // Both are already filtered arrays stored in state
+
+  const memberRespect={};
+  let totalAtk=0, totalChain=0;
+
+  // Parse individual attack entries from attacknews
+  // Format: "DanTheHighMan attacked Scratcha (+3.43) [view]"
+  // Format: "DNoNim mugged seanyj (+1.69) [view]"
+  S.crimeNews.forEach(e=>{
+    if(!inPeriod(e.timestamp,period)) return;
+    const n=e.news||'';
+    const m=n.match(/^(.+?)\s+(?:attacked|mugged|hospitalized)\s+.+?\s+\(([+-][\d.]+)\)/i);
+    if(m){
+      const mem=m[1].trim();
+      const resp=parseFloat(m[2])||0;
+      if(resp>0){
+        if(!memberRespect[mem]) memberRespect[mem]={atk:0,chain:0};
+        memberRespect[mem].atk+=resp;
+        totalAtk+=resp;
+      }
+    }
   });
 
-  const{memberRespect,atkRespect,ocRespect}=parseRespectFromNews(deduped,period);
+  // Parse chain completion entries from mainnews
+  // Format: "Achieved a chain of 25 and 90.09 respect"
+  S.attackNews.forEach(e=>{
+    if(!inPeriod(e.timestamp,period)) return;
+    const n=e.news||'';
+    const m=n.match(/Achieved a chain of \d+ and ([\d.]+) respect/i);
+    if(m){
+      const resp=parseFloat(m[1])||0;
+      // Chain respect is faction-wide — attribute to "Chain Bonus" bucket
+      if(!memberRespect['⬡ Chain Bonus']) memberRespect['⬡ Chain Bonus']={atk:0,chain:0};
+      memberRespect['⬡ Chain Bonus'].chain+=resp;
+      totalChain+=resp;
+    }
+    // Ranked war victory: "HighVibes defeated X in a ranked war"
+    const warM=n.match(/received\s+([\d,]+)\s+bonus\s+respect/i);
+    if(warM){
+      const resp=parseFloat(warM[1].replace(/,/g,''))||0;
+      if(!memberRespect['⬡ War Bonus']) memberRespect['⬡ War Bonus']={atk:0,chain:0};
+      memberRespect['⬡ War Bonus'].chain+=resp;
+      totalChain+=resp;
+    }
+  });
 
-  // Total tallies
-  let totalAtk=0,totalOC=0;
-  Object.values(memberRespect).forEach(v=>{totalAtk+=v.atk;totalOC+=v.oc;});
-  const totalAll=totalAtk+totalOC;
+  const totalAll=totalAtk+totalChain;
 
   // Update summary cards
   document.getElementById('rTotalAll').textContent=totalAll>0?totalAll.toFixed(1):'0';
   document.getElementById('rTotalAtk').textContent=totalAtk.toFixed(1);
-  document.getElementById('rTotalOC').textContent=totalOC.toFixed(1);
+  document.getElementById('rTotalOC').textContent=totalChain.toFixed(1);
   document.getElementById('rAtkCard').textContent=totalAtk>0?totalAtk.toFixed(1):'0';
-  document.getElementById('rOCCard').textContent=totalOC>0?totalOC.toFixed(1):'0';
+  document.getElementById('rOCCard').textContent=totalChain>0?totalChain.toFixed(1):'0';
 
-  const entries=Object.entries(memberRespect).map(([name,v])=>({name,atk:v.atk,oc:v.oc,total:v.atk+v.oc}))
+  // Update card labels for accuracy
+  const atkLbl=document.querySelector('#rAtkCard')?.closest('.sc')?.querySelector('.sc-sub');
+  const ocLbl=document.querySelector('#rOCCard')?.closest('.sc')?.querySelector('.sc-sub');
+  const totOCLbl=document.getElementById('rTotalOC')?.parentElement;
+  if(atkLbl) atkLbl.textContent='individual attacks & mugs';
+  if(ocLbl) ocLbl.textContent='chain bonuses & war wins';
+  if(totOCLbl) totOCLbl.innerHTML=`<span id="rTotalAtk">${totalAtk.toFixed(1)}</span> atk &nbsp; <span id="rTotalOC">${totalChain.toFixed(1)}</span> chain`;
+
+  const entries=Object.entries(memberRespect)
+    .map(([name,v])=>({name,atk:v.atk,chain:v.chain,total:v.atk+v.chain}))
     .sort((a,b)=>b.total-a.total);
 
   if(!entries.length){
-    const msg=S.attackNews.length===0&&S.crimeNews.length===0
-      ?'No respect data found.<br>Requires faction mainnews access with attack &amp; crime news.'
-      :'No respect entries found for this period.<br>Try expanding the time window.';
-    document.getElementById('respectTbl').innerHTML=`<div class="empty">${msg}</div>`;
+    const noData=S.crimeNews.length===0&&S.attackNews.length===0;
+    document.getElementById('respectTbl').innerHTML=`<div class="empty">${
+      noData
+        ?'No respect data yet.<br>Requires faction <code>attacknews</code> and <code>mainnews</code> access.'
+        :'No entries found for this period — try ALL or a wider range.'
+    }</div>`;
     return;
   }
 
   const maxTotal=entries[0]?.total||1;
   let h=`<table><thead><tr>
-    <th>Member</th><th>⚔ Attack Resp</th><th>🔒 OC Resp</th><th>Total</th><th style="min-width:120px">Share</th>
+    <th>Member</th><th>⚔ Attack</th><th>⛓ Chain/War</th><th>Total</th><th style="min-width:120px">Share</th>
   </tr></thead><tbody>`;
   entries.forEach(x=>{
     const pct=totalAll>0?((x.total/totalAll)*100).toFixed(1):'0.0';
@@ -1037,7 +1154,7 @@ function renderRespect(){
     h+=`<tr>
       <td class="cn">${x.name}</td>
       <td style="color:var(--accent4);font-family:'Space Mono',monospace;font-size:12px">${x.atk>0?x.atk.toFixed(2):'—'}</td>
-      <td style="color:var(--accent2);font-family:'Space Mono',monospace;font-size:12px">${x.oc>0?x.oc.toFixed(2):'—'}</td>
+      <td style="color:var(--accent2);font-family:'Space Mono',monospace;font-size:12px">${x.chain>0?x.chain.toFixed(2):'—'}</td>
       <td style="color:var(--accent3);font-family:'Space Mono',monospace;font-size:13px;font-weight:700">${x.total.toFixed(2)}</td>
       <td>
         <div style="font-size:10px;color:var(--muted);margin-bottom:3px">${pct}%</div>
@@ -1125,18 +1242,34 @@ function renderVault(){
   document.getElementById('vaultCard').innerHTML=h;
 }
 
+// Consumable item types — weapons/armor are loaned not consumed, don't count toward supply cost
+const CONSUMABLE_TYPES = new Set([
+  'medical','drug','alcohol','candy','energy drink','booster','temporary',
+  'flower','plushie','virus','explosive'
+]);
+function isConsumable(type){
+  if(!type) return false;
+  const t=type.toLowerCase();
+  return CONSUMABLE_TYPES.has(t)||t.includes('medical')||t.includes('drug')||
+    t.includes('alcohol')||t.includes('booster')||t.includes('candy')||
+    t.includes('temporary')||t.includes('explosive');
+}
+
 // ── SUPPLY
 function renderSupply(){
-  const rows=S.armoryNews.filter(e=>in30d(e.timestamp)).map(parseArm).filter(e=>e.dir==='out'||e.dir==='loan');
+  const rows=S.armoryNews.filter(e=>in30d(e.timestamp)).map(parseArm)
+    .filter(e=>e.dir==='out'||e.dir==='loan');
   const ag={};
   rows.forEach(e=>{
     const it=lookupItem(e.item); const t=it?.type||'Unknown';
+    // Skip weapons and armor — they are loaned, not consumed
+    if(!isConsumable(t)&&S.typeFilter==='all') return;
     if(S.typeFilter!=='all'&&!t.toLowerCase().includes(S.typeFilter.toLowerCase())) return;
     if(!ag[e.item]) ag[e.item]={name:e.item,type:t,qty:0,up:it?.mv||0,total:0};
     ag[e.item].qty+=e.qty; ag[e.item].total+=e.qty*(it?.mv||0);
   });
   const r=Object.values(ag).sort((a,b)=>b.total-a.total);
-  if(!r.length){document.getElementById('supplyTbl').innerHTML='<div class="empty">No supply disbursements in last 30 days.</div>';return;}
+  if(!r.length){document.getElementById('supplyTbl').innerHTML='<div class="empty">No consumable supply disbursements in last 30 days.<br><span style="font-size:10px;color:var(--muted)">Weapons & armor excluded (loaned, not consumed). See Armory Log tab.</span></div>';return;}
   const grand=r.reduce((s,x)=>s+x.total,0);
   let h=`<table><thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Unit Price</th><th>Total Cost</th><th>% of Spend</th></tr></thead><tbody>`;
   r.forEach(x=>{
@@ -1149,21 +1282,24 @@ function renderSupply(){
   document.getElementById('supplyTbl').innerHTML=h+'</tbody></table>';
 }
 
-// ── MEMBER USAGE
+// ── MEMBER USAGE (consumables only)
 function renderMemberUsage(){
-  const rows=S.armoryNews.filter(e=>in30d(e.timestamp)).map(parseArm).filter(e=>e.dir==='out'||e.dir==='loan');
+  const rows=S.armoryNews.filter(e=>in30d(e.timestamp)).map(parseArm)
+    .filter(e=>e.dir==='out'||e.dir==='loan');
   const ag={};
   rows.forEach(e=>{
     const it=lookupItem(e.item),p=it?.mv||0;
+    const t=it?.type||'Unknown';
+    if(!isConsumable(t)) return; // skip weapons/armor
     if(!ag[e.member]) ag[e.member]={name:e.member,items:{},total:0,count:0};
     if(!ag[e.member].items[e.item]) ag[e.member].items[e.item]={qty:0,cost:0};
     ag[e.member].items[e.item].qty+=e.qty; ag[e.member].items[e.item].cost+=e.qty*p;
     ag[e.member].total+=e.qty*p; ag[e.member].count+=e.qty;
   });
   const r=Object.values(ag).sort((a,b)=>b.total-a.total);
-  if(!r.length){document.getElementById('memberTbl').innerHTML='<div class="empty">No member usage found in last 30 days.</div>';return;}
+  if(!r.length){document.getElementById('memberTbl').innerHTML='<div class="empty">No consumable usage found in last 30 days.</div>';return;}
   const grand=r.reduce((s,x)=>s+x.total,0);
-  let h=`<table><thead><tr><th>Member</th><th>Items Taken</th><th>Top Item</th><th>30d Cost</th><th>% of Total</th></tr></thead><tbody>`;
+  let h=`<table><thead><tr><th>Member</th><th>Consumables Taken</th><th>Top Item</th><th>30d Cost</th><th>% of Total</th></tr></thead><tbody>`;
   r.forEach(x=>{
     const p=grand>0?((x.total/grand)*100).toFixed(1):'0.0';
     const top=Object.entries(x.items).sort((a,b)=>b[1].cost-a[1].cost)[0];
@@ -1188,8 +1324,8 @@ function renderOC(){
 
   if(!parsed.length){
     let msg='<div class="empty">No OC income entries found.<br>';
-    if(S.ocRaw.length===0) msg+='mainnews returned 0 entries — key may need faction mainnews access.<br>Check the Event Debug tab to see raw event data.';
-    else msg+=`mainnews loaded ${S.ocRaw.length} entries but none contained $ amounts.<br>OC income appears in faction news when payout is set to faction vault.`;
+    if(S.ocRaw.length===0) msg+='crimenews returned 0 $ entries — ensure key has faction <code>crimenews</code> access and OC payouts go to the faction vault.';
+    else msg+=`crimenews loaded ${S.ocRaw.length} entries but none matched expected formats.`;
     document.getElementById('ocTbl').innerHTML=msg+'</div>';
     return;
   }
@@ -1217,10 +1353,21 @@ function lastPaidTs(member){
 function renderOwed(){
   const members={};
   S.receipts.filter(r=>!r.deleted).forEach(r=>{
-    if(!members[r.member]) members[r.member]={name:r.member,cats:{},count:0};
+    if(!members[r.member]) members[r.member]={name:r.member,memberId:r.memberId||'',cats:{},count:0};
     members[r.member].cats[r.cat]=(members[r.member].cats[r.cat]||0)+r.qty;
     members[r.member].count+=r.qty;
+    if(r.memberId&&r.memberId!=='0') members[r.member].memberId=r.memberId;
   });
+  // Enrich member IDs from donations data (keyed by Torn player ID)
+  Object.entries(S.donations||{}).forEach(([id,d])=>{
+    const nm=S.faction?.members?.[id]?.name||d.name||'';
+    if(nm&&members[nm]&&!members[nm].memberId) members[nm].memberId=id;
+  });
+  // Also enrich from faction members list
+  Object.entries(S.faction?.members||{}).forEach(([id,m])=>{
+    if(m.name&&members[m.name]&&!members[m.name].memberId) members[m.name].memberId=id;
+  });
+
   const entries=Object.values(members);
   if(!entries.length){document.getElementById('owedGrid').innerHTML='<div class="empty">No item receipts yet.<br>Click SYNC EVENTS to load.</div>';return;}
   let html='', totalOwed=0;
@@ -1229,14 +1376,23 @@ function renderOwed(){
     const paid=owed<1;
     const paidTs=lastPaidTs(m.name);
     const cats=Object.entries(m.cats).map(([c,q])=>`${q}x ${c}`).join(' · ');
+    // Vault pay link — opens Torn faction controls and pre-searches the member
+    // Torn URL format: factions.php?step=your opens controls panel
+    // We use a bookmark-style deep link with the member name in the hash for reference
+    const amtInt=Math.round(owed);
+    const vaultUrl=m.memberId&&m.memberId!=='0'
+      ? `https://www.torn.com/factions.php?step=your#tab=controls&to=${m.memberId}&amount=${amtInt}`
+      : `https://www.torn.com/factions.php?step=your`;
+    const vaultBtn=paid?'':`<a href="${vaultUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:6px 10px;text-decoration:none;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;" onmouseover="this.style.background='rgba(126,184,255,0.1)'" onmouseout="this.style.background='transparent'">⇒ PAY ${ff$(owed)}</a>`;
     html+=`<div class="oc ${paid?'paid-card':''}">
-      <div class="oc-name">${m.name}</div>
+      <div class="oc-name">${m.name}${m.memberId&&m.memberId!=='0'?`<span style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-left:6px;">#${m.memberId}</span>`:''}</div>
       <div class="oc-amt ${paid?'zero':''}">${ff$(owed)}</div>
       <div class="oc-sub">${cats}<br>Total items received: ${m.count}${paidTs?'<br>Last paid: '+fd(paidTs):''}</div>
       <div class="oc-actions">
         ${paid
           ?`<span class="badge bg">PAID ✓</span>`
-          :`<button class="btn-paid" onclick="markPaid('${m.name.replace(/'/g,"\\'")}',${owed})">✓ PAID ${ff$(owed)}</button>`}
+          :`<button class="btn-paid" onclick="markPaid('${m.name.replace(/'/g,"\\'")}',${owed})">✓ MARK PAID</button>`}
+        ${vaultBtn}
         <button class="btn-viewlog" onclick="switchTab('receipts');filterRcptMember('${m.name.replace(/'/g,"\\'")}')">VIEW LOG</button>
       </div>
     </div>`;
@@ -1333,10 +1489,19 @@ function renderCards(){
   const vEl=document.getElementById('cVault');
   if(vtEl) vtEl.textContent=vault>0?fmt$(vault):'(AA req)';
   if(vEl) vEl.textContent=vault>0?fmt$(net):'(AA req)';
+  // Supply cost — consumables only (weapons/armor are loaned not consumed)
   const armParsed=S.armoryNews.filter(e=>in30d(e.timestamp)).map(parseArm).filter(e=>e.dir==='out'||e.dir==='loan');
-  let supply=0; armParsed.forEach(e=>{const it=lookupItem(e.item);supply+=e.qty*(it?.mv||0);});
+  let supply=0;
+  armParsed.forEach(e=>{
+    const it=lookupItem(e.item);
+    if(it&&isConsumable(it.type)) supply+=e.qty*(it.mv||0);
+  });
   document.getElementById('cSupply').textContent=fmt$(supply);
-  const oc=S.ocRaw.reduce((s,e)=>{const m=e.news.match(/\$([\d,]+)/g);return s+(m?m.reduce((a,v)=>a+parseInt(v.replace(/[$,]/g,'')),0):0);},0);
+  // OC income from crimenews
+  const oc=S.ocRaw.reduce((s,e)=>{
+    const m=(e.news||'').match(/\$([\d,]+)/g);
+    return s+(m?m.reduce((a,v)=>a+parseInt(v.replace(/[$,]/g,'')),0):0);
+  },0);
   document.getElementById('cOC').textContent=fmt$(oc);
   const pnl=oc-supply, pEl=document.getElementById('cPnL');
   pEl.textContent=fmt$(pnl); pEl.style.color=pnl>=0?'var(--accent)':'var(--accent4)';
@@ -1375,7 +1540,7 @@ function calcSplit(){
 // TABS / FILTERS
 // ════════════════════════════════════════════
 function switchTab(name){
-  const order=['vault','supply','members','oc','receipts','respect','log','debug'];
+  const order=['vault','supply','members','oc','receipts','respect','log','debug','admin'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',order[i]===name));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   const panel=document.getElementById('panel-'+name);
@@ -1385,6 +1550,7 @@ function switchTab(name){
   if(name==='receipts') renderReceipts();
   if(name==='log') renderArmoryLog();
   if(name==='respect') renderRespect();
+  if(name==='admin') adminInspectStorage();
 }
 
 function renderDebugEvents(){
@@ -1421,10 +1587,381 @@ function renderDebugEvents(){
   });
   document.getElementById('debugTbl').innerHTML=h+'</tbody></table>';
 }
+// ════════════════════════════════════════════
+// API DEBUG PANEL
+// ════════════════════════════════════════════
+let dbgResults = {};
+
+async function dbgTest(section, sel, key){
+  if(!S.key){ document.getElementById('dbgOut').textContent='No API key connected.'; return; }
+  document.getElementById('dbgStatus').textContent=`Fetching ${section}/${sel}…`;
+  const out = document.getElementById('dbgOut');
+  try{
+    const url=`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}`;
+    const r=await fetch(url);
+    const d=await r.json();
+    if(d.error){ out.textContent=`ERROR [${d.error.code}]: ${d.error.error}`; dbgResults[key]={error:d.error}; return; }
+    // Store result
+    dbgResults[key]=d;
+    // Show summary + first few entries
+    const topKey=Object.keys(d).find(k=>typeof d[k]==='object'&&d[k]!==null)||Object.keys(d)[0];
+    const topVal=d[topKey];
+    let preview='';
+    if(topVal&&typeof topVal==='object'){
+      const entries=Object.values(topVal).slice(0,3);
+      preview=`\n\n--- First 3 entries of "${topKey}" ---\n`+JSON.stringify(entries,null,2);
+    }
+    const summary=`✓ ${section}/${sel}\nKeys: ${Object.keys(d).join(', ')}\nTop key "${topKey}": ${Array.isArray(topVal)?topVal.length+' items':typeof topVal==='object'?Object.keys(topVal).length+' entries':topVal}${preview}`;
+    out.textContent=summary;
+    document.getElementById('dbgStatus').textContent=`✓ ${section}/${sel} — OK`;
+  }catch(e){
+    out.textContent='Fetch failed: '+e.message;
+    document.getElementById('dbgStatus').textContent='Error: '+e.message;
+  }
+}
+
+async function dbgRunAll(){
+  if(!S.key){ document.getElementById('dbgOut').textContent='No API key connected.'; return; }
+  dbgResults={};
+  const out=document.getElementById('dbgOut');
+  const status=document.getElementById('dbgStatus');
+  const tests=[
+    ['user','events','events'],
+    ['faction','basic','basic'],
+    ['faction','donations','donations'],
+    ['faction','armorynews','armorynews'],
+    ['faction','mainnews','mainnews'],
+    ['faction','attacknews','attacknews'],
+    ['faction','crimenews','crimenews'],
+  ];
+  let report='=== HIGHVIBES API DEBUG REPORT ===\n\n';
+  for(const [section,sel,key] of tests){
+    status.textContent=`Testing ${section}/${sel}…`;
+    try{
+      const r=await fetch(`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}`);
+      const d=await r.json();
+      if(d.error){
+        report+=`[FAIL] ${section}/${sel}: [${d.error.code}] ${d.error.error}\n`;
+        dbgResults[key]={error:d.error};
+        continue;
+      }
+      dbgResults[key]=d;
+      // Get the main data key
+      const mainKey=Object.keys(d).find(k=>typeof d[k]==='object'&&d[k]!==null&&k!=='_metadata');
+      const mainVal=mainKey?d[mainKey]:null;
+      const count=mainVal?(Array.isArray(mainVal)?mainVal.length:Object.keys(mainVal).length):'?';
+      report+=`[OK]   ${section}/${sel} — "${mainKey}": ${count} entries\n`;
+      // For events and attacknews, show first 5 raw entries so we can see format
+      if(key==='events'||key==='attacknews'||key==='crimenews'||key==='armorynews'){
+        const entries=Object.values(mainVal||{}).slice(0,5);
+        entries.forEach((e,i)=>{
+          const txt=e.event||e.news||JSON.stringify(e).slice(0,120);
+          report+=`  [${i}] ts=${e.timestamp} | ${txt}\n`;
+        });
+      }
+      report+='\n';
+    }catch(e){
+      report+=`[ERR]  ${section}/${sel}: ${e.message}\n\n`;
+    }
+  }
+  // Item receipt summary
+  report+=`\n=== ITEM RECEIPT PARSE RESULTS ===\n`;
+  report+=`Events loaded: ${S.events.length}\n`;
+  report+=`Receipts parsed: ${S.receipts.filter(r=>!r.deleted).length}\n`;
+  if(S._unmatchedEvents&&S._unmatchedEvents.length){
+    report+=`Unmatched item-like events (${S._unmatchedEvents.length}):\n`;
+    S._unmatchedEvents.slice(0,10).forEach(e=>{ report+=`  ${e}\n`; });
+  }
+  out.textContent=report;
+  status.textContent='✓ All tests complete — copy report and share';
+}
+
+function dbgCopy(){
+  const txt=document.getElementById('dbgOut').textContent;
+  navigator.clipboard.writeText(txt).then(()=>{
+    document.getElementById('dbgStatus').textContent='✓ Copied to clipboard';
+  }).catch(()=>{
+    // fallback: select text
+    const el=document.getElementById('dbgOut');
+    const range=document.createRange(); range.selectNodeContents(el);
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+    document.getElementById('dbgStatus').textContent='Text selected — use Ctrl+C / long-press Copy';
+  });
+}
+
+// ════════════════════════════════════════════
+// ADMIN PANEL
+// ════════════════════════════════════════════
+
+// ── EXPORT
+function adminExport(type){
+  let data, filename;
+  const ts=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  if(type==='all'){
+    data={
+      _meta:{exported:new Date().toISOString(),version:'hv-dashboard-v2'},
+      receipts:S.receipts,
+      paidLog:S.paidLog,
+      rates:S.rates,
+      events_count:S.events.length,
+      faction_name:S.faction?.name||'',
+    };
+    filename=`highvibes-backup-${ts}.json`;
+  } else if(type==='receipts'){
+    data={receipts:S.receipts};
+    filename=`highvibes-receipts-${ts}.json`;
+  } else if(type==='paidlog'){
+    data={paidLog:S.paidLog};
+    filename=`highvibes-paidlog-${ts}.json`;
+  } else if(type==='rates'){
+    data={rates:S.rates};
+    filename=`highvibes-rates-${ts}.json`;
+  } else if(type==='rawevents'){
+    data={events:S.events,armoryNews:S.armoryNews,ocRaw:S.ocRaw,attackNews:S.attackNews,crimeNews:S.crimeNews};
+    filename=`highvibes-rawevents-${ts}.json`;
+  }
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  const el=document.getElementById('adminExportStatus');
+  el.style.display='block'; el.textContent=`✓ Downloaded ${filename}`;
+  setTimeout(()=>{el.style.display='none';},4000);
+}
+
+function adminExportDebugHtml(){
+  const ts=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  // Build a standalone HTML debug report with all current state
+  let eventsHtml='<tr><th>Time</th><th>Raw Event</th><th>Parsed Member</th><th>Item</th><th>Qty</th><th>Cat</th></tr>';
+  S.events.slice(0,200).forEach(ev=>{
+    const raw=ev.event||ev.news||'';
+    const clean=raw.replace(/<a[^>]*>([^<]*)<\/a>/gi,'$1').replace(/<[^>]+>/g,'').trim();
+    // Try to find matching receipt
+    const match=S.receipts.find(r=>r.ts===ev.timestamp);
+    const esc=clean.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    eventsHtml+=`<tr><td>${ft(ev.timestamp)}</td><td style="font-size:10px;word-break:break-all;max-width:300px">${esc}</td><td>${match?match.member:'—'}</td><td>${match?match.item:'—'}</td><td>${match?match.qty:'—'}</td><td>${match?match.cat:'—'}</td></tr>`;
+  });
+  let receiptsHtml='<tr><th>Time</th><th>Member</th><th>Item</th><th>Qty</th><th>Cat</th><th>MV</th><th>Owed</th><th>Deleted</th></tr>';
+  S.receipts.forEach(r=>{
+    receiptsHtml+=`<tr style="${r.deleted?'opacity:0.4':''}"><td>${ft(r.ts)}</td><td>${r.member}</td><td>${r.item}</td><td>${r.qty}</td><td>${r.cat}</td><td>${fmt$(r.mv)}</td><td>${ff$(r.qty*r.mv*(S.rates[r.cat]||98)/100)}</td><td>${r.deleted?'YES':''}</td></tr>`;
+  });
+  const css=`body{font-family:monospace;background:#0a0d0f;color:#e8edf2;padding:20px}h2{color:#7fff6e;margin:20px 0 10px}table{border-collapse:collapse;width:100%;margin-bottom:30px}th{background:#181d22;color:#5a6a7a;padding:8px 12px;text-align:left;font-size:11px;letter-spacing:2px;text-transform:uppercase}td{padding:8px 12px;border-bottom:1px solid #1e2530;font-size:11px}tr:hover td{background:rgba(127,255,110,0.03)}`;
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>HV Debug ${ts}</title><style>${css}</style></head><body>
+<h1 style="color:#7fff6e">⬡ HIGHVIBES DEBUG REPORT</h1>
+<p style="color:#5a6a7a;font-size:11px">Generated: ${new Date().toISOString()} | Faction: ${S.faction?.name||'N/A'} | Events: ${S.events.length} | Receipts: ${S.receipts.length}</p>
+<h2>USER EVENTS (last 200)</h2><table>${eventsHtml}</table>
+<h2>ALL RECEIPTS (${S.receipts.length})</h2><table>${receiptsHtml}</table>
+</body></html>`;
+  const blob=new Blob([html],{type:'text/html'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`highvibes-debug-${ts}.html`; a.click();
+  const el=document.getElementById('adminExportStatus');
+  el.style.display='block'; el.textContent=`✓ Debug HTML downloaded`;
+  setTimeout(()=>{el.style.display='none';},4000);
+}
+
+// ── IMPORT
+function adminImport(evt){
+  const file=evt.target.files[0];
+  if(!file) return;
+  const status=document.getElementById('adminImportStatus');
+  status.textContent='Reading file…';
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      let added=0, skipped=0;
+      // Import receipts
+      if(data.receipts&&Array.isArray(data.receipts)){
+        const existing=new Set(S.receipts.map(r=>r.id));
+        data.receipts.forEach(r=>{
+          if(!existing.has(r.id)){S.receipts.push(r);added++;} else skipped++;
+        });
+        saveReceipts();
+      }
+      // Import paid log (merge)
+      if(data.paidLog&&typeof data.paidLog==='object'){
+        Object.entries(data.paidLog).forEach(([mem,entries])=>{
+          if(!S.paidLog[mem]) S.paidLog[mem]=[];
+          const existing=new Set(S.paidLog[mem].map(e=>e.ts));
+          entries.forEach(e=>{ if(!existing.has(e.ts)) S.paidLog[mem].push(e); });
+        });
+        try{localStorage.setItem('hv_paid',JSON.stringify(S.paidLog));}catch(ex){}
+      }
+      // Import rates
+      if(data.rates&&typeof data.rates==='object'){
+        S.rates={...S.rates,...data.rates};
+        try{localStorage.setItem('hv_rates',JSON.stringify(S.rates));}catch(ex){}
+        loadRateInputs();
+      }
+      renderReceipts(); renderCards(); updateBadge();
+      status.style.color='var(--accent2)';
+      status.textContent=`✓ Import complete — ${added} receipts added, ${skipped} already existed`;
+      clog(`Admin import: +${added} receipts, ${skipped} dupes skipped`,'ok');
+    }catch(ex){
+      status.style.color='var(--accent4)';
+      status.textContent='✗ Parse error: '+ex.message;
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ── MANUAL RECEIPT
+function adminAddManualReceipt(){
+  const member=(document.getElementById('mr_member').value||'').trim();
+  const item=(document.getElementById('mr_item').value||'').trim();
+  const qty=parseInt(document.getElementById('mr_qty').value)||0;
+  const cat=document.getElementById('mr_cat').value;
+  const status=document.getElementById('manualRcptStatus');
+  if(!member||!item||!qty){
+    status.style.display='block';status.style.color='var(--accent4)';
+    status.textContent='✗ Member, item, and qty are required'; return;
+  }
+  const iData=lookupItem(item);
+  const mv=iData?.mv||0;
+  const ts=Math.floor(Date.now()/1000);
+  const id=`r_manual_${ts}_${member.replace(/\W/g,'')}_${item.replace(/\W/g,'').toLowerCase()}`;
+  if(S.receipts.find(r=>r.id===id)){
+    status.style.display='block';status.style.color='var(--accent3)';
+    status.textContent='⚠ Duplicate entry — already exists'; return;
+  }
+  S.receipts.push({id,member,memberId:'0',item,qty,mv,cat,pct:S.rates[cat]||98,ts,deleted:false,manual:true});
+  S.receipts.sort((a,b)=>b.ts-a.ts);
+  saveReceipts(); renderReceipts(); renderCards(); updateBadge();
+  status.style.display='block';status.style.color='var(--accent2)';
+  status.textContent=`✓ Added ${qty}x ${item} from ${member} (MV: ${fmt$(mv)}, owed: ${ff$(qty*mv*(S.rates[cat]||98)/100)})`;
+  document.getElementById('mr_member').value='';
+  document.getElementById('mr_item').value='';
+  document.getElementById('mr_qty').value='';
+  clog(`Manual receipt added: ${qty}x ${item} from ${member}`,'ok');
+}
+
+// ── STORAGE INSPECTOR
+function adminInspectStorage(){
+  const keys=['hv_key','hv_rcpts','hv_paid','hv_rates','hv_sync_rate'];
+  let out='=== LOCALSTORAGE ===\n\n';
+  keys.forEach(k=>{
+    const v=localStorage.getItem(k);
+    if(!v){out+=`[${k}]: (empty)\n\n`;return;}
+    if(k==='hv_key'){out+=`[${k}]: ${v.slice(0,4)}••••••••${v.slice(-2)} (${v.length} chars)\n\n`;return;}
+    try{
+      const parsed=JSON.parse(v);
+      if(Array.isArray(parsed)) out+=`[${k}]: Array(${parsed.length})\n`;
+      else if(typeof parsed==='object') out+=`[${k}]: Object {${Object.keys(parsed).join(', ')}}\n`;
+      else out+=`[${k}]: ${parsed}\n`;
+      // Byte size
+      out+=`  Size: ${(v.length/1024).toFixed(1)} KB\n\n`;
+    }catch(e){ out+=`[${k}]: ${v.slice(0,80)}…\n\n`; }
+  });
+  out+=`=== IN-MEMORY STATE ===\n`;
+  out+=`S.receipts: ${S.receipts.length} (${S.receipts.filter(r=>!r.deleted).length} active, ${S.receipts.filter(r=>r.deleted).length} deleted)\n`;
+  out+=`S.events: ${S.events.length}\n`;
+  out+=`S.armoryNews: ${S.armoryNews.length}\n`;
+  out+=`S.ocRaw: ${S.ocRaw.length}\n`;
+  out+=`S.attackNews: ${S.attackNews.length}\n`;
+  out+=`S.crimeNews: ${S.crimeNews.length}\n`;
+  out+=`S.prices: ${Object.keys(S.prices).length} items\n`;
+  out+=`S.lastSync: ${S.lastSync?new Date(S.lastSync).toLocaleTimeString():'never'}\n`;
+  const el=document.getElementById('adminStorageOut');
+  el.style.display='block'; el.textContent=out;
+}
+
+function adminClearKey(key){
+  if(!confirm(`Clear localStorage key "${key}"?\n\nThis cannot be undone.`)) return;
+  localStorage.removeItem(key);
+  if(key==='hv_rcpts'){S.receipts=[];renderReceipts();renderCards();}
+  if(key==='hv_paid'){S.paidLog={};renderReceipts();}
+  clog(`Admin: cleared ${key}`,'warn');
+  adminInspectStorage();
+}
+
+function adminCheckWipeInput(){
+  const val=(document.getElementById('wipeConfirmInput')?.value||'').trim().toUpperCase();
+  const btn=document.getElementById('btnWipeAll');
+  if(!btn) return;
+  if(val==='WIPE'){
+    btn.disabled=false;
+    btn.style.opacity='1';
+    btn.style.cursor='pointer';
+    btn.style.background='rgba(255,107,107,0.15)';
+  } else {
+    btn.disabled=true;
+    btn.style.opacity='0.4';
+    btn.style.cursor='not-allowed';
+    btn.style.background='rgba(255,107,107,0.08)';
+  }
+}
+
+function adminClearAll(){
+  const val=(document.getElementById('wipeConfirmInput')?.value||'').trim().toUpperCase();
+  if(val!=='WIPE'){ alert('Type WIPE in the confirmation box first.'); return; }
+  const rcptCount=S.receipts.length;
+  const paidCount=Object.keys(S.paidLog).length;
+  if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• All payout rates\n• Sync settings\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
+  ['hv_rcpts','hv_paid','hv_rates','hv_sync_rate'].forEach(k=>localStorage.removeItem(k));
+  S.receipts=[];
+  S.paidLog={};
+  S.rates={Plushie:98,Flower:98,Xanax:98,Alcohol:98,Medical:98};
+  RMINS=15;
+  loadRateInputs();
+  buildSyncSelector();
+  renderReceipts(); renderCards(); updateBadge();
+  clog(`Admin: WIPED all data (${rcptCount} receipts, ${paidCount} paid entries)`,'err');
+  // Reset the input
+  const inp=document.getElementById('wipeConfirmInput');
+  if(inp) inp.value='';
+  adminCheckWipeInput();
+  adminInspectStorage();
+  alert('✓ All data wiped. API key preserved.');
+}
+
+// ── AUDIT TABLE
+function adminRenderAudit(){
+  const tbl=document.getElementById('adminAuditTbl');
+  tbl.style.display='block';
+  if(!S.receipts.length){tbl.innerHTML='<div class="empty">No receipts in memory.</div>';return;}
+  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Alcohol:'by',Medical:'br'};
+  let h=`<table><thead><tr><th>Date</th><th>Member</th><th>ID</th><th>Item</th><th>Qty</th><th>Cat</th><th>MV</th><th>Owed</th><th>Status</th><th></th></tr></thead><tbody>`;
+  [...S.receipts].sort((a,b)=>b.ts-a.ts).forEach(r=>{
+    const owed=r.qty*r.mv*(S.rates[r.cat]||98)/100;
+    const paidTs=lastPaidTs(r.member); const isPaid=r.ts<=paidTs;
+    const cb=catBadge[r.cat]||'bm';
+    const rowStyle=r.deleted?'opacity:0.4;background:rgba(255,107,107,0.04)':'';
+    h+=`<tr style="${rowStyle}">
+      <td class="cm" style="font-size:10px;white-space:nowrap">${ft(r.ts)}</td>
+      <td class="cn" style="font-size:11px">${r.member}</td>
+      <td class="cm" style="font-size:9px">${r.memberId||'—'}</td>
+      <td style="font-size:11px">${r.item}${r.manual?'<span class="badge bm" style="margin-left:4px">MANUAL</span>':''}</td>
+      <td class="cm">${r.qty}</td>
+      <td><span class="badge ${cb}">${r.cat}</span></td>
+      <td class="cm">${fmt$(r.mv)}</td>
+      <td class="${isPaid?'cm':'cy'}">${ff$(owed)}</td>
+      <td>${r.deleted?'<span class="badge br">DELETED</span>':isPaid?'<span class="badge bg">PAID</span>':'<span class="badge by">OWED</span>'}</td>
+      <td>${r.deleted
+        ?`<button class="del-btn" style="color:var(--accent2)" title="Restore" onclick="adminRestoreOne('${r.id}')">↩</button>`
+        :`<button class="del-btn" title="Delete" onclick="delReceipt('${r.id}');adminRenderAudit()">✕</button>`
+      }</td>
+    </tr>`;
+  });
+  tbl.innerHTML=h+'</tbody></table>';
+}
+
+function adminRestoreOne(id){
+  const r=S.receipts.find(x=>x.id===id);
+  if(r){r.deleted=false;saveReceipts();renderReceipts();renderCards();updateBadge();adminRenderAudit();clog(`Receipt restored: ${r.qty}x ${r.item} from ${r.member}`,'ok');}
+}
+
+function adminRestoreDeleted(){
+  const count=S.receipts.filter(r=>r.deleted).length;
+  if(!count){alert('No deleted receipts to restore.');return;}
+  if(!confirm(`Restore ${count} deleted receipt(s)?`)) return;
+  S.receipts.forEach(r=>{r.deleted=false;});
+  saveReceipts(); renderReceipts(); renderCards(); updateBadge(); adminRenderAudit();
+  clog(`Admin: restored ${count} deleted receipts`,'ok');
+}
+
 function filterType(el,type){
-  document.querySelectorAll('.pill').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('#typePills .pill').forEach(p=>p.classList.remove('on'));
   el.classList.add('on'); S.typeFilter=type; renderSupply();
 }
+
 </script>
 </body>
-</html>
+  </html>
