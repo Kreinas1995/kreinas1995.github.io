@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - '**/current/**'
+      - '**/*v[0-9]*_[0-9]*.html'
 
 jobs:
   move-old-files:
@@ -17,20 +18,90 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
-      - name: Move old files to Old folder for every tool
+      - name: Move versioned files to Old/ and update current/ for every tool
         run: |
-          # Find every 'current' directory anywhere in the repo (skip .git)
+          set -euo pipefail
+
+          # Discover all tool root directories: the parent of any 'Old' or 'current' subdir.
+          # Works generically for any tool that follows the versioned-file structure.
+          while IFS= read -r tool_root; do
+            # Skip the repo root itself
+            [ "$tool_root" = "." ] && continue
+
+            old_dir="$tool_root/Old"
+            current_dir="$tool_root/current"
+
+            # Collect all versioned HTML filenames from root, Old/, and current/.
+            # Versioned files match: *v<digits>_<digits>[_<digits>...].html
+            tmpfile=$(mktemp)
+            find "$tool_root" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' \
+              -exec basename {} \; 2>/dev/null >> "$tmpfile" || true
+            [ -d "$old_dir" ] && find "$old_dir" -maxdepth 1 \
+              -name '*v[0-9]*_[0-9]*.html' -exec basename {} \; \
+              2>/dev/null >> "$tmpfile" || true
+            [ -d "$current_dir" ] && find "$current_dir" -maxdepth 1 \
+              -name '*v[0-9]*_[0-9]*.html' -exec basename {} \; \
+              2>/dev/null >> "$tmpfile" || true
+
+            # Deduplicate and find latest by version sort
+            latest_name=$(sort -Vu "$tmpfile" | tail -n 1 || true)
+            rm -f "$tmpfile"
+
+            if [ -z "$latest_name" ]; then
+              continue
+            fi
+
+            mkdir -p "$old_dir" "$current_dir"
+            echo "[$tool_root] Latest: $latest_name"
+
+            # Move all versioned files from the tool root to Old/
+            while IFS= read -r f; do
+              fname=$(basename "$f")
+              mv -- "$f" "$old_dir/$fname"
+              echo "  Moved root/$fname -> Old/"
+            done < <(find "$tool_root" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
+
+            # Move any versioned files from current/ to Old/
+            while IFS= read -r f; do
+              fname=$(basename "$f")
+              mv -- "$f" "$old_dir/$fname"
+              echo "  Moved current/$fname -> Old/"
+            done < <(find "$current_dir" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
+
+            # Verify the latest file ended up in Old/
+            if [ ! -f "$old_dir/$latest_name" ]; then
+              echo "  ERROR: $latest_name missing from $old_dir!" >&2
+              continue
+            fi
+
+            # Copy latest into current/ keeping the versioned filename
+            cp -- "$old_dir/$latest_name" "$current_dir/$latest_name"
+            echo "  Updated: $current_dir/$latest_name <- Old/$latest_name"
+
+          done < <(
+            find . -type d \( -name 'Old' -o -name 'current' \) \
+              -not -path './.git/*' \
+              | sed -E 's,/(Old|current)(/.*)?$,,' | sort -u
+          )
+
+      - name: Move old files to Old/ for non-versioned tools
+        run: |
+          # Fallback for current/ folders whose files don't use versioned naming:
+          # keep only the most-recently-modified non-manifest file.
           while IFS= read -r current_dir; do
-            # Derive the sibling 'Old' directory
             old_dir="$(dirname "$current_dir")/Old"
             mkdir -p "$old_dir"
 
-            # Count files (non-recursive, files only) in current
-            count=$(find "$current_dir" -maxdepth 1 -type f | wc -l)
+            # Count non-manifest, non-versioned files in current/
+            count=$(find "$current_dir" -maxdepth 1 -type f \
+              -not -name 'manifest.json' \
+              -not -name '*v[0-9]*_[0-9]*.html' | wc -l)
 
             if [ "$count" -gt 1 ]; then
-              # Move all but the most recently modified file to Old
-              find "$current_dir" -maxdepth 1 -type f -printf '%T@ %p\n' \
+              find "$current_dir" -maxdepth 1 -type f \
+                -not -name 'manifest.json' \
+                -not -name '*v[0-9]*_[0-9]*.html' \
+                -printf '%T@ %p\n' \
                 | sort -n \
                 | head -n -1 \
                 | awk '{print $2}' \
