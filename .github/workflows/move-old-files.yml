@@ -41,6 +41,36 @@ jobs:
             fi
           done < <(find . -type d -name 'current' -not -path './.git/*')
 
+      - name: Regenerate manifest.json for every tool's current/ folder
+        run: |
+          python3 << 'EOF'
+          import json, os, re
+
+          def parse_version(filename):
+              m = re.search(r'v(\d+)[_.](\d+)[_.](\d+)', filename, re.I)
+              return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else (0, 0, 0)
+
+          for root, dirs, files in os.walk('.'):
+              # Skip hidden directories (e.g. .git)
+              dirs[:] = [d for d in dirs if not d.startswith('.')]
+              if os.path.basename(root) != 'current':
+                  continue
+              old_dir = os.path.join(os.path.dirname(root), 'Old')
+              all_files = []
+              if os.path.isdir(old_dir):
+                  all_files += [f for f in os.listdir(old_dir) if f.endswith('.html')]
+              all_files += [f for f in os.listdir(root) if f.endswith('.html')]
+              all_files.sort(key=parse_version)
+              if not all_files:
+                  continue
+              manifest = {'latest': all_files[-1], 'all': all_files}
+              out_path = os.path.join(root, 'manifest.json')
+              with open(out_path, 'w') as fh:
+                  json.dump(manifest, fh, indent=2)
+                  fh.write('\n')
+              print(f'Updated {out_path}: latest={manifest["latest"]}, count={len(all_files)}')
+          EOF
+
       - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
