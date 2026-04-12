@@ -47,7 +47,7 @@ jobs:
           import json, os, re
 
           def parse_version(filename):
-              m = re.search(r'v(\d+)[_.](\d+)[_.](\d+)', filename, re.I)
+              m = re.search(r'v(\d+)_(\d+)_(\d+)', filename, re.I)
               return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else (0, 0, 0)
 
           for root, dirs, files in os.walk('.'):

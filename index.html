@@ -701,7 +701,7 @@
         if (!manifest.all || manifest.all.length <= 1) continue;
         hasAnyOld = true;
 
-        const oldFolder = tool.currentFolder.replace('current/', 'Old/');
+        const oldFolder = tool.currentFolder.replace(/\/current\/$/, '/Old/');
 
         // Render newest-first (reverse the sorted-oldest-first array)
         const linksHtml = [...manifest.all].reverse().map(filename => {
