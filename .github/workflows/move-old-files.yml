@@ -1,0 +1,54 @@
+name: Move old file to old when new one is uploaded
+
+on:
+  push:
+    paths:
+      - '**/current/**'
+
+jobs:
+  move-old-files:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Move old files to Old folder for every tool
+        run: |
+          # Find every 'current' directory anywhere in the repo (skip .git)
+          while IFS= read -r current_dir; do
+            # Derive the sibling 'Old' directory
+            old_dir="$(dirname "$current_dir")/Old"
+            mkdir -p "$old_dir"
+
+            # Count files (non-recursive, files only) in current
+            count=$(find "$current_dir" -maxdepth 1 -type f | wc -l)
+
+            if [ "$count" -gt 1 ]; then
+              # Move all but the most recently modified file to Old
+              find "$current_dir" -maxdepth 1 -type f -printf '%T@ %p\n' \
+                | sort -n \
+                | head -n -1 \
+                | awk '{print $2}' \
+                | while IFS= read -r file; do
+                    mv "$file" "$old_dir/"
+                    echo "Moved: $file -> $old_dir/"
+                  done
+            fi
+          done < <(find . -type d -name 'current' -not -path './.git/*')
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Move old file(s) to Old [auto]"
+            git push
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
