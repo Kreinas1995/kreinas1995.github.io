@@ -1,5 +1,5 @@
 {
-  "latest": "FactionBudgetv2_38_1.html",
+  "latest": "FactionBudgetv2_38_2.html",
   "all": [
     "FactionBudgetEarly.html",
     "FactionBudgetv2_4_0.html",
@@ -35,6 +35,7 @@
     "FactionBudgetv2_37_4.html",
     "FactionBudgetv2_37_5.html",
     "FactionBudgetv2_38_0.html",
-    "FactionBudgetv2_38_1.html"
+    "FactionBudgetv2_38_1.html",
+    "FactionBudgetv2_38_2.html"
   ]
 }
