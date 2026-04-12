@@ -432,6 +432,92 @@
       from { opacity: 0; transform: translateY(16px); }
       to   { opacity: 1; transform: translateY(0); }
     }
+    /* ── OLD VERSIONS ARCHIVE */
+    .archive-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 0;
+      animation: fadeUp 0.7s 0.35s ease both;
+    }
+
+    .archive-toggle:hover .archive-toggle-label {
+      color: var(--muted);
+    }
+
+    .archive-toggle-label {
+      font-size: 8px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--muted2);
+      transition: color 0.15s;
+    }
+
+    .archive-toggle-arrow {
+      font-size: 9px;
+      color: var(--muted2);
+      transition: transform 0.2s;
+    }
+
+    .archive-open .archive-toggle-arrow {
+      transform: rotate(180deg);
+    }
+
+    .archive-body {
+      display: none;
+      margin-top: 16px;
+      animation: fadeUp 0.3s ease both;
+    }
+
+    .archive-open .archive-body {
+      display: block;
+    }
+
+    .archive-tool {
+      margin-bottom: 20px;
+    }
+
+    .archive-tool-name {
+      font-size: 9px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .archive-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .archive-link {
+      font-size: 9px;
+      letter-spacing: 1px;
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      color: var(--muted2);
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: border-color 0.15s, color 0.15s;
+    }
+
+    .archive-link:hover {
+      border-color: var(--border2);
+      color: var(--muted);
+    }
+
+    .archive-link.is-latest {
+      border-color: rgba(61,214,140,0.3);
+      color: var(--accent);
+    }
+
+    .archive-link.is-latest:hover {
+      border-color: var(--accent);
+    }
+
   </style>
 </head>
 <body>
@@ -452,6 +538,15 @@
     <!-- WIP TOOLS -->
     <div class="section-label">— Works in progress</div>
     <div id="wip-grid" class="wip-grid"></div>
+
+    <!-- OLD VERSIONS ARCHIVE -->
+    <div id="archive-section" style="margin-top:48px; display:none;">
+      <div class="archive-toggle" onclick="document.getElementById('archive-section').classList.toggle('archive-open')">
+        <span class="archive-toggle-label">— Old Versions</span>
+        <span class="archive-toggle-arrow">▾</span>
+      </div>
+      <div class="archive-body" id="archive-body"></div>
+    </div>
 
     <!-- FOOTER -->
     <footer>
@@ -484,10 +579,20 @@
 
     /**
      * Given a tool's currentFolder (e.g. "FactionBudget/current/"), fetch its
-     * directory listing and return the href for the newest versioned file.
-     * Falls back to folder index if detection fails.
+     * manifest.json and return the href for the newest versioned file.
+     * Falls back to directory-listing parse if manifest is unavailable.
      */
     async function detectLatestVersion(tool) {
+      // Primary: manifest.json (reliable on GitHub Pages)
+      try {
+        const res = await fetch(tool.currentFolder + 'manifest.json');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.latest) return tool.currentFolder + data.latest;
+        }
+      } catch (e) { /* fall through */ }
+
+      // Fallback: parse directory listing (works on local dev servers)
       try {
         const res = await fetch(tool.currentFolder);
         if (!res.ok) return tool.currentFolder;
@@ -578,6 +683,44 @@
       </a>`;
     }
 
+    async function loadArchive(tools) {
+      const archiveSection = document.getElementById('archive-section');
+      const archiveBody = document.getElementById('archive-body');
+      let hasAnyOld = false;
+
+      for (const tool of tools) {
+        let manifest;
+        try {
+          const res = await fetch(tool.currentFolder + 'manifest.json');
+          if (!res.ok) continue;
+          manifest = await res.json();
+        } catch (e) {
+          continue;
+        }
+
+        if (!manifest.all || manifest.all.length <= 1) continue;
+        hasAnyOld = true;
+
+        const oldFolder = tool.currentFolder.replace(/\/current\/$/, '/Old/');
+
+        // Render newest-first (reverse the sorted-oldest-first array)
+        const linksHtml = [...manifest.all].reverse().map(filename => {
+          const isLatest = filename === manifest.latest;
+          const href = isLatest ? tool.currentFolder + filename : oldFolder + filename;
+          const ver = displayVersion(filename) || filename.replace(/\.html$/i, '');
+          return `<a href="${esc(href)}" class="archive-link${isLatest ? ' is-latest' : ''}">${esc(ver)}${isLatest ? ' ★' : ''}</a>`;
+        }).join('');
+
+        archiveBody.insertAdjacentHTML('beforeend', `
+          <div class="archive-tool">
+            <div class="archive-tool-name">${esc(tool.shortName || tool.name)}</div>
+            <div class="archive-links">${linksHtml}</div>
+          </div>`);
+      }
+
+      if (hasAnyOld) archiveSection.style.display = '';
+    }
+
     async function loadTools() {
       let config;
       try {
@@ -600,6 +743,8 @@
           wipGrid.insertAdjacentHTML('beforeend', renderWipCard(tool, href));
         }
       }
+
+      await loadArchive(config.tools);
     }
 
     loadTools();
