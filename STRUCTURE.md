@@ -39,12 +39,14 @@ kreinas1995.github.io/
 │       └── FactionBudgetv2_*.html      ← Archived older versions
 │
 ├── Training/
-│   └── current/
-│       └── Training.html               ← WIP tool
+│   ├── current/
+│   │   └── Trainingv1_0_0.html         ← WIP tool (latest version)
+│   └── Old/                            ← Archived older versions
 │
 ├── War/
-│   └── current/
-│       └── War.html                    ← WIP tool
+│   ├── current/
+│   │   └── Warv1_0_0.html              ← WIP tool (latest version)
+│   └── Old/                            ← Archived older versions
 │
 └── legacy/
     └── *.md                            ← Old planning/resume docs (not served)
