@@ -116,6 +116,7 @@ jobs:
         run: |
           python3 << 'EOF'
           import json, os, re
+          from collections import Counter
 
           def parse_version(filename):
               m = re.search(r'v(\d+)_(\d+)_(\d+)', filename, re.I)
@@ -131,6 +132,16 @@ jobs:
               if os.path.isdir(old_dir):
                   all_files += [f for f in os.listdir(old_dir) if f.endswith('.html')]
               all_files += [f for f in os.listdir(root) if f.endswith('.html')]
+
+              # Warn and deduplicate: the latest file lives in both Old/ and current/
+              # after the move step, so duplicates are expected but must be removed.
+              counts = Counter(all_files)
+              duplicates = [f for f, c in counts.items() if c > 1]
+              if duplicates:
+                  print(f'WARNING [{root}]: Duplicate entries detected and removed: {duplicates}')
+              # Use dict to deduplicate while preserving insertion order, then sort
+              all_files = list(dict.fromkeys(all_files))
+
               all_files.sort(key=parse_version)
               if not all_files:
                   continue
@@ -140,6 +151,10 @@ jobs:
                   json.dump(manifest, fh, indent=2)
                   fh.write('\n')
               print(f'Updated {out_path}: latest={manifest["latest"]}, count={len(all_files)}')
+              # Confirm the latest field always points to the newest version after sort
+              print(f'CONFIRM [{root}]: latest field={manifest["latest"]} == newest in all={all_files[-1]}')
+              assert manifest['latest'] == all_files[-1], \
+                  f'ERROR [{root}]: latest field does not match newest version in all!'
           EOF
 
       - name: Commit and push changes
