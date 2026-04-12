@@ -1,0 +1,59 @@
+{
+  "tools": [
+    {
+      "id": "factionBudget",
+      "name": "Faction Budget Dashboard",
+      "shortName": "Faction Budget",
+      "description": "Full financial command center for HighVibes. Tracks vault balance, member payouts, supply costs, OC income, museum set inventory, respect stats, and war funds — all from your Torn API key.",
+      "status": "ACTIVE",
+      "badge": "Live",
+      "badgeStyle": "accent",
+      "currentFolder": "FactionBudget/current/",
+      "features": [
+        "Vault & P&L",
+        "Item Receipts",
+        "Museum Sets",
+        "Respect Tracker",
+        "OC Log",
+        "Armory News",
+        "War Funds",
+        "Member Balances"
+      ],
+      "stats": [
+        { "label": "Tools",      "value": "11" },
+        { "label": "API Sources","value": "8+" },
+        { "label": "Status",     "value": "ACTIVE", "color": "accent" }
+      ],
+      "heroStyle": true,
+      "progress": null
+    },
+    {
+      "id": "training",
+      "name": "Company Training Dashboard",
+      "shortName": "Training",
+      "description": "Track and manage employee job points, training schedules, and company efficiency metrics.",
+      "status": "In Progress",
+      "badge": "In Progress",
+      "badgeStyle": "wip",
+      "currentFolder": "Training/current/",
+      "features": [],
+      "stats": [],
+      "heroStyle": false,
+      "progress": { "pct": 20, "label": "20% — early build" }
+    },
+    {
+      "id": "war",
+      "name": "Ranked War Split",
+      "shortName": "War",
+      "description": "Calculate payout splits for ranked war participants based on score contribution and faction share settings.",
+      "status": "In Progress",
+      "badge": "In Progress",
+      "badgeStyle": "wip",
+      "currentFolder": "War/current/",
+      "features": [],
+      "stats": [],
+      "heroStyle": false,
+      "progress": { "pct": 35, "label": "35% — basic calc working" }
+    }
+  ]
+}

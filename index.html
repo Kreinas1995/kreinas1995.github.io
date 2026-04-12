@@ -446,76 +446,12 @@
       <div class="header-tag">kreinas1995.github.io</div>
     </header>
 
-    <!-- HERO — FACTION DASHBOARD -->
-    <a href="FactionDashboardv2_37_1.html" class="hero-card">
-      <div class="hero-hex">⬡⬡</div>
-
-      <div class="hero-eyebrow">
-        <span class="hero-badge">Live</span>
-        <span class="hero-version">v2.33.0</span>
-      </div>
-
-      <div class="hero-title">Faction<br><span class="hl">Budget</span><br>Dashboard</div>
-
-      <p class="hero-desc">
-        Full financial command center for HighVibes. Tracks vault balance, member payouts, 
-        supply costs, OC income, museum set inventory, respect stats, and war funds — 
-        all from your Torn API key.
-      </p>
-
-      <div class="hero-features">
-        <span class="feat-tag">Vault &amp; P&amp;L</span>
-        <span class="feat-tag">Item Receipts</span>
-        <span class="feat-tag">Museum Sets</span>
-        <span class="feat-tag">Respect Tracker</span>
-        <span class="feat-tag">OC Log</span>
-        <span class="feat-tag">Armory News</span>
-        <span class="feat-tag">War Funds</span>
-        <span class="feat-tag">Member Balances</span>
-      </div>
-
-      <div class="hero-cta">
-        Open Dashboard <span class="hero-cta-arrow">→</span>
-      </div>
-
-      <div class="stat-row">
-        <div class="stat-cell">
-          <div class="stat-label">Tools</div>
-          <div class="stat-value">11</div>
-        </div>
-        <div class="stat-cell">
-          <div class="stat-label">API Sources</div>
-          <div class="stat-value">8+</div>
-        </div>
-        <div class="stat-cell">
-          <div class="stat-label">Status</div>
-          <div class="stat-value" style="color:var(--accent);font-size:13px;">ACTIVE</div>
-        </div>
-      </div>
-    </a>
+    <!-- HERO CARD — injected by JS -->
+    <div id="hero-container"></div>
 
     <!-- WIP TOOLS -->
     <div class="section-label">— Works in progress</div>
-
-    <div class="wip-grid">
-
-      <a href="Training.html" class="wip-card">
-        <div class="wip-chip">In Progress</div>
-        <div class="wip-title">Company Training Dashboard</div>
-        <p class="wip-desc">Track and manage employee job points, training schedules, and company efficiency metrics.</p>
-        <div class="wip-bar"><div class="wip-bar-fill" style="width:20%"></div></div>
-        <div class="wip-bar-pct">20% — early build</div>
-      </a>
-
-      <a href="War.html" class="wip-card">
-        <div class="wip-chip">In Progress</div>
-        <div class="wip-title">Ranked War Split</div>
-        <p class="wip-desc">Calculate payout splits for ranked war participants based on score contribution and faction share settings.</p>
-        <div class="wip-bar"><div class="wip-bar-fill" style="width:35%"></div></div>
-        <div class="wip-bar-pct">35% — basic calc working</div>
-      </a>
-
-    </div>
+    <div id="wip-grid" class="wip-grid"></div>
 
     <!-- FOOTER -->
     <footer>
@@ -524,5 +460,149 @@
     </footer>
 
   </div>
+
+  <script>
+    /**
+     * Parses a version filename like "FactionBudgetv2_37_1.html" into a
+     * sortable numeric tuple [major, minor, patch] so we can find the newest.
+     */
+    function parseVersion(filename) {
+      const m = filename.match(/v(\d+)[_.](\d+)[_.](\d+)/i);
+      if (!m) return [0, 0, 0];
+      return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
+    }
+
+    /**
+     * Compares two version tuples; returns positive if a > b.
+     */
+    function cmpVersion(a, b) {
+      for (let i = 0; i < 3; i++) {
+        if (a[i] !== b[i]) return a[i] - b[i];
+      }
+      return 0;
+    }
+
+    /**
+     * Given a tool's currentFolder (e.g. "FactionBudget/current/"), fetch its
+     * directory listing and return the href for the newest versioned file.
+     * Falls back to folder index if detection fails.
+     */
+    async function detectLatestVersion(tool) {
+      try {
+        const res = await fetch(tool.currentFolder);
+        if (!res.ok) return tool.currentFolder;
+        const html = await res.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const links = Array.from(doc.querySelectorAll('a[href]'))
+          .map(a => a.getAttribute('href'))
+          .filter(h => h.endsWith('.html') && !h.startsWith('http'));
+        if (!links.length) return tool.currentFolder;
+        links.sort((a, b) => cmpVersion(parseVersion(b), parseVersion(a)));
+        return tool.currentFolder + links[0].replace(/^.*\//, '');
+      } catch (e) {
+        return tool.currentFolder;
+      }
+    }
+
+    /**
+     * Extracts a human-readable version string like "v2.37.1" from a filename.
+     */
+    function displayVersion(href) {
+      const m = href.match(/v(\d+)[_.](\d+)[_.](\d+)/i);
+      if (!m) return '';
+      return `v${m[1]}.${m[2]}.${m[3]}`;
+    }
+
+    /** Escapes HTML special characters. */
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function renderHeroCard(tool, href) {
+      const ver = displayVersion(href);
+      const featuresHtml = tool.features
+        .map(f => `<span class="feat-tag">${esc(f)}</span>`)
+        .join('\n        ');
+      const statsHtml = tool.stats
+        .map(s => `
+        <div class="stat-cell">
+          <div class="stat-label">${esc(s.label)}</div>
+          <div class="stat-value"${s.color ? ` style="color:var(--${esc(s.color)});font-size:13px;"` : ''}>${esc(s.value)}</div>
+        </div>`).join('');
+
+      const titleParts = tool.name.split(' ');
+      const heroTitle = titleParts.length >= 3
+        ? `${esc(titleParts[0])}<br><span class="hl">${esc(titleParts[1])}</span><br>${esc(titleParts.slice(2).join(' '))}`
+        : `<span class="hl">${esc(tool.name)}</span>`;
+
+      return `
+    <a href="${esc(href)}" class="hero-card" id="hero-${esc(tool.id)}">
+      <div class="hero-hex">⬡⬡</div>
+
+      <div class="hero-eyebrow">
+        <span class="hero-badge">${esc(tool.badge)}</span>
+        ${ver ? `<span class="hero-version">${esc(ver)}</span>` : ''}
+      </div>
+
+      <div class="hero-title">${heroTitle}</div>
+
+      <p class="hero-desc">${esc(tool.description)}</p>
+
+      <div class="hero-features">
+        ${featuresHtml}
+      </div>
+
+      <div class="hero-cta">
+        Open Dashboard <span class="hero-cta-arrow">→</span>
+      </div>
+      ${tool.stats.length ? `<div class="stat-row">${statsHtml}</div>` : ''}
+    </a>`;
+    }
+
+    function renderWipCard(tool, href) {
+      const progressHtml = tool.progress
+        ? `<div class="wip-bar"><div class="wip-bar-fill" style="width:${tool.progress.pct}%"></div></div>
+        <div class="wip-bar-pct">${esc(tool.progress.label)}</div>`
+        : '';
+      return `
+      <a href="${esc(href)}" class="wip-card" id="wip-${esc(tool.id)}">
+        <div class="wip-chip">${esc(tool.badge)}</div>
+        <div class="wip-title">${esc(tool.name)}</div>
+        <p class="wip-desc">${esc(tool.description)}</p>
+        ${progressHtml}
+      </a>`;
+    }
+
+    async function loadTools() {
+      let config;
+      try {
+        const res = await fetch('config.json');
+        config = await res.json();
+      } catch (e) {
+        console.error('Failed to load config.json', e);
+        return;
+      }
+
+      const heroContainer = document.getElementById('hero-container');
+      const wipGrid = document.getElementById('wip-grid');
+
+      for (const tool of config.tools) {
+        const href = await detectLatestVersion(tool);
+
+        if (tool.heroStyle) {
+          heroContainer.insertAdjacentHTML('beforeend', renderHeroCard(tool, href));
+        } else {
+          wipGrid.insertAdjacentHTML('beforeend', renderWipCard(tool, href));
+        }
+      }
+    }
+
+    loadTools();
+  </script>
 </body>
 </html>
