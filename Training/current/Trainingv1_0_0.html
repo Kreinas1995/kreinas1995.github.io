@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Torn — Company Training Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#08090b; --s1:#0d1117; --s2:#131920; --s3:#1a2230;
+    --border:#1f2d3d; --gold:#c8a84b; --gold2:#e8c96d;
+    --man:#4b9ecc; --int:#a66bcc; --end:#4bcc7a;
+    --passive:#cc9a4b; --text:#cdd5e0; --muted:#4a5a6e;
+    --danger:#cc5050; --panel-bg:#0f151c;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;
+    min-height:100vh;padding:16px 14px 48px;
+    background-image:
+      radial-gradient(ellipse 100% 35% at 50% 0%,rgba(200,168,75,.06) 0%,transparent 55%),
+      repeating-linear-gradient(0deg,transparent,transparent 48px,rgba(255,255,255,.012) 48px,rgba(255,255,255,.012) 49px),
+      repeating-linear-gradient(90deg,transparent,transparent 48px,rgba(255,255,255,.012) 48px,rgba(255,255,255,.012) 49px);
+  }
+
+  /* HEADER */
+  .hdr{display:grid;grid-template-columns:auto 1fr auto;align-items:center;margin-bottom:22px;gap:10px;}
+  .hdr-center{text-align:center;}
+  .hdr-center h1{font-family:'Orbitron',monospace;font-size:1.2rem;font-weight:900;color:var(--gold2);letter-spacing:.12em;text-shadow:0 0 28px rgba(200,168,75,.45);}
+  .hdr-center p{font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--muted);margin-top:3px;letter-spacing:.07em;}
+  .day-pill{display:inline-block;margin-top:7px;background:var(--gold);color:#000;font-family:'Orbitron',monospace;font-size:.62rem;font-weight:700;padding:2px 12px;border-radius:3px;letter-spacing:.1em;}
+
+  /* USER BUTTON */
+  .user-btn{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:64px;border:none;}
+  .user-btn:hover{border:1px solid var(--gold);background:rgba(200,168,75,.07);}
+  .user-btn-icon{font-size:1.1rem;line-height:1;}
+  .user-btn-name{font-family:'Share Tech Mono',monospace;font-size:.55rem;color:var(--gold);letter-spacing:.05em;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;}
+
+  /* PANEL OVERLAY */
+  .panel-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;opacity:0;pointer-events:none;transition:opacity .2s;}
+  .panel-overlay.open{opacity:1;pointer-events:all;}
+  .panel{position:fixed;top:0;left:0;bottom:0;width:88%;max-width:360px;background:var(--panel-bg);border-right:1px solid var(--border);z-index:101;transform:translateX(-100%);transition:transform .25s ease;display:flex;flex-direction:column;overflow:hidden;}
+  .panel.open{transform:translateX(0);}
+  .panel-hdr{padding:16px 16px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--s2);}
+  .panel-title{font-family:'Orbitron',monospace;font-size:.8rem;font-weight:700;color:var(--gold2);letter-spacing:.1em;}
+  .panel-close{background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer;padding:2px 6px;border-radius:4px;transition:color .15s;}
+  .panel-close:hover{color:var(--text);}
+  .panel-body{flex:1;overflow-y:auto;padding:14px;}
+
+  /* TABS */
+  .panel-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;}
+  .tab-btn{background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:7px;font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--muted);cursor:pointer;transition:all .15s;letter-spacing:.05em;text-align:center;}
+  .tab-btn:hover{border-color:var(--gold);color:var(--gold);}
+  .tab-btn.active{background:rgba(200,168,75,.1);border-color:var(--gold);color:var(--gold2);}
+  .tab-content{display:none;}
+  .tab-content.active{display:block;}
+
+  /* USER LIST */
+  .list-label{font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--muted);letter-spacing:.08em;margin-bottom:8px;}
+  .user-item{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;border-radius:6px;border:1px solid var(--border);background:var(--s2);margin-bottom:7px;transition:all .15s;}
+  .user-item:hover{border-color:var(--gold);}
+  .user-item.active{border-color:var(--gold);background:rgba(200,168,75,.08);}
+  .user-item-name{font-family:'Rajdhani',sans-serif;font-weight:700;font-size:.85rem;color:var(--text);}
+  .user-item-meta{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);}
+  .user-item-actions{display:flex;gap:5px;flex-shrink:0;}
+  .ui-btn{background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:.62rem;padding:2px 7px;cursor:pointer;transition:all .15s;}
+  .ui-btn:hover{border-color:var(--gold);color:var(--gold);}
+  .ui-btn.del:hover{border-color:var(--danger);color:var(--danger);}
+  .add-btn{width:100%;background:transparent;border:1px dashed var(--border);color:var(--muted);border-radius:6px;padding:9px;font-family:'Share Tech Mono',monospace;font-size:.6rem;letter-spacing:.06em;cursor:pointer;transition:all .15s;margin-bottom:14px;}
+  .add-btn:hover{border-color:var(--gold);color:var(--gold);}
+
+  /* FORM */
+  .edit-form{display:none;}
+  .edit-form.show{display:block;}
+  .form-title{font-family:'Orbitron',monospace;font-size:.68rem;color:var(--gold);letter-spacing:.1em;margin-bottom:12px;}
+  .form-sec{font-family:'Share Tech Mono',monospace;font-size:.56rem;color:var(--muted);letter-spacing:.07em;margin:12px 0 7px;text-transform:uppercase;}
+  .form-row{margin-bottom:9px;}
+  .form-row label{display:block;font-family:'Share Tech Mono',monospace;font-size:.56rem;color:var(--muted);letter-spacing:.06em;margin-bottom:3px;}
+  .form-row input,.form-row select{width:100%;background:var(--s1);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.72rem;padding:7px 10px;outline:none;transition:border-color .15s;}
+  .form-row input:focus,.form-row select:focus{border-color:var(--gold);}
+  .form-row select option{background:var(--s1);}
+  .form-row input.man-i:focus{border-color:var(--man);}
+  .form-row input.int-i:focus{border-color:var(--int);}
+  .form-row input.end-i:focus{border-color:var(--end);}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+  .form-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;}
+  .save-btn{width:100%;margin-top:12px;background:var(--gold);color:#000;border:none;border-radius:5px;padding:10px;font-family:'Orbitron',monospace;font-size:.64rem;font-weight:700;letter-spacing:.1em;cursor:pointer;transition:background .15s;}
+  .save-btn:hover{background:var(--gold2);}
+  .cancel-btn{width:100%;margin-top:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:7px;font-family:'Share Tech Mono',monospace;font-size:.6rem;cursor:pointer;transition:all .15s;letter-spacing:.06em;}
+  .cancel-btn:hover{border-color:var(--muted);color:var(--text);}
+
+  /* COMPANY CONFIG */
+  .company-info{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:11px 13px;margin-bottom:12px;}
+  .ci-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .ci-label{font-family:'Share Tech Mono',monospace;font-size:.58rem;color:var(--muted);}
+  .ci-val{font-family:'Share Tech Mono',monospace;font-size:.62rem;color:var(--text);}
+  .trains-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
+  .trains-label{font-family:'Share Tech Mono',monospace;font-size:.58rem;color:var(--muted);flex:1;}
+  .trains-input{width:52px;background:var(--s1);border:1px solid var(--border);border-radius:5px;color:var(--gold2);font-family:'Orbitron',monospace;font-size:.8rem;font-weight:700;padding:4px 8px;outline:none;text-align:center;transition:border-color .15s;}
+  .trains-input:focus{border-color:var(--gold);}
+  .trains-sub{font-family:'Share Tech Mono',monospace;font-size:.55rem;color:var(--muted);}
+
+  /* PASSIVE ROLE SELECTOR */
+  .passive-role-selector{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:11px 13px;margin-bottom:12px;}
+  .prs-label{font-family:'Share Tech Mono',monospace;font-size:.58rem;color:var(--muted);letter-spacing:.06em;margin-bottom:6px;}
+  .prs-select{width:100%;background:var(--s1);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.68rem;padding:6px 8px;outline:none;transition:border-color .15s;}
+  .prs-select:focus{border-color:var(--gold);}
+  .prs-select option{background:var(--s1);}
+
+  /* MAIN */
+  .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
+  .sc{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:12px 10px;position:relative;overflow:hidden;}
+  .sc::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;}
+  .sc.man::before{background:var(--man);}
+  .sc.int::before{background:var(--int);}
+  .sc.end::before{background:var(--end);}
+  .sc-lbl{font-family:'Share Tech Mono',monospace;font-size:.56rem;letter-spacing:.1em;margin-bottom:5px;opacity:.75;}
+  .sc.man .sc-lbl{color:var(--man);}
+  .sc.int .sc-lbl{color:var(--int);}
+  .sc.end .sc-lbl{color:var(--end);}
+  .sc-val{font-family:'Orbitron',monospace;font-size:1.1rem;font-weight:700;line-height:1;margin-bottom:3px;}
+  .sc.man .sc-val{color:var(--man);}
+  .sc.int .sc-val{color:var(--int);}
+  .sc.end .sc-val{color:var(--end);}
+  .sc-goal{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);margin-bottom:7px;}
+  .bar-wrap{background:var(--s1);border-radius:3px;height:4px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:3px;transition:width .4s ease;}
+  .sc.man .bar-fill{background:var(--man);}
+  .sc.int .bar-fill{background:var(--int);}
+  .sc.end .bar-fill{background:var(--end);}
+  .sc-rem{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);margin-top:4px;}
+  .goal-hit{color:var(--end)!important;text-shadow:0 0 10px rgba(75,204,122,.4);}
+
+  .eff-strip{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:11px 14px;margin-bottom:14px;display:grid;grid-template-columns:1fr 1px 1fr 1px 1fr;align-items:center;}
+  .eff-item{text-align:center;padding:0 6px;}
+  .eff-divider{background:var(--border);height:34px;}
+  .eff-lbl{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);letter-spacing:.06em;margin-bottom:3px;}
+  .eff-val{font-family:'Orbitron',monospace;font-size:.9rem;font-weight:700;color:var(--gold2);}
+  .eff-sub{font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--muted);margin-top:2px;}
+
+  .passive-box{background:rgba(204,154,75,.07);border:1px solid rgba(204,154,75,.2);border-radius:8px;padding:11px 13px;margin-bottom:16px;font-family:'Share Tech Mono',monospace;font-size:.6rem;line-height:1.75;}
+  .passive-box strong{color:var(--passive);}
+  .c-man{color:var(--man);} .c-int{color:var(--int);} .c-end{color:var(--end);}
+
+  .sec-title{font-family:'Orbitron',monospace;font-size:.63rem;font-weight:700;color:var(--gold);letter-spacing:.12em;margin-bottom:9px;display:flex;align-items:center;gap:8px;}
+  .sec-title::after{content:'';flex:1;height:1px;background:var(--border);}
+
+  .today-box{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:13px;margin-bottom:16px;}
+  .phase-tag{display:inline-block;margin-bottom:9px;background:var(--gold);color:#000;font-family:'Share Tech Mono',monospace;font-size:.58rem;padding:1px 8px;border-radius:2px;letter-spacing:.06em;}
+
+  .train-slots{display:grid;gap:6px;margin-bottom:11px;}
+  .t-slot{background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:8px 4px;text-align:center;cursor:pointer;transition:all .15s;user-select:none;position:relative;}
+  .t-slot:hover{border-color:var(--muted);}
+  .t-slot.done{border-color:var(--gold);background:rgba(200,168,75,.08);}
+  .t-slot.done::after{content:'✓';position:absolute;top:3px;right:5px;font-size:.58rem;color:var(--gold);}
+  .t-num{font-family:'Orbitron',monospace;font-size:.6rem;color:var(--muted);margin-bottom:3px;}
+  .t-pos{font-family:'Rajdhani',sans-serif;font-size:.68rem;font-weight:700;color:var(--text);margin-bottom:2px;}
+  .t-gains{font-family:'Share Tech Mono',monospace;font-size:.52rem;line-height:1.5;}
+
+  .prog-wrap{background:var(--s1);border-radius:3px;height:3px;overflow:hidden;margin-bottom:6px;}
+  .prog-fill{height:100%;background:var(--gold);border-radius:3px;transition:width .3s;}
+  .prog-lbl{font-family:'Share Tech Mono',monospace;font-size:.57rem;color:var(--muted);display:flex;justify-content:space-between;}
+
+  .daily-total{margin-top:10px;padding:9px 10px;background:var(--s1);border-radius:6px;border:1px solid var(--border);font-family:'Share Tech Mono',monospace;font-size:.59rem;line-height:1.9;}
+  .dt-row{display:flex;justify-content:space-between;align-items:center;}
+  .dt-label{color:var(--muted);}
+  .dt-sep{border:none;border-top:1px solid var(--border);margin:5px 0;}
+
+  .apply-btn{width:100%;margin-top:11px;background:var(--gold);color:#000;border:none;border-radius:5px;padding:11px;font-family:'Orbitron',monospace;font-size:.64rem;font-weight:700;letter-spacing:.1em;cursor:pointer;transition:background .15s,transform .1s;}
+  .apply-btn:hover{background:var(--gold2);transform:translateY(-1px);}
+  .apply-btn:active{transform:translateY(0);}
+  .apply-btn:disabled{opacity:.3;cursor:not-allowed;transform:none;}
+
+  .phase-table{background:var(--s2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px;}
+  .pt-row{display:grid;grid-template-columns:38px 1fr 52px 58px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);gap:7px;}
+  .pt-row:last-child{border-bottom:none;}
+  .pt-row.pt-hdr{background:var(--s3);padding:6px 12px;font-family:'Share Tech Mono',monospace;font-size:.54rem;color:var(--muted);letter-spacing:.06em;}
+  .pt-row.pt-active{background:rgba(200,168,75,.06);border-left:3px solid var(--gold);padding-left:9px;}
+  .pt-row.pt-done{opacity:.38;}
+  .pt-num{font-family:'Orbitron',monospace;font-size:.58rem;color:var(--gold);}
+  .pt-desc{font-family:'Rajdhani',sans-serif;font-weight:600;font-size:.74rem;color:var(--text);line-height:1.2;}
+  .pt-desc small{display:block;font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--muted);font-weight:400;margin-top:1px;}
+  .pt-days{font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--text);text-align:right;}
+  .pt-status{font-family:'Share Tech Mono',monospace;font-size:.54rem;text-align:right;}
+
+  .proj-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+  .info-card{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:12px;}
+  .info-card .lbl{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);letter-spacing:.07em;margin-bottom:4px;}
+  .info-card .val{font-family:'Orbitron',monospace;font-size:1rem;font-weight:700;color:var(--gold2);}
+  .info-card .sub{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);margin-top:3px;}
+
+  .complete-banner{display:none;background:linear-gradient(135deg,rgba(75,204,122,.12),rgba(200,168,75,.08));border:1px solid var(--end);border-radius:8px;padding:18px;text-align:center;margin-bottom:16px;}
+  .complete-banner.show{display:block;}
+  .complete-banner h2{font-family:'Orbitron',monospace;font-size:.95rem;color:var(--end);margin-bottom:6px;}
+  .complete-banner p{font-family:'Share Tech Mono',monospace;font-size:.62rem;color:var(--muted);}
+
+  .reset-btn{width:100%;background:transparent;color:var(--danger);border:1px solid rgba(204,80,80,.3);border-radius:5px;padding:8px;font-family:'Share Tech Mono',monospace;font-size:.56rem;cursor:pointer;letter-spacing:.08em;transition:all .15s;}
+  .reset-btn:hover{background:rgba(204,80,80,.08);border-color:var(--danger);}
+</style>
+</head>
+<body>
+
+<div class="panel-overlay" id="overlay" onclick="closePanel()"></div>
+<div class="panel" id="panel">
+  <div class="panel-hdr">
+    <span class="panel-title">TRACKER SETTINGS</span>
+    <button class="panel-close" onclick="closePanel()">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="panel-tabs">
+      <button class="tab-btn active" onclick="switchTab('employees')">👤 EMPLOYEES</button>
+      <button class="tab-btn" onclick="switchTab('company')">🏢 COMPANY</button>
+    </div>
+
+    <!-- EMPLOYEES TAB -->
+    <div class="tab-content active" id="tab-employees">
+      <div class="list-label">ACTIVE TRACKERS</div>
+      <div id="userList"></div>
+      <button class="add-btn" onclick="showEditForm(null)">+ ADD NEW EMPLOYEE</button>
+      <div class="edit-form" id="editForm">
+        <div class="form-title" id="formTitle">NEW EMPLOYEE</div>
+        <div class="form-row">
+          <label>PLAYER NAME</label>
+          <input type="text" id="fName" placeholder="e.g. Kush_McLoud"/>
+        </div>
+        <div class="form-sec">PASSIVE ROLE (position held in company)</div>
+        <div class="form-row">
+          <label>POSITION</label>
+          <select id="fPassiveRole"></select>
+        </div>
+        <div class="form-sec">CURRENT STATS</div>
+        <div class="form-grid">
+          <div class="form-row"><label>MANUAL</label><input type="number" id="fMan" class="man-i" placeholder="0" min="0"/></div>
+          <div class="form-row"><label>INTELLIGENCE</label><input type="number" id="fInt" class="int-i" placeholder="0" min="0"/></div>
+          <div class="form-row"><label>ENDURANCE</label><input type="number" id="fEnd" class="end-i" placeholder="0" min="0"/></div>
+        </div>
+        <div class="form-sec">GOAL STATS (0 = no goal)</div>
+        <div class="form-grid">
+          <div class="form-row"><label>MAN GOAL</label><input type="number" id="fGMan" class="man-i" placeholder="0" min="0"/></div>
+          <div class="form-row"><label>INT GOAL</label><input type="number" id="fGInt" class="int-i" placeholder="0" min="0"/></div>
+          <div class="form-row"><label>END GOAL</label><input type="number" id="fGEnd" class="end-i" placeholder="0" min="0"/></div>
+        </div>
+        <button class="save-btn" onclick="saveEmployee()">SAVE &amp; SELECT</button>
+        <button class="cancel-btn" onclick="cancelEdit()">CANCEL</button>
+      </div>
+    </div>
+
+    <!-- COMPANY TAB -->
+    <div class="tab-content" id="tab-company">
+      <div class="form-row" style="margin-bottom:14px">
+        <label>COMPANY TYPE</label>
+        <select id="companySelect" onchange="onCompanyChange()"></select>
+      </div>
+      <div class="company-info" id="companyInfo"></div>
+      <div class="trains-row" style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:11px 13px;margin-bottom:12px;">
+        <span class="trains-label">TRAINS PER DAY</span>
+        <input type="number" class="trains-input" id="trainsPerDay" min="1" max="20" value="5" onchange="onTrainsChange()"/>
+        <span class="trains-sub">max 20</span>
+      </div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:.56rem;color:var(--muted);line-height:1.6;">
+        Trains/day is saved per-employee. Change it here to update the active employee's tracker.
+        New employees inherit the current value.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<div class="hdr">
+  <button class="user-btn" id="userBtn" onclick="openPanel()">
+    <span class="user-btn-icon">👤</span>
+    <span class="user-btn-name" id="userBtnName">—</span>
+  </button>
+  <div class="hdr-center">
+    <h1>TORN // TRAINING TRACKER</h1>
+    <p id="hdrSub">— SELECT COMPANY —</p>
+    <div class="day-pill" id="dayPill">DAY 0</div>
+  </div>
+  <div style="min-width:64px"></div>
+</div>
+
+<div class="complete-banner" id="completeBanner">
+  <h2>🕯️ ALL GOALS REACHED</h2>
+  <p>Employee has hit all target work stats. Training complete.</p>
+</div>
+
+<div class="stats-grid">
+  <div class="sc man"><div class="sc-lbl">MANUAL</div><div class="sc-val" id="vMan">0</div><div class="sc-goal" id="gMan">GOAL: —</div><div class="bar-wrap"><div class="bar-fill" id="bMan"></div></div><div class="sc-rem" id="rMan"></div></div>
+  <div class="sc int"><div class="sc-lbl">INTELLIGENCE</div><div class="sc-val" id="vInt">0</div><div class="sc-goal" id="gInt">GOAL: —</div><div class="bar-wrap"><div class="bar-fill" id="bInt"></div></div><div class="sc-rem" id="rInt"></div></div>
+  <div class="sc end"><div class="sc-lbl">ENDURANCE</div><div class="sc-val" id="vEnd">0</div><div class="sc-goal" id="gEnd">GOAL: —</div><div class="bar-wrap"><div class="bar-fill" id="bEnd"></div></div><div class="sc-rem" id="rEnd"></div></div>
+</div>
+
+<div class="eff-strip">
+  <div class="eff-item"><div class="eff-lbl">EFFECTIVENESS</div><div class="eff-val" id="eEff">—</div><div class="eff-sub" id="eEffSub">passive role</div></div>
+  <div class="eff-divider"></div>
+  <div class="eff-item"><div class="eff-lbl">PASSIVE %</div><div class="eff-val" id="eEffPct">—</div><div class="eff-sub">cap: 90 eff</div></div>
+  <div class="eff-divider"></div>
+  <div class="eff-item"><div class="eff-lbl">TODAY PASSIVE</div><div class="eff-val" id="eTodayPassive">—</div><div class="eff-sub" id="ePassiveSub">—</div></div>
+</div>
+
+<div class="passive-box" id="passiveNote"></div>
+
+<div class="sec-title">TODAY'S TRAINS</div>
+<div class="today-box">
+  <div class="phase-tag" id="phaseTag">PHASE —</div>
+  <div class="train-slots" id="trainSlots"></div>
+  <div class="prog-wrap"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
+  <div class="prog-lbl"><span id="trainCount">0 trains marked</span><span id="trainPreview"></span></div>
+  <div class="daily-total" id="dailyTotal"></div>
+  <button class="apply-btn" id="applyBtn" onclick="applyDay()">APPLY TRAINS + PASSIVE &amp; ADVANCE DAY</button>
+</div>
+
+<div class="sec-title">UPCOMING SCHEDULE</div>
+<div class="phase-table" id="phaseTable">
+  <div class="pt-row pt-hdr"><span>DAY</span><span>TRAIN ASSIGNMENT</span><span style="text-align:right">GAINS</span><span style="text-align:right">END STATS</span></div>
+</div>
+
+<div class="sec-title">PROJECTION</div>
+<div class="proj-grid">
+  <div class="info-card"><div class="lbl">DAYS ELAPSED</div><div class="val" id="pDays">0</div><div class="sub">since day 1</div></div>
+  <div class="info-card"><div class="lbl">DAYS REMAINING</div><div class="val" id="pRem">—</div><div class="sub">est. to all goals</div></div>
+  <div class="info-card"><div class="lbl">TRAINS APPLIED</div><div class="val" id="pTrains">0</div><div class="sub">total lifetime</div></div>
+  <div class="info-card"><div class="lbl">CURRENT PHASE</div><div class="val" id="pPhase">1</div><div class="sub" id="pPhaseSub">Loading…</div></div>
+</div>
+
+<button class="reset-btn" onclick="confirmReset()">⚠ RESET PROGRESS FOR CURRENT EMPLOYEE</button>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// COMPANY DATABASE
+// Each company defines:
+//   positions: array of { name, pri, priReq, sec, secReq, passiveMax: {man,int,end} }
+//   The passiveMax values are the MAXIMUM passive gains at effectiveness >= 90
+// ═══════════════════════════════════════════════════════════════════
+const COMPANIES = {
+  candle_shop: {
+    name: 'Candle Shop',
+    positions: [
+      { name:'Salesperson',        pri:'end', priReq:1500,  sec:'int', secReq:750,   passiveMax:{man:0, int:17, end:34} },
+      { name:'Chandler',           pri:'man', priReq:4500,  sec:'int', secReq:2250,  passiveMax:{man:0, int:0,  end:0}  },
+      { name:'Cleaner',            pri:'man', priReq:1000,  sec:'end', secReq:500,   passiveMax:{man:0, int:0,  end:0}  },
+      { name:'Quality Controller', pri:'end', priReq:3000,  sec:'int', secReq:1500,  passiveMax:{man:0, int:0,  end:0}  },
+      { name:'Bookkeeper',         pri:'end', priReq:2500,  sec:'int', secReq:1250,  passiveMax:{man:0, int:0,  end:0}  },
+      { name:'Trainer',            pri:'int', priReq:4500,  sec:'end', secReq:2250,  passiveMax:{man:0, int:0,  end:0}  },
+    ]
+  },
+  adult_novelties: {
+    name: 'Adult Novelties',
+    positions: [
+      { name:'Human Resources',    pri:'int', priReq:12000, sec:'end', secReq:6000,  passiveMax:{man:0, int:50, end:25} },
+      { name:'Sexpert',            pri:'int', priReq:10000, sec:'end', secReq:5000,  passiveMax:{man:0, int:49, end:25} },
+      { name:'Store Manager',      pri:'end', priReq:8000,  sec:'int', secReq:4000,  passiveMax:{man:0, int:24, end:47} },
+      { name:'Marketing Manager',  pri:'int', priReq:8000,  sec:'end', secReq:4000,  passiveMax:{man:0, int:47, end:24} },
+      { name:'Receptionist',       pri:'end', priReq:6000,  sec:'int', secReq:3000,  passiveMax:{man:0, int:23, end:45} },
+      { name:'Sales Assistant',    pri:'end', priReq:4000,  sec:'man', secReq:2000,  passiveMax:{man:21,int:0,  end:41} },
+      { name:'Cleaner',            pri:'man', priReq:2000,  sec:'end', secReq:1000,  passiveMax:{man:36,int:0,  end:18} },
+    ]
+  },
+  amusement_park: {
+    name: 'Amusement Park',
+    positions: [
+      { name:'Inspector',          pri:'int', priReq:135000, sec:'end', secReq:67500, passiveMax:{man:0,  int:70, end:35} },
+      { name:'Manager',            pri:'end', priReq:90000,  sec:'int', secReq:45000, passiveMax:{man:0,  int:33, end:66} },
+      { name:'Marketer',           pri:'int', priReq:90000,  sec:'end', secReq:45000, passiveMax:{man:0,  int:66, end:33} },
+      { name:'Security Guard',     pri:'man', priReq:79000,  sec:'end', secReq:39500, passiveMax:{man:65, int:0,  end:33} },
+      { name:'Mechanic',           pri:'man', priReq:67500,  sec:'int', secReq:33750, passiveMax:{man:64, int:32, end:0}  },
+      { name:'Accountant',         pri:'end', priReq:67500,  sec:'int', secReq:33750, passiveMax:{man:0,  int:32, end:64} },
+      { name:'Ride Attendant',     pri:'end', priReq:45000,  sec:'int', secReq:22500, passiveMax:{man:0,  int:31, end:61} },
+      { name:'Entertainer',        pri:'man', priReq:34000,  sec:'end', secReq:17000, passiveMax:{man:58, int:0,  end:29} },
+      { name:'Ticket Agent',       pri:'end', priReq:22500,  sec:'int', secReq:11250, passiveMax:{man:0,  int:28, end:55} },
+      { name:'Janitor',            pri:'man', priReq:22500,  sec:'end', secReq:11250, passiveMax:{man:55, int:0,  end:28} },
+    ]
+  }
+};
+
+const PASSIVE_EFF_CAP = 90;
+
+// ═══════════════════════════════════════════════════════════════════
+// EFFECTIVENESS & PASSIVE
+// ═══════════════════════════════════════════════════════════════════
+function effComp(stat, req) {
+  if (req<=0||stat<=0) return 0;
+  return Math.floor(Math.min(45,(45/req)*stat)) + Math.floor(Math.max(0,5*Math.log2(stat/req)));
+}
+function calcEff(s, pos) {
+  return effComp(s[pos.pri], pos.priReq) + effComp(s[pos.sec], pos.secReq);
+}
+function calcPassive(s, pos) {
+  const eff = calcEff(s, pos);
+  const pct = Math.min(PASSIVE_EFF_CAP, eff) / PASSIVE_EFF_CAP;
+  return {
+    man: Math.ceil(pct * pos.passiveMax.man),
+    int: Math.ceil(pct * pos.passiveMax.int),
+    end: Math.ceil(pct * pos.passiveMax.end)
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TRAIN POSITION HELPERS
+// ═══════════════════════════════════════════════════════════════════
+function buildTrainPositions(companyKey) {
+  const co = COMPANIES[companyKey];
+  const seen = new Set();
+  const result = [];
+  for (const pos of co.positions) {
+    const key = `${pos.pri}_${pos.sec}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push({ name:pos.name, pri:pos.pri, priAmt:50, sec:pos.sec, secAmt:25 });
+    }
+  }
+  return result;
+}
+
+// Passive for simulation — uses active employee's passive role
+let _simPassivePos = null;
+
+// ═══════════════════════════════════════════════════════════════════
+// DAILY TRAIN ALLOCATOR
+// Goal: reach all goals as fast as possible.
+// Every day use all maxTrains UNLESS a train would overshoot ALL
+// remaining goals (i.e. it provides zero useful progress).
+// Each train is assigned to the position making the most progress
+// toward the largest remaining gap.
+// ═══════════════════════════════════════════════════════════════════
+function allocateTrains(s, goals, companyKey, maxTrains, passivePos) {
+  const trainPositions = buildTrainPositions(companyKey);
+  const pass = passivePos ? calcPassive(s, passivePos) : {man:0,int:0,end:0};
+
+  // Running totals of what trains have committed so far this day
+  const committed = { man:0, int:0, end:0 };
+  const assignments = [];
+
+  for (let t = 0; t < maxTrains; t++) {
+    // Current projected stats after passive + committed trains so far
+    const proj = {
+      man: s.man + pass.man + committed.man,
+      int: s.int + pass.int + committed.int,
+      end: s.end + pass.end + committed.end,
+    };
+
+    // Remaining gaps
+    const gaps = {
+      man: goals.man > 0 ? Math.max(0, goals.man - proj.man) : 0,
+      int: goals.int > 0 ? Math.max(0, goals.int - proj.int) : 0,
+      end: goals.end > 0 ? Math.max(0, goals.end - proj.end) : 0,
+    };
+
+    const anyGapRemains = gaps.man > 0 || gaps.int > 0 || gaps.end > 0;
+
+    if (!anyGapRemains) {
+      // All goals met — skip remaining trains
+      assignments.push(null);
+      continue;
+    }
+
+    // Score each position: how much useful progress does this train contribute?
+    // Useful = min(train gain, remaining gap) — capped so we don't score overshoot
+    let bestPos = null, bestScore = -1;
+    for (const pos of trainPositions) {
+      const priUseful = Math.min(pos.priAmt, gaps[pos.pri]);
+      const secUseful = Math.min(pos.secAmt, gaps[pos.sec]);
+      // Weight primary 2× since it's 2× the gain amount
+      const score = priUseful * 2 + secUseful;
+      if (score > bestScore) { bestScore = score; bestPos = pos; }
+    }
+
+    // If best score is 0, this train provides no useful progress to any goal
+    // (all gaps already filled by earlier trains + passive) — skip it
+    if (bestScore <= 0) {
+      assignments.push(null);
+      continue;
+    }
+
+    assignments.push(bestPos);
+    committed[bestPos.pri] += bestPos.priAmt;
+    committed[bestPos.sec] += bestPos.secAmt;
+  }
+
+  const totalGains = {
+    man: pass.man + committed.man,
+    int: pass.int + committed.int,
+    end: pass.end + committed.end,
+  };
+
+  return { assignments, totalGains, passive: pass, trainGains: committed };
+}
+
+// ── SIMULATION FOR PROJECTION ──────────────────────────────────────
+// Runs the allocator day by day and returns total days to all goals
+function simDaysRemaining(s, goals, companyKey, maxTrains, passivePos) {
+  let sim = { ...s };
+  let days = 0;
+  const allDone = () => ['man','int','end'].every(k => goals[k]===0 || sim[k] >= goals[k]);
+  while (!allDone() && days < 3000) {
+    const { totalGains } = allocateTrains(sim, goals, companyKey, maxTrains, passivePos);
+    // If no gains at all, break to avoid infinite loop
+    if (!totalGains.man && !totalGains.int && !totalGains.end) break;
+    sim.man = Math.min(sim.man + totalGains.man, 999999);
+    sim.int = Math.min(sim.int + totalGains.int, 999999);
+    sim.end = Math.min(sim.end + totalGains.end, 999999);
+    days++;
+  }
+  return days;
+}
+
+// ── TODAY'S SCHEDULE DESCRIPTION ─────────────────────────────────
+// Summarise today's assignments as a human-readable schedule
+// e.g. "3× Trainer, 2× Chandler" or "2× Trainer, skip 3"
+function describeTodaySchedule(assignments) {
+  const counts = {};
+  let skipped = 0;
+  for (const a of assignments) {
+    if (!a) { skipped++; continue; }
+    counts[a.name] = (counts[a.name]||0) + 1;
+  }
+  const parts = Object.entries(counts).map(([name,n]) => `${n}× ${name}`);
+  if (skipped) parts.push(`skip ${skipped}`);
+  return parts.join(', ') || 'no trains needed';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STORAGE
+// ═══════════════════════════════════════════════════════════════════
+const STORE_KEY = 'tornTracker_v8';
+function defaultStore() {
+  return {
+    companyKey: 'candle_shop',
+    activeId: 'emp_default',
+    employees: {
+      emp_default: {
+        id:'emp_default', name:'Employee',
+        companyKey:'candle_shop',
+        passiveRoleIdx:0,
+        trainsPerDay:5,
+        starts:{man:3164,int:708,end:1859},
+        goals:{man:6000,int:10000,end:6000},
+        progress:{man:3164,int:708,end:1859,day:0,totalTrains:0,checks:Array(5).fill(false)}
+      }
+    }
+  };
+}
+function loadStore() {
+  try { const r=localStorage.getItem(STORE_KEY); if(r) return JSON.parse(r); } catch(e){}
+  return defaultStore();
+}
+function saveStore() { try{localStorage.setItem(STORE_KEY,JSON.stringify(STORE));}catch(e){} }
+let STORE = loadStore();
+const ae  = () => STORE.employees[STORE.activeId];
+const ap  = () => ae().progress;
+const ag  = () => ae().goals;
+const ack = () => ae().companyKey || STORE.companyKey;
+const apos= () => {
+  const co = COMPANIES[ack()];
+  const idx = ae().passiveRoleIdx || 0;
+  return co.positions[Math.min(idx, co.positions.length-1)];
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// FORMAT
+// ═══════════════════════════════════════════════════════════════════
+const fmt   = n => Math.floor(n).toLocaleString();
+const capId = s => s.charAt(0).toUpperCase()+s.slice(1);
+
+// ═══════════════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════════════
+function render() {
+  const emp  = ae();
+  const s    = ap();
+  const goals= ag();
+  const co   = COMPANIES[ack()];
+  const pos  = apos();
+  const tpd  = emp.trainsPerDay || 5;
+
+  _simPassivePos = pos;
+
+  const allDone = ['man','int','end'].every(k => goals[k]===0 || s[k]>=goals[k]);
+  const { assignments, totalGains, passive, trainGains } = allocateTrains(s, goals, ack(), tpd, pos);
+  const trainsNeeded = assignments.filter(a=>a!==null).length;
+  const schedule = describeTodaySchedule(assignments);
+
+  // Header
+  document.getElementById('userBtnName').textContent = emp.name;
+  document.getElementById('hdrSub').textContent = `${co.name.toUpperCase()} · ${tpd} TRAINS/DAY`;
+  document.getElementById('dayPill').textContent = `DAY ${s.day}`;
+  document.getElementById('completeBanner').classList.toggle('show', allDone);
+
+  // Stat cards
+  for (const k of ['man','int','end']) {
+    const cur=s[k], goal=goals[k], hit=goal>0&&cur>=goal;
+    document.getElementById('g'+capId(k)).textContent = goal>0?`GOAL: ${fmt(goal)}`:'NO GOAL';
+    const el=document.getElementById('v'+capId(k));
+    el.textContent=fmt(cur); el.classList.toggle('goal-hit',hit);
+    document.getElementById('b'+capId(k)).style.width=goal>0?Math.min(100,(cur/goal)*100)+'%':'100%';
+    document.getElementById('r'+capId(k)).textContent=goal===0?'—':hit?'✓ GOAL REACHED':`${fmt(goal-cur)} remaining`;
+  }
+
+  // Effectiveness & passive
+  const eff     = calcEff(s, pos);
+  const pctFull = Math.min(PASSIVE_EFF_CAP,eff)/PASSIVE_EFF_CAP*100;
+  const isFull  = eff>=PASSIVE_EFF_CAP;
+  document.getElementById('eEff').textContent    = eff;
+  document.getElementById('eEffPct').textContent = pctFull.toFixed(0)+'%';
+  document.getElementById('eEffSub').textContent = pos.name.toLowerCase();
+  const passiveParts=[];
+  if(passive.end) passiveParts.push(`<span class="c-end">+${passive.end}</span>`);
+  if(passive.int) passiveParts.push(`<span class="c-int">+${passive.int}</span>`);
+  if(passive.man) passiveParts.push(`<span class="c-man">+${passive.man}</span>`);
+  document.getElementById('eTodayPassive').innerHTML=passiveParts.join('/')||'—';
+  const passiveSubParts=[];
+  if(passive.end) passiveSubParts.push('END');
+  if(passive.int) passiveSubParts.push('INT');
+  if(passive.man) passiveSubParts.push('MAN');
+  document.getElementById('ePassiveSub').textContent=passiveSubParts.join('+');
+
+  // Passive note
+  const maxParts=[];
+  if(pos.passiveMax.end) maxParts.push(`<span class="c-end">+${pos.passiveMax.end} END</span>`);
+  if(pos.passiveMax.int) maxParts.push(`<span class="c-int">+${pos.passiveMax.int} INT</span>`);
+  if(pos.passiveMax.man) maxParts.push(`<span class="c-man">+${pos.passiveMax.man} MAN</span>`);
+  const todayPassiveParts=[];
+  if(passive.end) todayPassiveParts.push(`<span class="c-end">+${passive.end} END</span>`);
+  if(passive.int) todayPassiveParts.push(`<span class="c-int">+${passive.int} INT</span>`);
+  if(passive.man) todayPassiveParts.push(`<span class="c-man">+${passive.man} MAN</span>`);
+  document.getElementById('passiveNote').innerHTML=
+    `<strong>${pos.name.toUpperCase()} PASSIVE</strong> (daily · 18:00 TCT)<br>`+
+    `Req: <span class="c-${pos.pri}">${fmt(pos.priReq)} ${pos.pri.toUpperCase()}</span> primary · `+
+    `<span class="c-${pos.sec}">${fmt(pos.secReq)} ${pos.sec.toUpperCase()}</span> secondary<br>`+
+    `Max at eff ≥ <strong style="color:var(--gold2)">90</strong>: ${maxParts.join(' / ')}<br>`+
+    `Effectiveness: <strong style="color:var(--gold2)">${eff}</strong> → <strong style="color:var(--gold2)">${pctFull.toFixed(0)}%</strong> of max<br>`+
+    `Today's passive: ${todayPassiveParts.join(' · ')||'—'}`+
+    (isFull?`  <span style="color:var(--end)">✓ SATURATED</span>`:`  <span style="color:var(--muted)">(grows as stats increase)</span>`);
+
+  // Phase tag — now shows today's schedule summary
+  document.getElementById('phaseTag').textContent = allDone
+    ? 'COMPLETE'
+    : trainsNeeded < tpd
+      ? `TODAY: ${schedule}`
+      : `TODAY: ${schedule}`;
+
+  // Train slots — each shows its specific assigned position
+  const slotsEl=document.getElementById('trainSlots');
+  slotsEl.innerHTML='';
+  while(s.checks.length<tpd) s.checks.push(false);
+  s.checks=s.checks.slice(0,tpd);
+  const cols=tpd<=5?tpd:5;
+  slotsEl.style.gridTemplateColumns=`repeat(${cols},1fr)`;
+  const markedCount=s.checks.filter(Boolean).length;
+
+  for(let i=0;i<tpd;i++){
+    const slot=document.createElement('div');
+    const assign = assignments[i];
+    const isSkip = assign === null;
+    slot.className='t-slot'+(s.checks[i]?' done':'')+(isSkip?' skip':'');
+    slot.style.opacity = isSkip ? '0.35' : '1';
+    slot.onclick=()=>{ if(!isSkip) toggleTrain(i); };
+    let posName = isSkip ? 'SKIP' : assign.name;
+    let gainsHtml = '';
+    if(!isSkip){
+      gainsHtml=`<span class="c-${assign.pri}">+${assign.priAmt}</span> `+
+                `<span style="font-size:.45rem;color:var(--muted)">${assign.pri.toUpperCase()}</span><br>`+
+                `<span class="c-${assign.sec}">+${assign.secAmt}</span> `+
+                `<span style="font-size:.45rem;color:var(--muted)">${assign.sec.toUpperCase()}</span>`;
+    } else {
+      gainsHtml = `<span style="font-size:.5rem;color:var(--muted)">not needed</span>`;
+    }
+    slot.innerHTML=`<div class="t-num">#${i+1}</div><div class="t-pos" style="font-size:.58rem">${posName}</div><div class="t-gains">${gainsHtml}</div>`;
+    slotsEl.appendChild(slot);
+  }
+
+  document.getElementById('progFill').style.width=trainsNeeded===0?'100%':(markedCount/trainsNeeded*100)+'%';
+  document.getElementById('trainCount').textContent=
+    trainsNeeded===0
+      ? 'no trains needed today'
+      : `${markedCount} / ${trainsNeeded} trains marked (${tpd-trainsNeeded} skipped)`;
+
+  // Train preview for marked trains
+  if(!allDone && trainsNeeded>0){
+    const countedGains={man:0,int:0,end:0};
+    for(let i=0;i<tpd;i++){
+      if(s.checks[i] && assignments[i]){
+        countedGains[assignments[i].pri]+=assignments[i].priAmt;
+        countedGains[assignments[i].sec]+=assignments[i].secAmt;
+      }
+    }
+    const parts=[];
+    if(countedGains.man) parts.push(`<span class="c-man">+${countedGains.man} MAN</span>`);
+    if(countedGains.int) parts.push(`<span class="c-int">+${countedGains.int} INT</span>`);
+    if(countedGains.end) parts.push(`<span class="c-end">+${countedGains.end} END</span>`);
+    document.getElementById('trainPreview').innerHTML=parts.join(' ');
+  } else {
+    document.getElementById('trainPreview').innerHTML='';
+  }
+
+  // Daily total breakdown
+  const dtEl=document.getElementById('dailyTotal');
+  if(!allDone){
+    const trainLine=[
+      trainGains.man?`<span class="c-man">+${trainGains.man} MAN</span>`:null,
+      trainGains.int?`<span class="c-int">+${trainGains.int} INT</span>`:null,
+      trainGains.end?`<span class="c-end">+${trainGains.end} END</span>`:null
+    ].filter(Boolean).join(' ')||'—';
+    const passLine=todayPassiveParts.join(' ')||'—';
+    const totLine=[
+      totalGains.man?`<span class="c-man">+${totalGains.man} MAN</span>`:null,
+      totalGains.int?`<span class="c-int">+${totalGains.int} INT</span>`:null,
+      totalGains.end?`<span class="c-end">+${totalGains.end} END</span>`:null
+    ].filter(Boolean).join(' ')||'—';
+
+    // Project end stats
+    const projLine=[
+      `<span class="c-man">${fmt(s.man+totalGains.man)} MAN</span>`,
+      `<span class="c-int">${fmt(s.int+totalGains.int)} INT</span>`,
+      `<span class="c-end">${fmt(s.end+totalGains.end)} END</span>`,
+    ].join(' ');
+
+    dtEl.innerHTML=
+      `<div class="dt-row"><span class="dt-label">TRAINS (${trainsNeeded}×, ${tpd-trainsNeeded} skipped)</span><span>${trainLine}</span></div>`+
+      `<div class="dt-row"><span class="dt-label">PASSIVE (${pos.name})</span><span>${passLine}</span></div>`+
+      `<hr class="dt-sep">`+
+      `<div class="dt-row"><span class="dt-label" style="color:var(--gold)">TOTAL / DAY</span><span style="color:var(--gold2);font-weight:700">${totLine}</span></div>`+
+      `<div class="dt-row" style="margin-top:4px"><span class="dt-label">END OF DAY</span><span style="font-size:.56rem">${projLine}</span></div>`;
+  } else {
+    dtEl.innerHTML=`<div class="dt-row"><span class="dt-label" style="color:var(--end)">ALL GOALS COMPLETE</span></div>`;
+  }
+
+  const btn=document.getElementById('applyBtn');
+  btn.disabled=allDone;
+  btn.textContent=allDone?'ALL GOALS COMPLETE':`APPLY ${trainsNeeded} TRAINS + PASSIVE & ADVANCE DAY`;
+
+  // Phase table → now a projection table
+  renderProjectionTable(s, goals, ack(), tpd, pos);
+
+  document.getElementById('pDays').textContent=s.day;
+  document.getElementById('pTrains').textContent=s.totalTrains;
+  const remDays = allDone ? 0 : simDaysRemaining(s,goals,ack(),tpd,pos);
+  document.getElementById('pRem').textContent=allDone?'✓ DONE':remDays+'d';
+
+  // Current bottleneck stat
+  const gaps = ['man','int','end']
+    .filter(k=>goals[k]>0&&s[k]<goals[k])
+    .map(k=>({k,gap:goals[k]-s[k]}))
+    .sort((a,b)=>b.gap-a.gap);
+  document.getElementById('pPhase').textContent=allDone?'✓':(gaps[0]?gaps[0].k.toUpperCase():'—');
+  document.getElementById('pPhaseSub').textContent=allDone?'All goals reached!':
+    (gaps[0]?`${fmt(gaps[0].gap)} remaining`:'');
+}
+
+function renderProjectionTable(s, goals, companyKey, tpd, passivePos) {
+  const table = document.getElementById('phaseTable');
+  while (table.children.length > 1) table.removeChild(table.lastChild);
+
+  // Show next 7 days of assignments as a preview
+  let sim = { ...s };
+  const allDone = () => ['man','int','end'].every(k => goals[k]===0 || sim[k]>=goals[k]);
+
+  if (allDone()) {
+    const row = document.createElement('div');
+    row.className = 'pt-row';
+    row.style.gridTemplateColumns = '1fr';
+    row.innerHTML = `<span style="color:var(--end);font-family:'Share Tech Mono',monospace;font-size:.62rem">All goals reached — no further training needed.</span>`;
+    table.appendChild(row);
+    return;
+  }
+
+  for (let d = 0; d < 7 && !allDone(); d++) {
+    const { assignments, totalGains } = allocateTrains(sim, goals, companyKey, tpd, passivePos);
+    const sched = describeTodaySchedule(assignments);
+    const trainsUsed = assignments.filter(a=>a!==null).length;
+
+    const row = document.createElement('div');
+    row.className = 'pt-row' + (d===0?' pt-active':'');
+    const gainParts = [
+      totalGains.man?`<span class="c-man">+${totalGains.man}</span>`:null,
+      totalGains.int?`<span class="c-int">+${totalGains.int}</span>`:null,
+      totalGains.end?`<span class="c-end">+${totalGains.end}</span>`:null,
+    ].filter(Boolean).join(' ');
+    row.innerHTML =
+      `<span class="pt-num">${d===0?'TODAY':`+${d}d`}</span>`+
+      `<span class="pt-desc">${sched}<small>${trainsUsed} train${trainsUsed!==1?'s':''} used</small></span>`+
+      `<span class="pt-days" style="font-size:.55rem">${gainParts}</span>`+
+      `<span class="pt-status"><span style="color:var(--muted);font-size:.52rem">${fmt(sim.man+totalGains.man)}/${fmt(sim.int+totalGains.int)}/${fmt(sim.end+totalGains.end)}</span></span>`;
+    table.appendChild(row);
+
+    sim.man = Math.min(sim.man + totalGains.man, 999999);
+    sim.int = Math.min(sim.int + totalGains.int, 999999);
+    sim.end = Math.min(sim.end + totalGains.end, 999999);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INTERACTIONS
+// ═══════════════════════════════════════════════════════════════════
+function toggleTrain(i){
+  const tpd=ae().trainsPerDay||5;
+  const phases=buildPhases(ap(),ag(),ack(),tpd);
+  if(getPhaseIdx(ap(),phases)===-1) return;
+  ap().checks[i]=!ap().checks[i];
+  saveStore();render();
+}
+
+function applyDay(){
+  const emp=ae(),s=ap(),goals=ag(),tpd=emp.trainsPerDay||5;
+  const pos=apos();
+  const allDone=['man','int','end'].every(k=>goals[k]===0||s[k]>=goals[k]);
+  if(allDone) return;
+  const { totalGains, assignments } = allocateTrains(s, goals, ack(), tpd, pos);
+  const trainsUsed = assignments.filter(a=>a!==null).length;
+  s.man=Math.min(s.man+totalGains.man,999999);
+  s.int=Math.min(s.int+totalGains.int,999999);
+  s.end=Math.min(s.end+totalGains.end,999999);
+  s.day++;
+  s.totalTrains+=trainsUsed;
+  s.checks=Array(tpd).fill(false);
+  saveStore();render();
+}
+
+function confirmReset(){
+  const emp=ae();
+  if(!confirm(`Reset all progress for ${emp.name}?`)) return;
+  const st=emp.starts;
+  emp.progress={man:st.man,int:st.int,end:st.end,day:0,totalTrains:0,checks:Array(emp.trainsPerDay||5).fill(false)};
+  saveStore();render();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PANEL
+// ═══════════════════════════════════════════════════════════════════
+let editingId=null;
+let activeTab='employees';
+
+function openPanel(){
+  populateCompanySelect();
+  syncCompanyTab();
+  renderUserList();
+  document.getElementById('panel').classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+  cancelEdit();
+}
+function closePanel(){
+  document.getElementById('panel').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+}
+function switchTab(tab){
+  activeTab=tab;
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['employees','company'][i]===tab));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+}
+
+function populateCompanySelect(){
+  const sel=document.getElementById('companySelect');
+  sel.innerHTML='';
+  for(const [key,co] of Object.entries(COMPANIES)){
+    const opt=document.createElement('option');
+    opt.value=key; opt.textContent=co.name;
+    if(key===ack()) opt.selected=true;
+    sel.appendChild(opt);
+  }
+}
+
+function syncCompanyTab(){
+  const co=COMPANIES[ack()];
+  document.getElementById('trainsPerDay').value=ae().trainsPerDay||5;
+  const info=document.getElementById('companyInfo');
+  info.innerHTML=`<div class="ci-row"><span class="ci-label">COMPANY</span><span class="ci-val">${co.name}</span></div>`+
+    `<div class="ci-row"><span class="ci-label">POSITIONS</span><span class="ci-val">${co.positions.length}</span></div>`;
+}
+
+function onCompanyChange(){
+  const key=document.getElementById('companySelect').value;
+  ae().companyKey=key;
+  STORE.companyKey=key;
+  syncCompanyTab();
+  saveStore();render();
+}
+
+function onTrainsChange(){
+  const val=Math.min(20,Math.max(1,parseInt(document.getElementById('trainsPerDay').value)||5));
+  document.getElementById('trainsPerDay').value=val;
+  ae().trainsPerDay=val;
+  ap().checks=Array(val).fill(false);
+  saveStore();render();
+}
+
+function renderUserList(){
+  const list=document.getElementById('userList');
+  list.innerHTML='';
+  const empCount=Object.keys(STORE.employees).length;
+  for(const [id,emp] of Object.entries(STORE.employees)){
+    const co=COMPANIES[emp.companyKey||STORE.companyKey];
+    const item=document.createElement('div');
+    item.className='user-item'+(id===STORE.activeId?' active':'');
+    item.innerHTML=
+      `<div style="min-width:0;flex:1">
+        <div class="user-item-name">${emp.name}</div>
+        <div class="user-item-meta">
+          <span style="color:var(--gold);font-size:.52rem">${co?co.name:''}</span> ·
+          <span class="c-man">${fmt(emp.progress.man)}</span> /
+          <span class="c-int">${fmt(emp.progress.int)}</span> /
+          <span class="c-end">${fmt(emp.progress.end)}</span>
+          · Day ${emp.progress.day}
+        </div>
+      </div>
+      <div class="user-item-actions">
+        <button class="ui-btn" onclick="switchEmployee('${id}')">USE</button>
+        <button class="ui-btn" onclick="showEditForm('${id}')">EDIT</button>
+        ${empCount>1?`<button class="ui-btn del" onclick="deleteEmployee('${id}')">✕</button>`:''}
+      </div>`;
+    list.appendChild(item);
+  }
+}
+
+function switchEmployee(id){
+  STORE.activeId=id;
+  saveStore();renderUserList();syncCompanyTab();render();
+}
+
+function deleteEmployee(id){
+  const emp=STORE.employees[id];
+  if(!confirm(`Delete tracker for ${emp.name}?`)) return;
+  delete STORE.employees[id];
+  if(STORE.activeId===id) STORE.activeId=Object.keys(STORE.employees)[0];
+  saveStore();renderUserList();render();
+}
+
+function populatePassiveRoleSelect(companyKey, selectedIdx){
+  const sel=document.getElementById('fPassiveRole');
+  sel.innerHTML='';
+  const co=COMPANIES[companyKey];
+  co.positions.forEach((pos,i)=>{
+    const opt=document.createElement('option');
+    opt.value=i;
+    opt.textContent=`${pos.name} (${pos.pri.toUpperCase()} primary)`;
+    if(i===selectedIdx) opt.selected=true;
+    sel.appendChild(opt);
+  });
+}
+
+function showEditForm(id){
+  editingId=id;
+  document.getElementById('editForm').classList.add('show');
+  document.getElementById('formTitle').textContent=id?'EDIT EMPLOYEE':'NEW EMPLOYEE';
+  const compKey=id?STORE.employees[id].companyKey||STORE.companyKey:ack();
+  if(id&&STORE.employees[id]){
+    const emp=STORE.employees[id];
+    document.getElementById('fName').value=emp.name;
+    document.getElementById('fMan').value=emp.starts.man;
+    document.getElementById('fInt').value=emp.starts.int;
+    document.getElementById('fEnd').value=emp.starts.end;
+    document.getElementById('fGMan').value=emp.goals.man;
+    document.getElementById('fGInt').value=emp.goals.int;
+    document.getElementById('fGEnd').value=emp.goals.end;
+    populatePassiveRoleSelect(compKey, emp.passiveRoleIdx||0);
+  } else {
+    ['fName','fMan','fInt','fEnd','fGMan','fGInt','fGEnd'].forEach(i=>document.getElementById(i).value='');
+    populatePassiveRoleSelect(compKey, 0);
+  }
+}
+
+function cancelEdit(){editingId=null;document.getElementById('editForm').classList.remove('show');}
+
+function saveEmployee(){
+  const name=document.getElementById('fName').value.trim()||'Employee';
+  const man=parseInt(document.getElementById('fMan').value)||0;
+  const int_=parseInt(document.getElementById('fInt').value)||0;
+  const end=parseInt(document.getElementById('fEnd').value)||0;
+  const gMan=parseInt(document.getElementById('fGMan').value)||0;
+  const gInt=parseInt(document.getElementById('fGInt').value)||0;
+  const gEnd=parseInt(document.getElementById('fGEnd').value)||0;
+  const passiveRoleIdx=parseInt(document.getElementById('fPassiveRole').value)||0;
+  const companyKey=ack();
+  const tpd=ae().trainsPerDay||5;
+
+  if(editingId&&STORE.employees[editingId]){
+    const emp=STORE.employees[editingId];
+    emp.name=name; emp.starts={man,int:int_,end}; emp.goals={man:gMan,int:gInt,end:gEnd};
+    emp.passiveRoleIdx=passiveRoleIdx; emp.companyKey=companyKey;
+    const p=emp.progress;
+    p.man=Math.max(man,p.man); p.int=Math.max(int_,p.int); p.end=Math.max(end,p.end);
+    STORE.activeId=editingId;
+  } else {
+    const id='emp_'+Date.now();
+    STORE.employees[id]={
+      id,name,companyKey,passiveRoleIdx,trainsPerDay:tpd,
+      starts:{man,int:int_,end},goals:{man:gMan,int:gInt,end:gEnd},
+      progress:{man,int:int_,end,day:0,totalTrains:0,checks:Array(tpd).fill(false)}
+    };
+    STORE.activeId=id;
+  }
+  saveStore();cancelEdit();renderUserList();render();
+}
+
+// Init company selector
+function initCompanySelectors(){
+  const sel=document.getElementById('companySelect');
+  sel.innerHTML='';
+  for(const [key,co] of Object.entries(COMPANIES)){
+    const opt=document.createElement('option');
+    opt.value=key; opt.textContent=co.name;
+    if(key===ack()) opt.selected=true;
+    sel.appendChild(opt);
+  }
+}
+
+initCompanySelectors();
+render();
+</script>
+</body>
+</html>
