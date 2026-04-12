@@ -1,4 +1,4 @@
-name: Move old file to old when new one is uploaded
+name: Move old file to Old folder when new one is uploaded
 
 on:
   push:
@@ -8,6 +8,8 @@ on:
 jobs:
   move-old-files:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
