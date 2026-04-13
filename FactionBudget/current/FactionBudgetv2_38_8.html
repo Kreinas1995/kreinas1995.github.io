@@ -405,11 +405,11 @@
 
   <!-- PAYMENT LOG MODAL — Sypharius only -->
   <div id="paymentLogModal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(10,13,15,0.95);overflow-y:auto;">
-    <div style="max-width:640px;margin:40px auto;padding:20px;">
+    <div style="max-width:860px;margin:40px auto;padding:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px;">
         <div>
           <div style="font-size:12px;font-weight:800;color:var(--accent3);letter-spacing:2px;">ACCESS PAYMENT LOG</div>
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:3px;">All DashboardAccess payments received · REFUND removes from totals</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:3px;">Per-player breakdown · LIFETIME / TESTERS / ACTIVE / EXPIRED · REFUND removes from totals</div>
         </div>
         <button onclick="document.getElementById('paymentLogModal').style.display='none'" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
       </div>
@@ -1088,8 +1088,6 @@ const CARD_PERIOD_ORDER=['1d','7d','30d','90d','1y','all'];
 const ACCESS_KEY = 'hv_access';
 const FACTION_ID = 50825;        // HighVibes
 const OWNER_ID = '2348580';      // Sypharius
-// B-6: Tester list — base64 obfuscated JSON array of {id,name,note,grantedAt}. Edit requires redeploy.
-const TESTER_LIST_ENC = 'W10='; // btoa(JSON.stringify([])) — add testers via Grant Tester Access button
 const OWNER_NAME = 'Sypharius';
 const ACCESS_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -1099,15 +1097,16 @@ const XANAX_ITEM_ID = 206;
 
 const CHANGELOG = [
   { v:'2.38.8', date:'2026-04-12', notes:[
-    '[+] B-1: Access payment log — default view now shows per-player collapsed cards. Tap to expand full stats: Xanax sent, $1M sent, combined units, units to lifetime, Torn profile link.',
-    '[+] B-2: 🐛 Tester button on each expanded player card — generates new TESTER_LIST_ENC for redeploy.',
-    '[+] B-3: "EVENT LOG →" button in player view switches to existing flat event table. "← BACK TO PLAYERS" returns.',
-    '[+] B-4: Refund/Restore buttons retained in event log view.',
-    '[+] B-5: Players view has sections — LIFETIME MEMBERS / TESTERS / WHITELISTED FACTIONS / ACTIVE USERS.',
-    '[+] B-6: TESTER_LIST_ENC constant — base64 obfuscated tester list. "EXPORT TESTERS" button copies JSON to clipboard.',
-    '[+] B-7: "GRANT TESTER" button — input ID + name, generates new TESTER_LIST_ENC for manual redeploy.',
-    '[+] B-8: Faction whitelist (hv_v1_faction_whitelist) — Add Faction form (ID, Amount Paid, Notes) + Remove button. Persisted to localStorage.',
-    '[*] renderPaymentCard() refactored to use shared _buildPaymentEntries() helper.',
+    '[+] B-1: Payment log redesigned — per-player collapsible cards showing Name, profile link, days remaining, Xanax total, $1M total, combined units, units to lifetime.',
+    '[+] B-2: Tester button on each player card — prompts to mark as tester. Stored in hv_v1_testers, shown in TESTERS section.',
+    '[+] B-3: VIEW LOG button inside each player card expands raw event entries inline.',
+    '[+] B-4: REFUND/RESTORE button per event entry — updates player unit count immediately.',
+    '[+] B-5: Modal sections: LIFETIME MEMBERS / TESTERS / ACTIVE / EXPIRED — each collapsible.',
+    '[+] B-6: Tester list persisted in hv_v1_testers. EXPORT button downloads JSON.',
+    '[+] B-7: GRANT TESTER button + player-name input — adds to tester list at runtime.',
+    '[+] B-8: Faction whitelist — ADD FACTION with ID + label + notes. Stored in hv_v1_faction_whitelist.',
+    '[*] adminClearAll wipes hv_v1_testers + hv_v1_faction_whitelist. Storage inspector includes both keys.',
+    '[*] Full backup export includes testers + factionWhitelist arrays.',
   ]},
   { v:'2.38.7', date:'2026-04-12', notes:[
     '[*] BUG: Member owed card body now shows UNPAID items only (since last MARK PAID) — was incorrectly showing lifetime totals.',
@@ -1117,7 +1116,7 @@ const CHANGELOG = [
     '[*] UPGRADE-1: hv_v1_ptprice + hv_v1_ptphist added to adminClearAll wipe array, storage inspector key list, and in-memory reset.',
     '[*] UPGRADE-8: OC manual entry form — double-click prevention via window._ocSubmitting flag (2s lockout).',
     '[*] PARTIAL-4: detectCat() — non-Xanax drugs now return Drug category instead of Xanax. Drug rate input added to settings. Drug:98 default rate added.',
-    '[+] UPGRADE-6: Expired access gate now shows personalised lapsed message ("Previous access granted to {name}") with renewal instructions.',
+    '[+] UPGRADE-6: Expired access gate now shows personalised lapsed message with renewal instructions.',
     '[+] PARTIAL-6: Expiry warning banner shown when <24h of access remains — dismissible, skips lifetime/faction members.',
     '[+] NOTE: OC tab now shows clarifying note that its period filter is controlled by the Faction Income card pill.',
   ]},
@@ -1758,7 +1757,6 @@ let S = {
   key:'', faction:null, donations:{}, armoryNews:[], events:[],
   prices:{}, ocRaw:[], attackNews:[], crimeNews:[],
   receipts:[], paidLog:{}, rates:{Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98},
-  factionWhitelist:[], // B-8: faction IDs granted access, stored in hv_v1_faction_whitelist
   lastSync:null, loading:false, tab:'vault', typeFilter:'all',
   eventLog:[], // persistent full event log (merged across syncs)
   lastEventTs:0, // highest ts seen at last sync — used for delta display
@@ -1782,6 +1780,8 @@ let S = {
   pointPrice:0, // current points market price $/pt
   pointPriceHistory:[], // [{label,price}] rolling 365-day log
   trackConsumablesSent:false, // checkbox: deduct consumables sent from inventory
+  testers:[], // [{name, grantedAt, notes}] — players granted free tester access
+  factionWhitelist:[], // [{id, label, notes, grantedAt}] — faction IDs whitelisted
 };
 let rTimer=null, cTimer=null, rStart=null;
 
@@ -1891,8 +1891,9 @@ async function rateSafeGet(section, sel, extra=''){
   try{ const ex=JSON.parse(localStorage.getItem('hv_v1_exempt')||'[]'); S.exemptReceipts=new Set(ex); }catch(e){}
   try{ const pp=localStorage.getItem('hv_v1_ptprice'); if(pp) S.pointPrice=parseFloat(pp)||0; }catch(e){}
   try{ S.pointPriceHistory=JSON.parse(localStorage.getItem('hv_v1_ptphist')||'[]'); }catch(e){}
-  try{ S.factionWhitelist=JSON.parse(localStorage.getItem('hv_v1_faction_whitelist')||'[]'); }catch(e){}
   try{ S.trackConsumablesSent=localStorage.getItem('hv_v1_track_consumables')==='true'; }catch(e){}
+  try{ S.testers=JSON.parse(localStorage.getItem('hv_v1_testers')||'[]'); }catch(e){}
+  try{ S.factionWhitelist=JSON.parse(localStorage.getItem('hv_v1_faction_whitelist')||'[]'); }catch(e){}
   try{ S.inventory=JSON.parse(localStorage.getItem('hv_v1_inventory')||'[]'); }catch(e){}
   try{ S.manualCounts=JSON.parse(localStorage.getItem('hv_v1_manual_counts')||'{}'); }catch(e){}
   try{ S.invDeltaTs=parseInt(localStorage.getItem('hv_v1_inv_delta_ts')||'0')||0; }catch(e){}
@@ -3285,29 +3286,48 @@ function saveOcManual(){ try{localStorage.setItem('hv_v1_oc_manual',JSON.stringi
 function saveOcOverrides(){ try{localStorage.setItem('hv_v1_oc_overrides',JSON.stringify(S.ocOverrides));}catch(e){} }
 function saveRespectOverrides(){ try{localStorage.setItem('hv_v1_respect_overrides',JSON.stringify(S.respectOverrides));}catch(e){} }
 function saveRefundedPayments(){ try{localStorage.setItem('hv_v1_refunded_payments',JSON.stringify([...S.refundedPayments]));}catch(e){} }
-function saveFactionWhitelist(){ try{localStorage.setItem('hv_v1_faction_whitelist',JSON.stringify(S.factionWhitelist));}catch(e){} }
-// B-6: Decode tester list from obfuscated constant
-function getTesters(){ try{ return JSON.parse(atob(TESTER_LIST_ENC)); }catch(e){ return []; } }
-// B view state — 'players' | 'events'
-let _payLogView='players';
 
 // ── PAYMENT CARD (Sypharius only)
 function renderPaymentCard(){
   const card=document.getElementById('scPayments');
   const rec=getAccessRecord();
+  // Only show when Sypharius's key is active
   if(!card||!rec||rec.playerId!==OWNER_ID){ if(card) card.style.display='none'; return; }
   card.style.display='block';
-  const {totalXanaxUnits,totalMoneyUnits,combinedUnits,isLifetime}=_buildPaymentEntries();
+
+  // Scan eventLog for all DashboardAccess payments received (item receive + money receive)
+  const REQUIRED_MSG='dashboardaccess';
+  let totalXanax=0, totalMoney=0;
+  (S.eventLog||[]).forEach(ev=>{
+    if(S.refundedPayments.has(ev.timestamp)) return;
+    const raw=ev.event||'';
+    const n=stripHtml(raw).toLowerCase();
+    if(!n.includes(REQUIRED_MSG)) return;
+    // Item receive — "You were sent Nx Xanax / some Xanax from ... with the message: DashboardAccess"
+    const iNum=n.match(/you were sent\s+(\d+)x?\s+xanax/i);
+    const iSing=n.match(/you were sent\s+(?:an?|some)\s+xanax/i);
+    if(iNum) totalXanax+=parseInt(iNum[1]);
+    else if(iSing) totalXanax+=1;
+    // Money receive
+    const mM=n.match(/you were sent \$([\d,]+)/i);
+    if(mM) totalMoney+=parseInt(mM[1].replace(/,/g,''));
+  });
+
   const val=document.getElementById('cPayments');
   const sub=document.getElementById('cPaymentsSub');
-  if(val) val.textContent=`${totalXanaxUnits}x / ${fmt$(totalMoneyUnits*1000000)}`;
-  if(sub) sub.textContent=isLifetime?`${combinedUnits} units — LIFETIME · tap for log`:`${combinedUnits*7}d granted · tap for log`;
+  // Combined: 1 Xanax = 1 unit, $1M = 1 unit. 100 combined = lifetime.
+  const moneyUnits=Math.floor(totalMoney/1000000);
+  const combinedUnits=totalXanax+moneyUnits;
+  const isLifetime=combinedUnits>=100;
+  const totalDays=isLifetime?Infinity:combinedUnits*7;
+  if(val) val.textContent=`${totalXanax}x / ${fmt$(totalMoney)}`;
+  if(sub) sub.textContent=isLifetime?`${combinedUnits} units — LIFETIME · tap for log`:`${totalDays}d granted · tap for log`;
 }
 
-// ── Build payment entries from event log — shared by card + log views
-function _buildPaymentEntries(){
+// ── PAYMENT LOG — helper: parse all payment events from eventLog, grouped by sender
+function parsePaymentEvents(){
   const REQUIRED_MSG='dashboardaccess';
-  const entries=[];
+  const byPlayer={};
   (S.eventLog||[]).forEach(ev=>{
     const raw=ev.event||'';
     const n=stripHtml(raw);
@@ -3318,249 +3338,269 @@ function _buildPaymentEntries(){
     const mM=n.match(/You were sent \$([\d,]+)/i);
     const fromM=n.match(/from\s+(.+?)\s+with the message/i);
     const from=fromM?fromM[1].trim():'Unknown';
-    let type='',qty=0;
-    if(iNum){ type='Xanax'; qty=parseInt(iNum[1]); }
-    else if(iSing){ type='Xanax'; qty=1; }
-    else if(mM){ type='Money'; qty=parseInt(mM[1].replace(/,/g,'')); }
+    let type='', qty=0;
+    if(iNum){type='Xanax';qty=parseInt(iNum[1]);}
+    else if(iSing){type='Xanax';qty=1;}
+    else if(mM){type='Money';qty=parseInt(mM[1].replace(/,/g,''));}
     if(!type) return;
-    entries.push({ts:ev.timestamp,from,type,qty,refunded});
+    if(!byPlayer[from]) byPlayer[from]={name:from,events:[],xanaxTotal:0,moneyUnits:0};
+    byPlayer[from].events.push({ts:ev.timestamp,type,qty,refunded,rawEvent:n});
+    if(!refunded){
+      if(type==='Xanax') byPlayer[from].xanaxTotal+=qty;
+      if(type==='Money') byPlayer[from].moneyUnits+=Math.floor(qty/1000000);
+    }
   });
-  entries.sort((a,b)=>b.ts-a.ts);
-  const active=entries.filter(e=>!e.refunded);
-  const totalXanaxUnits=active.filter(e=>e.type==='Xanax').reduce((s,e)=>s+e.qty,0);
-  const totalMoneyUnits=active.filter(e=>e.type==='Money').reduce((s,e)=>s+Math.floor(e.qty/1000000),0);
-  const combinedUnits=totalXanaxUnits+totalMoneyUnits;
-  const isLifetime=combinedUnits>=100;
-  return {entries,totalXanaxUnits,totalMoneyUnits,combinedUnits,isLifetime};
+  // Compute derived fields per player
+  Object.values(byPlayer).forEach(p=>{
+    p.combinedUnits=p.xanaxTotal+p.moneyUnits;
+    p.lifetime=p.combinedUnits>=100;
+    p.daysGranted=p.lifetime?Infinity:p.combinedUnits*7;
+    p.isTester=(S.testers||[]).some(t=>t.name===p.name);
+    const lastTs=Math.max(0,...p.events.map(e=>e.ts));
+    p.grantedAt=lastTs*1000; // ms
+    p.expiry=p.lifetime?null:p.grantedAt+(p.daysGranted*86400000);
+    p.expired=!p.lifetime&&p.expiry&&Date.now()>p.expiry;
+    p.daysLeft=p.lifetime?Infinity:p.expiry?Math.max(0,Math.ceil((p.expiry-Date.now())/86400000)):0;
+  });
+  return Object.values(byPlayer).sort((a,b)=>b.combinedUnits-a.combinedUnits);
 }
 
-// ── Entry point — opens modal in players view
 function showPaymentLog(){
   const rec=getAccessRecord();
   if(!rec||rec.playerId!==OWNER_ID) return;
-  _payLogView='players';
-  _renderPaymentLog();
+  _renderPaymentLogModal();
   document.getElementById('paymentLogModal').style.display='block';
 }
 
-function _renderPaymentLog(){
-  if(_payLogView==='players') _renderPaymentLogPlayers();
-  else _renderPaymentLogEvents();
-}
-
-// ── B-1/B-2/B-5/B-6/B-7/B-8: Players view
-function _renderPaymentLogPlayers(){
-  const {entries,totalXanaxUnits,totalMoneyUnits,combinedUnits,isLifetime}=_buildPaymentEntries();
-  const testers=getTesters();
-  const testerIds=new Set(testers.map(t=>t.id));
-  const testerNames=new Set(testers.map(t=>t.name.toLowerCase()));
-
-  // Aggregate per player
-  const players={};
-  entries.forEach(e=>{
-    if(!players[e.from]) players[e.from]={name:e.from,xanax:0,money:0,events:[]};
-    players[e.from].events.push(e);
-    if(!e.refunded){
-      if(e.type==='Xanax') players[e.from].xanax+=e.qty;
-      else players[e.from].money+=e.qty;
-    }
+function _renderPaymentLogModal(){
+  const el=document.getElementById('paymentLogContent');
+  if(!el) return;
+  const players=parsePaymentEvents();
+  // Classify into sections
+  const lifetime=players.filter(p=>p.lifetime&&!p.isTester);
+  const testers=(S.testers||[]).map(t=>{
+    const found=players.find(p=>p.name===t.name);
+    return found?{...found,isTester:true}:{name:t.name,xanaxTotal:0,moneyUnits:0,combinedUnits:0,lifetime:false,daysGranted:0,daysLeft:0,expired:false,isTester:true,grantedAt:t.grantedAt||0,events:[]};
   });
-  Object.values(players).forEach(p=>{
-    p.combinedUnits=p.xanax+Math.floor(p.money/1000000);
-    p.isLifetime=p.combinedUnits>=100;
-    p.daysRemaining=p.isLifetime?Infinity:p.combinedUnits*7;
-  });
+  const active=players.filter(p=>!p.lifetime&&!p.isTester&&!p.expired&&p.combinedUnits>0);
+  const expired=players.filter(p=>!p.lifetime&&!p.isTester&&p.expired);
+  // Faction whitelist section
+  const wl=S.factionWhitelist||[];
 
-  const allPlayers=Object.values(players);
-  const lifetimeMembers=allPlayers.filter(p=>p.isLifetime && !testerNames.has(p.name.toLowerCase()));
-  const testerPlayers=allPlayers.filter(p=>testerNames.has(p.name.toLowerCase()));
-  const activePlayers=allPlayers.filter(p=>!p.isLifetime && !testerNames.has(p.name.toLowerCase()) && p.combinedUnits>0);
+  let h='';
 
+  // ── TOOLBAR: grant tester + export + add faction
+  h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);">`;
+  h+=`<div style="flex:1;min-width:0;">`;
+  h+=`<div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:4px;">GRANT TESTER ACCESS</div>`;
+  h+=`<div style="display:flex;gap:6px;">`;
+  h+=`<input id="grantTesterInput" type="text" placeholder="Player name…" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:4px 8px;outline:none;">`;
+  h+=`<button onclick="grantTesterAccess()" style="background:var(--accent3);color:#000;border:none;font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;letter-spacing:1px;white-space:nowrap;">+ TESTER</button>`;
+  h+=`</div></div>`;
+  h+=`<div style="display:flex;flex-direction:column;gap:4px;justify-content:flex-end;">`;
+  h+=`<button onclick="exportPaymentData()" style="background:var(--surface);border:1px solid var(--accent2);color:var(--accent2);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;white-space:nowrap;">⬇ EXPORT</button>`;
+  h+=`<button onclick="showAddFactionWhitelist()" style="background:var(--surface);border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;white-space:nowrap;">+ FACTION</button>`;
+  h+=`</div></div>`;
+
+  // Add faction whitelist form (hidden by default)
+  h+=`<div id="addFactionForm" style="display:none;background:var(--surface2);border:1px solid var(--accent5);padding:12px;margin-bottom:12px;">`;
+  h+=`<div style="font-size:9px;color:var(--accent5);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:8px;">ADD FACTION TO WHITELIST</div>`;
+  h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">`;
+  h+=`<div><div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">FACTION ID</div><input id="wlFactionId" type="text" placeholder="12345" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:4px 8px;outline:none;box-sizing:border-box;"></div>`;
+  h+=`<div><div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">LABEL</div><input id="wlFactionLabel" type="text" placeholder="Faction name…" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:4px 8px;outline:none;box-sizing:border-box;"></div>`;
+  h+=`</div>`;
+  h+=`<div style="margin-bottom:8px;"><div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">NOTES</div><input id="wlFactionNotes" type="text" placeholder="Optional notes…" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:4px 8px;outline:none;box-sizing:border-box;"></div>`;
+  h+=`<div style="display:flex;gap:6px;"><button onclick="addFactionWhitelist()" style="background:var(--accent5);color:#000;border:none;font-family:'Space Mono',monospace;font-size:9px;padding:5px 12px;cursor:pointer;">ADD</button><button onclick="document.getElementById('addFactionForm').style.display='none'" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;padding:5px 10px;cursor:pointer;">CANCEL</button></div>`;
+  h+=`</div>`;
+
+  // ── SECTION renderer
+  function section(title, color, items, renderFn, extraButton=''){
+    if(!items.length) return '';
+    let s=`<details open style="margin-bottom:12px;">`;
+    s+=`<summary style="font-size:9px;font-family:'Space Mono',monospace;letter-spacing:2px;text-transform:uppercase;color:${color};cursor:pointer;list-style:none;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;gap:8px;">`;
+    s+=`<span style="flex:1;">${title} (${items.length})</span>${extraButton}`;
+    s+=`</summary>`;
+    s+=`<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">`;
+    items.forEach(item=>{ s+=renderFn(item); });
+    s+=`</div></details>`;
+    return s;
+  }
+
+  // ── PLAYER CARD renderer
   function playerCard(p){
-    const pid='pc_'+p.name.replace(/[^a-z0-9]/gi,'_');
-    const profileUrl=`https://www.torn.com/profiles.php?XID=`;
-    const statusColor=p.isLifetime?'var(--accent2)':p.combinedUnits>0?'var(--accent3)':'var(--muted)';
-    const statusLabel=p.isLifetime?'LIFETIME':`${p.combinedUnits} units · ${p.daysRemaining}d`;
-    const moneyUnits=Math.floor(p.money/1000000);
-    return `<div style="border:1px solid var(--border);margin-bottom:6px;">
-      <div onclick="document.getElementById('${pid}').style.display=document.getElementById('${pid}').style.display==='none'?'block':'none'"
-        style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;cursor:pointer;background:var(--surface2);gap:8px;">
-        <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text);font-weight:700;">${p.name}</span>
-        <span style="font-family:'Space Mono',monospace;font-size:9px;color:${statusColor};">${statusLabel}</span>
-      </div>
-      <div id="${pid}" style="display:none;padding:12px;background:var(--surface);font-family:'Space Mono',monospace;font-size:10px;">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
-          <div><div style="color:var(--muted);font-size:8px;letter-spacing:1px;">XANAX SENT</div><div style="color:var(--accent3);font-size:13px;font-weight:700;">${p.xanax}x</div></div>
-          <div><div style="color:var(--muted);font-size:8px;letter-spacing:1px;">\$1M SENT</div><div style="color:var(--accent3);font-size:13px;font-weight:700;">${moneyUnits}x</div></div>
-          <div><div style="color:var(--muted);font-size:8px;letter-spacing:1px;">COMBINED UNITS</div><div style="color:var(--text);font-size:13px;font-weight:700;">${p.combinedUnits}</div></div>
-          <div><div style="color:var(--muted);font-size:8px;letter-spacing:1px;">TO LIFETIME</div><div style="color:var(--text);font-size:13px;font-weight:700;">${p.isLifetime?'✓ DONE':100-p.combinedUnits+' more'}</div></div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <a href="${profileUrl}" target="_blank"
-            style="font-size:9px;padding:4px 8px;border:1px solid var(--accent5);color:var(--accent5);text-decoration:none;letter-spacing:1px;">⇒ TORN PROFILE</a>
-          <button onclick='event.stopPropagation();_markAsTester(this.dataset.name)' data-name="${p.name.replace(/"/g,'&quot;')}"
-            style="font-size:9px;padding:4px 8px;background:none;border:1px solid var(--muted);color:var(--muted);cursor:pointer;font-family:'Space Mono',monospace;letter-spacing:1px;">🐛 TESTER</button>
-        </div>
-      </div>
-    </div>`;
+    const safeId='pc_'+p.name.replace(/[^a-z0-9]/gi,'_');
+    const logId=safeId+'_log';
+    const statusColor=p.lifetime?'var(--accent2)':p.expired?'var(--accent4)':p.daysLeft<=3?'var(--accent3)':'var(--muted)';
+    const statusText=p.lifetime?'LIFETIME':p.expired?'EXPIRED':p.daysLeft===1?'1 DAY LEFT':`${p.daysLeft}d LEFT`;
+    const profileUrl=`https://www.torn.com/profiles.php?XID=0`; // placeholder — no ID stored in events
+    const unitsToLifetime=Math.max(0,100-p.combinedUnits);
+
+    let card=`<div style="background:var(--surface);border:1px solid var(--border);padding:12px 14px;">`;
+    // Header row
+    card+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">`;
+    card+=`<div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--text);">${p.name}</div>`;
+    card+=`<span style="font-family:'Space Mono',monospace;font-size:9px;padding:2px 7px;border:1px solid ${statusColor};color:${statusColor};">${statusText}</span>`;
+    if(p.isTester) card+=`<span style="font-family:'Space Mono',monospace;font-size:8px;padding:2px 6px;background:rgba(240,192,64,0.12);border:1px solid rgba(240,192,64,0.3);color:var(--accent3);">TESTER</span>`;
+    card+=`<span style="flex:1;"></span>`;
+    // Tester toggle button
+    if(p.isTester){
+      card+=`<button onclick="removeTester('${p.name.replace(/'/g,"\\'")}');_renderPaymentLogModal();" style="background:transparent;border:1px solid var(--muted2);color:var(--muted2);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;">✕ TESTER</button>`;
+    } else {
+      card+=`<button onclick="markAsTester('${p.name.replace(/'/g,"\\'")}');_renderPaymentLogModal();" style="background:transparent;border:1px solid var(--muted);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;" title="Mark as tester">🐛</button>`;
+    }
+    card+=`</div>`;
+    // Stats grid
+    card+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">`;
+    const stat=(label,val,col)=>`<div style="background:var(--surface2);padding:6px 8px;"><div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:2px;">${label}</div><div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${col||'var(--text)'};">${val}</div></div>`;
+    card+=stat('XANAX',p.xanaxTotal+'x','var(--accent3)');
+    card+=stat('$1M UNITS',p.moneyUnits+'u','var(--accent3)');
+    card+=stat('COMBINED',p.combinedUnits+'u','var(--accent2)');
+    card+=stat('DAYS',p.lifetime?'∞':(p.daysGranted+'d'),'var(--accent)');
+    card+=stat('DAYS LEFT',p.lifetime?'∞':p.daysLeft,'var(--text)');
+    card+=stat('TO LIFETIME',p.lifetime?'✓':unitsToLifetime+'u',p.lifetime?'var(--accent2)':'var(--muted)');
+    card+=`</div>`;
+    // View log toggle
+    card+=`<button onclick="(function(){var el=document.getElementById('${logId}');el.style.display=el.style.display==='none'?'block':'none';this.textContent=el.style.display==='none'?'VIEW LOG (${p.events.length})':'HIDE LOG';}).call(this)" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;letter-spacing:1px;width:100%;text-align:center;">VIEW LOG (${p.events.length})</button>`;
+    // Inline log (hidden by default — B-3)
+    card+=`<div id="${logId}" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">`;
+    if(!p.events.length){
+      card+=`<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted2);padding:6px 0;">No payment events found in loaded log.</div>`;
+    } else {
+      const sorted=[...p.events].sort((a,b)=>b.ts-a.ts);
+      sorted.forEach(ev=>{
+        const qtyStr=ev.type==='Xanax'?ev.qty+'x Xanax':fmt$(ev.qty);
+        const units=ev.type==='Xanax'?ev.qty:Math.floor(ev.qty/1000000);
+        card+=`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(30,37,48,0.5);${ev.refunded?'opacity:0.4;text-decoration:line-through;':''}">`;
+        card+=`<span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);white-space:nowrap;min-width:70px;">${fd(ev.ts)}</span>`;
+        card+=`<span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent3);flex:1;">${qtyStr}</span>`;
+        card+=`<span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">${units}u</span>`;
+        // Refund/Restore button — B-4
+        const btnColor=ev.refunded?'var(--accent2)':'var(--accent4)';
+        card+=`<button onclick="togglePaymentRefund(${ev.ts})" style="background:transparent;border:1px solid ${btnColor};color:${btnColor};font-family:'Space Mono',monospace;font-size:8px;padding:2px 7px;cursor:pointer;">${ev.refunded?'RESTORE':'REFUND'}</button>`;
+        card+=`</div>`;
+      });
+    }
+    card+=`</div></div>`;
+    return card;
   }
 
-  function section(title,items,extra=''){
-    if(!items.length&&!extra) return '';
-    const rows=items.map(playerCard).join('');
-    return `<div style="margin-bottom:16px;">
-      <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--muted);padding:4px 0 8px;border-bottom:1px solid var(--border);margin-bottom:8px;">${title}</div>
-      ${rows}${extra}
-    </div>`;
+  // ── FACTION WHITELIST CARD renderer
+  function factionCard(wl){
+    const safeId='wl_'+String(wl.id).replace(/[^a-z0-9]/gi,'_');
+    let card=`<div style="background:var(--surface);border:1px solid rgba(126,184,255,0.3);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">`;
+    card+=`<div style="flex:1;">`;
+    card+=`<div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--text);">${wl.label||'Faction '+wl.id}</div>`;
+    card+=`<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">ID: ${wl.id}${wl.notes?' · '+wl.notes:''}</div>`;
+    card+=`</div>`;
+    card+=`<span style="font-family:'Space Mono',monospace;font-size:8px;color:var(--accent5);border:1px solid rgba(126,184,255,0.3);padding:2px 7px;">WHITELISTED</span>`;
+    card+=`<button onclick="removeFactionWhitelist('${wl.id}');_renderPaymentLogModal();" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);font-family:'Space Mono',monospace;font-size:8px;padding:3px 7px;cursor:pointer;">REMOVE</button>`;
+    card+=`</div>`;
+    return card;
   }
 
-  // B-8: Faction whitelist section
-  const fwRows=(S.factionWhitelist||[]).map((f,i)=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--border);margin-bottom:4px;font-family:'Space Mono',monospace;font-size:10px;">
-      <span style="color:var(--accent3);">ID ${f.id}</span>
-      <span style="color:var(--text);">${f.notes||''}</span>
-      <span style="color:var(--muted);margin-left:auto;">${f.amountPaid||''}</span>
-      <button onclick="_removeFactionWhitelist(${i})" style="background:none;border:1px solid var(--accent4);color:var(--accent4);font-family:'Space Mono',monospace;font-size:8px;padding:2px 6px;cursor:pointer;">✕</button>
-    </div>`).join('');
-  const addFactionBtn=`<button onclick="_showAddFactionForm()" style="background:none;border:1px solid var(--accent2);color:var(--accent2);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;letter-spacing:1px;margin-top:4px;">+ ADD FACTION</button>
-  <div id="addFactionForm" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--border);background:var(--surface2);">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
-      <input id="afId" placeholder="Faction ID" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:6px;"/>
-      <input id="afAmt" placeholder="Amount Paid" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:6px;"/>
-    </div>
-    <input id="afNotes" placeholder="Notes" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:6px;margin-bottom:6px;box-sizing:border-box;"/>
-    <div style="display:flex;gap:6px;">
-      <button onclick="_addFactionWhitelist()" style="background:var(--accent2);color:#000;border:none;font-family:'Space Mono',monospace;font-size:9px;padding:5px 12px;cursor:pointer;letter-spacing:1px;">SAVE</button>
-      <button onclick="document.getElementById('addFactionForm').style.display='none'" style="background:none;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;padding:5px 12px;cursor:pointer;">CANCEL</button>
-    </div>
-  </div>`;
-
-  // Summary bar
-  const summaryHtml=`<div style="background:var(--surface2);border:1px solid var(--border);padding:10px 12px;margin-bottom:14px;font-family:'Space Mono',monospace;">
-    <div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px;">COMBINED TOTAL (active)</div>
-    <div style="font-size:14px;color:var(--accent3);font-weight:700;">${isLifetime?'LIFETIME ACCESS':combinedUnits+' units · '+combinedUnits*7+'d'}</div>
-    <div style="font-size:9px;color:var(--muted);margin-top:2px;">${totalXanaxUnits}x Xanax + ${totalMoneyUnits}x \$1M · ${isLifetime?'≥100 units':'need '+(100-combinedUnits)+' more for lifetime'}</div>
-  </div>`;
-
-  // Top toolbar
-  const toolbarHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-    <button onclick="exportTesters()" style="background:none;border:1px solid var(--muted);color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;padding:5px 10px;cursor:pointer;letter-spacing:1px;">📋 EXPORT TESTERS</button>
-    <button onclick="grantTesterAccess()" style="background:none;border:1px solid var(--accent3);color:var(--accent3);font-family:'Space Mono',monospace;font-size:9px;padding:5px 10px;cursor:pointer;letter-spacing:1px;">+ GRANT TESTER</button>
-    <button onclick="_payLogView='events';_renderPaymentLog();" style="margin-left:auto;background:none;border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:5px 10px;cursor:pointer;letter-spacing:1px;">EVENT LOG →</button>
-  </div>`;
-
-  const html=summaryHtml+toolbarHtml
-    +section('LIFETIME MEMBERS',lifetimeMembers)
-    +section('TESTERS',testerPlayers)
-    +section('WHITELISTED FACTIONS',[],fwRows+addFactionBtn)
-    +section('ACTIVE USERS',activePlayers);
-
-  document.getElementById('paymentLogContent').innerHTML=html||'<div class="empty">No DashboardAccess payments found in loaded event log.</div>';
-}
-
-// ── B-3/B-4: Event log view (existing table, back button added)
-function _renderPaymentLogEvents(){
-  const {entries,totalXanaxUnits,totalMoneyUnits,combinedUnits,isLifetime}=_buildPaymentEntries();
-  const backBtn=`<button onclick="_payLogView='players';_renderPaymentLog();"
-    style="background:none;border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:5px 10px;cursor:pointer;letter-spacing:1px;margin-bottom:12px;">← BACK TO PLAYERS</button>`;
-  if(!entries.length){
-    document.getElementById('paymentLogContent').innerHTML=backBtn+'<div class="empty">No DashboardAccess payments found in loaded event log.</div>';
-    return;
+  if(!players.length&&!wl.length){
+    h+='<div class="empty">No DashboardAccess payments found in loaded event log.</div>';
+  } else {
+    h+=section('LIFETIME MEMBERS','var(--accent2)',lifetime,playerCard);
+    h+=section('TESTERS','var(--accent3)',testers,playerCard);
+    h+=section('ACTIVE','var(--accent)',active,playerCard);
+    h+=section('EXPIRED','var(--accent4)',expired,playerCard);
+    if(wl.length){
+      h+=`<details open style="margin-bottom:12px;">`;
+      h+=`<summary style="font-size:9px;font-family:'Space Mono',monospace;letter-spacing:2px;text-transform:uppercase;color:var(--accent5);cursor:pointer;list-style:none;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);">FACTION WHITELIST (${wl.length})</summary>`;
+      h+=`<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px;">`;
+      wl.forEach(w=>{ h+=factionCard(w); });
+      h+=`</div></details>`;
+    }
+    if(!players.length) h+='<div class="empty" style="margin-top:8px;">No payment events found. Only tester/whitelist entries shown above.</div>';
   }
-  let h=backBtn;
-  h+=`<div style="background:var(--surface2);border:1px solid var(--border);padding:10px 12px;margin-bottom:12px;font-family:'Space Mono',monospace;">
-    <div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px;">COMBINED TOTAL (active)</div>
-    <div style="font-size:14px;color:var(--accent3);font-weight:700;">${isLifetime?'LIFETIME ACCESS':combinedUnits+' units · '+combinedUnits*7+'d'}</div>
-    <div style="font-size:9px;color:var(--muted);margin-top:2px;">${totalXanaxUnits}x Xanax + ${totalMoneyUnits}x \$1M · ${isLifetime?'≥100 units':'need '+(100-combinedUnits)+' more for lifetime'}</div>
-  </div>`;
-  h+=`<table><thead><tr><th>Date</th><th>From</th><th>Type</th><th>Qty</th><th>Units</th><th></th></tr></thead><tbody>`;
-  entries.forEach(e=>{
-    const qtyStr=e.type==='Xanax'?`${e.qty}x`:fmt$(e.qty);
-    const units=e.type==='Xanax'?e.qty:Math.floor(e.qty/1000000);
-    h+=`<tr style="${e.refunded?'opacity:0.4;text-decoration:line-through;':''}">
-      <td class="cm" style="font-size:10px;white-space:nowrap">${fd(e.ts)}</td>
-      <td class="cn" style="font-size:11px">${e.from}</td>
-      <td style="font-size:10px;color:var(--accent3)">${e.type}</td>
-      <td class="cy" style="font-size:10px">${qtyStr}</td>
-      <td class="cm" style="font-size:10px">${units}u · ${units*7}d</td>
-      <td><button onclick="togglePaymentRefund(${e.ts})" style="background:transparent;border:1px solid ${e.refunded?'var(--accent2)':'var(--accent4)'};color:${e.refunded?'var(--accent2)':'var(--accent4)'};font-family:'Space Mono',monospace;font-size:8px;padding:3px 7px;cursor:pointer;">${e.refunded?'RESTORE':'REFUND'}</button></td>
-    </tr>`;
-  });
-  h+='</tbody></table>';
-  document.getElementById('paymentLogContent').innerHTML=h;
+
+  el.innerHTML=h;
 }
 
-// ── B-2: Mark as tester
-function _markAsTester(nameOrEl){
-  const name = typeof nameOrEl === 'string' ? nameOrEl : (nameOrEl?.dataset?.name || '');
-  if(!confirm(`Mark "${name}" as Tester?\n\nThis will generate a new TESTER_LIST_ENC for manual deploy.`)) return;
-  const testers=getTesters();
-  if(testers.find(t=>t.name.toLowerCase()===name.toLowerCase())){ alert('Already a tester.'); return; }
-  testers.push({id:'',name,note:'',grantedAt:Math.floor(Date.now()/1000)});
-  const newEnc=btoa(JSON.stringify(testers));
-  navigator.clipboard.writeText(newEnc).then(()=>{
-    alert(`Tester added.\n\nNew TESTER_LIST_ENC copied to clipboard — update the constant in HTML and redeploy.`);
-  }).catch(()=>{ alert(`New TESTER_LIST_ENC:\n${newEnc}\n\nUpdate the constant in HTML and redeploy.`); });
-  _renderPaymentLog();
+// B-2: Mark player as tester
+function markAsTester(name){
+  if(!confirm('Mark ' + name + ' as a tester? They will appear in the TESTERS section and be exempt from payment requirements.')) return;
+  if(!S.testers) S.testers=[];
+  if(S.testers.find(t=>t.name===name)) return;
+  S.testers.push({name,grantedAt:Date.now(),notes:''});
+  try{localStorage.setItem('hv_v1_testers',JSON.stringify(S.testers));}catch(e){}
+  clog('Tester access granted: '+name,'ok');
 }
 
-// ── B-7: Grant tester access by ID
+// B-2: Remove tester
+function removeTester(name){
+  S.testers=(S.testers||[]).filter(t=>t.name!==name);
+  try{localStorage.setItem('hv_v1_testers',JSON.stringify(S.testers));}catch(e){}
+  clog('Tester removed: '+name,'warn');
+}
+
+// B-7: Grant tester from input field
 function grantTesterAccess(){
-  const id=(prompt('Enter player ID to grant tester access:')||'').trim();
-  if(!id) return;
-  const testers=getTesters();
-  if(testers.find(t=>t.id===id)){ alert('Already a tester.'); return; }
-  const name=(prompt('Player name (for display):')||id).trim();
-  const note=(prompt('Note (optional):')||'').trim();
-  testers.push({id,name,note,grantedAt:Math.floor(Date.now()/1000)});
-  const newEnc=btoa(JSON.stringify(testers));
-  navigator.clipboard.writeText(newEnc).then(()=>{
-    alert(`Tester access granted to ${name} [${id}].\n\nNew TESTER_LIST_ENC copied to clipboard — update the constant in HTML and redeploy.`);
-  }).catch(()=>{ alert(`New TESTER_LIST_ENC:\n${newEnc}`); });
-  _renderPaymentLog();
+  const input=document.getElementById('grantTesterInput');
+  const name=(input?.value||'').trim();
+  if(!name){ alert('Enter a player name.'); return; }
+  if(!S.testers) S.testers=[];
+  if(S.testers.find(t=>t.name===name)){ alert(name+' is already a tester.'); return; }
+  S.testers.push({name,grantedAt:Date.now(),notes:''});
+  try{localStorage.setItem('hv_v1_testers',JSON.stringify(S.testers));}catch(e){}
+  clog('Tester access granted: '+name,'ok');
+  if(input) input.value='';
+  _renderPaymentLogModal();
 }
 
-// ── B-6: Export tester list
-function exportTesters(){
-  const t=getTesters();
-  const txt=JSON.stringify(t,null,2);
-  navigator.clipboard.writeText(txt).then(()=>{
-    clog('Tester list exported to clipboard','ok');
-    alert(`Tester list (${t.length} entries) copied to clipboard.`);
-  }).catch(()=>{ alert(txt); });
+// B-8: Show/hide add faction form
+function showAddFactionWhitelist(){
+  const el=document.getElementById('addFactionForm');
+  if(el) el.style.display=el.style.display==='none'?'block':'none';
 }
 
-// ── B-8: Faction whitelist helpers
-function _showAddFactionForm(){
-  const f=document.getElementById('addFactionForm');
-  if(f) f.style.display=f.style.display==='none'?'block':'none';
-}
-function _addFactionWhitelist(){
-  const id=(document.getElementById('afId')?.value||'').trim();
-  const amt=(document.getElementById('afAmt')?.value||'').trim();
-  const notes=(document.getElementById('afNotes')?.value||'').trim();
-  if(!id){ alert('Faction ID required.'); return; }
+// B-8: Add faction to whitelist
+function addFactionWhitelist(){
+  const id=(document.getElementById('wlFactionId')?.value||'').trim();
+  const label=(document.getElementById('wlFactionLabel')?.value||'').trim();
+  const notes=(document.getElementById('wlFactionNotes')?.value||'').trim();
+  if(!id){ alert('Enter a faction ID.'); return; }
   if(!S.factionWhitelist) S.factionWhitelist=[];
-  S.factionWhitelist.push({id,amountPaid:amt,notes,addedAt:Math.floor(Date.now()/1000)});
-  saveFactionWhitelist();
-  clog(`Faction whitelist: added ID ${id}`,'ok');
-  _renderPaymentLog();
-}
-function _removeFactionWhitelist(idx){
-  if(!confirm('Remove this faction from whitelist?')) return;
-  S.factionWhitelist.splice(idx,1);
-  saveFactionWhitelist();
-  _renderPaymentLog();
+  if(S.factionWhitelist.find(w=>String(w.id)===String(id))){ alert('Faction '+id+' is already whitelisted.'); return; }
+  S.factionWhitelist.push({id,label,notes,grantedAt:Date.now()});
+  try{localStorage.setItem('hv_v1_faction_whitelist',JSON.stringify(S.factionWhitelist));}catch(e){}
+  clog('Faction whitelisted: '+id+' ('+label+')','ok');
+  _renderPaymentLogModal();
 }
 
+// B-8: Remove faction from whitelist
+function removeFactionWhitelist(id){
+  S.factionWhitelist=(S.factionWhitelist||[]).filter(w=>String(w.id)!==String(id));
+  try{localStorage.setItem('hv_v1_faction_whitelist',JSON.stringify(S.factionWhitelist));}catch(e){}
+  clog('Faction removed from whitelist: '+id,'warn');
+}
+
+// B-6: Export payment data
+function exportPaymentData(){
+  const players=parsePaymentEvents();
+  const data={
+    _meta:{exported:new Date().toISOString(),version:APP_VERSION},
+    players,
+    testers:S.testers||[],
+    factionWhitelist:S.factionWhitelist||[],
+  };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='highvibes-payment-data-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+  clog('Payment data exported','ok');
+}
 
 function togglePaymentRefund(ts){
   if(S.refundedPayments.has(ts)) S.refundedPayments.delete(ts);
   else S.refundedPayments.add(ts);
   saveRefundedPayments();
   renderPaymentCard();
-  _renderPaymentLog(); // re-render current view in place
+  _renderPaymentLogModal(); // B-4: re-render in place
 }
+
 
 function ocOverrideSave(key){
   const rewardEl=document.getElementById('ocOvR_'+key);
@@ -5172,26 +5212,13 @@ function renderOwed(){
     // A-1: Unique ID for the stats panel
     const statsId='ms_'+m.name.replace(/[^a-z0-9]/gi,'_');
 
-    // Lifetime payout per category (all receipts, qty × MV × rate)
-    const catPayout={};
-    S.receipts.filter(r=>!r.deleted&&r.member===m.name).forEach(r=>{
-      catPayout[r.cat]=(catPayout[r.cat]||0)+r.qty*r.mv*getRate(r.cat);
-    });
-    const lifetimeTotalPayout=Object.values(catPayout).reduce((s,v)=>s+v,0);
-    const paidLogTotal=(S.paidLog[m.name]||[]).reduce((s,e)=>s+(e.amount||0),0);
-    const displayTotal=paidLogTotal>0?paidLogTotal:lifetimeTotalPayout;
-
-    // A-1: Lifetime stats rows in $ panel with A-2 new-item highlighting + payout column
+    // A-1: Lifetime stats rows in $ panel with A-2 new-item highlighting
     const statsRows=Object.entries(m.cats).map(([c,q])=>{
       const newQty=newCats[c]||0;
       const isNew=newQty>0;
       const newLabel=isNew?` <span style="color:var(--accent3);font-size:8px;">(+${newQty} unpaid)</span>`:'';
       const rowBg=isNew?'background:rgba(240,192,64,0.08);padding:2px 6px;margin:0 -6px;':'padding:2px 0;';
-      const payout=catPayout[c]||0;
-      return `<div style="${rowBg}display:flex;justify-content:space-between;gap:8px;">
-        <span>${q}x ${c}${newLabel}</span>
-        <span style="color:var(--accent2);">${ff$(payout)}</span>
-      </div>`;
+      return `<div style="${rowBg}">${q}x ${c}${newLabel}</div>`;
     }).join('');
 
     html+=`<div class="oc" style="position:relative;">
@@ -5212,14 +5239,8 @@ function renderOwed(){
       <div id="${statsId}" style="display:none;margin-top:10px;padding-top:10px;
         border-top:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);">
         <div style="color:var(--accent3);font-size:9px;letter-spacing:1px;margin-bottom:6px;">── LIFETIME STATS ──</div>
-        <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--muted2);padding-bottom:4px;margin-bottom:4px;border-bottom:1px solid var(--border);">
-          <span>CATEGORY</span><span>QTY · PAYOUT</span>
-        </div>
         ${statsRows}
-        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);display:flex;justify-content:space-between;">
-          <span style="color:var(--text);">Lifetime total</span>
-          <span style="color:var(--accent2);font-weight:700;">${m.count} items · ${ff$(displayTotal)}</span>
-        </div>
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text);">Lifetime total: ${m.count} items</div>
       </div>
     </div>`;
   });
@@ -5238,22 +5259,7 @@ function renderOwed(){
     paidEntries.forEach(m=>{
       const paidTs=lastPaidTs(m.name);
       const statsId='ms_'+m.name.replace(/[^a-z0-9]/gi,'_');
-      // Lifetime payout per category (qty × current MV × rate, all receipts)
-      const catPayout={};
-      S.receipts.filter(r=>!r.deleted&&r.member===m.name).forEach(r=>{
-        catPayout[r.cat]=(catPayout[r.cat]||0)+r.qty*r.mv*getRate(r.cat);
-      });
-      const lifetimeTotalPayout=Object.values(catPayout).reduce((s,v)=>s+v,0);
-      // Cross-check against recorded paidLog amounts (more accurate for historical payments)
-      const paidLogTotal=(S.paidLog[m.name]||[]).reduce((s,e)=>s+(e.amount||0),0);
-      const displayTotal=paidLogTotal>0?paidLogTotal:lifetimeTotalPayout;
-      const statsRows=Object.entries(m.cats).map(([c,q])=>{
-        const payout=catPayout[c]||0;
-        return `<div style="display:flex;justify-content:space-between;padding:2px 0;gap:8px;">
-          <span>${q}x ${c}</span>
-          <span style="color:var(--accent2);">${ff$(payout)}</span>
-        </div>`;
-      }).join('');
+      const statsRows=Object.entries(m.cats).map(([c,q])=>`<div style="padding:2px 0;">${q}x ${c}</div>`).join('');
       html+=`<div class="oc paid-card" style="opacity:0.55;position:relative;">
         <button onclick="toggleMemberStats('${statsId}')" title="Lifetime stats"
           style="position:absolute;top:8px;right:8px;background:var(--surface2);border:1px solid var(--border);
@@ -5270,14 +5276,8 @@ function renderOwed(){
         <div id="${statsId}" style="display:none;margin-top:10px;padding-top:10px;
           border-top:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);">
           <div style="color:var(--accent3);font-size:9px;letter-spacing:1px;margin-bottom:6px;">── LIFETIME STATS ──</div>
-          <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--muted2);padding-bottom:4px;margin-bottom:4px;border-bottom:1px solid var(--border);">
-            <span>CATEGORY</span><span>QTY · PAYOUT</span>
-          </div>
           ${statsRows}
-          <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);display:flex;justify-content:space-between;">
-            <span style="color:var(--text);">Lifetime total</span>
-            <span style="color:var(--accent2);font-weight:700;">${m.count} items · ${ff$(displayTotal)}</span>
-          </div>
+          <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text);">Lifetime total: ${m.count} items</div>
         </div>
       </div>`;
     });
@@ -5910,6 +5910,8 @@ function adminExport(type){
       ocOverrides:S.ocOverrides||{},
       respectOverrides:S.respectOverrides||{},
       exemptReceipts:[...(S.exemptReceipts||new Set())],
+      testers:S.testers||[],
+      factionWhitelist:S.factionWhitelist||[],
     };
     filename=`highvibes-backup-${ts}.json`;
   } else if(type==='wars'){
@@ -6032,6 +6034,20 @@ function adminImport(evt){
         S.respectOverrides=Object.assign(S.respectOverrides||{},data.respectOverrides);
         try{localStorage.setItem('hv_v1_respect_overrides',JSON.stringify(S.respectOverrides));}catch(ex){}
       }
+      // Import testers (merge by name)
+      if(data.testers&&Array.isArray(data.testers)){
+        if(!S.testers) S.testers=[];
+        const existingT=new Set(S.testers.map(t=>t.name));
+        data.testers.forEach(t=>{ if(!existingT.has(t.name)) S.testers.push(t); });
+        try{localStorage.setItem('hv_v1_testers',JSON.stringify(S.testers));}catch(ex){}
+      }
+      // Import factionWhitelist (merge by id)
+      if(data.factionWhitelist&&Array.isArray(data.factionWhitelist)){
+        if(!S.factionWhitelist) S.factionWhitelist=[];
+        const existingW=new Set(S.factionWhitelist.map(w=>String(w.id)));
+        data.factionWhitelist.forEach(w=>{ if(!existingW.has(String(w.id))) S.factionWhitelist.push(w); });
+        try{localStorage.setItem('hv_v1_faction_whitelist',JSON.stringify(S.factionWhitelist));}catch(ex){}
+      }
       // Import exemptReceipts (merge)
       if(data.exemptReceipts&&Array.isArray(data.exemptReceipts)){
         if(!S.exemptReceipts) S.exemptReceipts=new Set();
@@ -6082,7 +6098,7 @@ function adminAddManualReceipt(){
 
 // ── STORAGE INSPECTOR
 function adminInspectStorage(){
-  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_faction_whitelist'];
+  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'];
   let out='=== LOCALSTORAGE ===\n\n';
   keys.forEach(k=>{
     const v=localStorage.getItem(k);
@@ -6099,6 +6115,8 @@ function adminInspectStorage(){
   });
   out+=`=== IN-MEMORY STATE ===\n`;
   out+=`S.receipts: ${S.receipts.length} (${S.receipts.filter(r=>!r.deleted).length} active)\n`;
+  out+=`S.testers: ${(S.testers||[]).length}\n`;
+  out+=`S.factionWhitelist: ${(S.factionWhitelist||[]).length}\n`;
   out+=`S.outgoing: ${(S.outgoing||[]).length}\n`;
   out+=`S.wars: ${S.wars.length}\n`;
   out+=`S.events: ${S.events.length} (session)\n`;
@@ -6143,11 +6161,10 @@ function adminClearAll(){
   const paidCount=Object.keys(S.paidLog).length;
   const warCount=S.wars.length;
   if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• ${warCount} war payout record(s)\n• All payout rates & card settings\n• Sync settings\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
-  ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_faction_whitelist'].forEach(k=>localStorage.removeItem(k));
-  S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98}; S.refundedPayments=new Set();
+  ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'].forEach(k=>localStorage.removeItem(k));
+  S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98}; S.refundedPayments=new Set(); S.testers=[]; S.factionWhitelist=[];
   S.cardPeriods={supply:'30d',oc:'30d',pnl:'30d'}; RMINS=15;
   S.pointPrice=0; S.pointPriceHistory=[];
-  S.factionWhitelist=[];
   clearSessionState();
   loadRateInputs(); buildSyncSelector(); restoreCardPeriodPills();
   renderReceipts(); renderCards(); updateBadge(); renderWarPanel();
@@ -6994,4 +7011,109 @@ function checkAccessOnLoad(){
       clog(`Access valid — ${days}d ${hrs}h remaining (via ${r.method} from ${r.from})`,'ok');
     }
   } else {
-    // UPGRADE-6: Lapsed membership — show specific
+    // UPGRADE-6: Lapsed membership — show specific expired message on gate
+    clog('Access expired — showing gate','warn');
+    const r2 = getAccessRecord();
+    const lapsedMsg = r2?.from
+      ? `<span style="color:var(--accent4)">⚠ Access expired</span><br><span style="color:var(--muted);font-size:9px;">Previous access was granted to <strong style="color:var(--text)">${r2.from}</strong>.<br>Send 1x Xanax or $1,000,000 to <strong style="color:var(--text)">Sypharius</strong><br>with message: <strong style="color:var(--accent3)">DashboardAccess</strong> to renew.</span>`
+      : `<span style="color:var(--accent4)">⚠ Access expired</span><br><span style="color:var(--muted);font-size:9px;">Send 1x Xanax or $1,000,000 to <strong style="color:var(--text)">Sypharius</strong><br>with message: <strong style="color:var(--accent3)">DashboardAccess</strong></span>`;
+    const statusEl = document.getElementById('accessStatus');
+    if(statusEl) statusEl.innerHTML = lapsedMsg;
+    showAccessGate(true);
+  }
+}
+
+async function silentFactionRecheck(r){
+  // Re-verify faction membership silently — revoke if member was kicked
+  if(!S.key) return;
+  try{
+    const url = `https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${S.key}`;
+    trackApiCall();
+    const res = await fetch(url); const d = await res.json();
+    if(d.error) return; // API error — keep access, don't punish for network issues
+    if(d.members && !d.members[r.playerId]){
+      // No longer in faction
+      clog(`${r.from} no longer in faction — access revoked`,'warn');
+      localStorage.removeItem(ACCESS_KEY);
+      showAccessGate(true);
+    } else if(d.members && d.members[r.playerId]){
+      // Still in faction — refresh timestamp
+      setAccessRecord({...r, grantedAt: Date.now()});
+    }
+  }catch(e){ /* silent */ }
+}
+
+// ── LOG CATEGORY DIAGNOSTICS
+async function dbgLogCategories(){
+  const el=document.getElementById('dbgOut');
+  if(!S.key){el.textContent='No key connected.';return;}
+  el.textContent='Fetching torn/logcategories…\n';
+  try{
+    const url=`https://api.torn.com/torn/?selections=logcategories&key=${S.key}`;
+    trackApiCall();
+    const r=await fetch(url); const d=await r.json();
+    if(d.error){el.textContent+=`ERROR [${d.error.code}]: ${d.error.error}`;return;}
+    const cats=d.logcategories||d.log_categories||d;
+    el.textContent+='=== LOG CATEGORIES ===\n';
+    Object.entries(cats).forEach(([id,name])=>{
+      el.textContent+=`  ${id}: ${name}\n`;
+    });
+    el.textContent+='\nLook for: "Item sending", "Item received", "Money sending", "Money received"';
+  }catch(e){el.textContent+=`Error: ${e.message}`;}
+}
+
+async function dbgUserLog(){
+  const el=document.getElementById('dbgOut');
+  if(!S.key){el.textContent='No key connected.';return;}
+  el.textContent='Fetching user/log…\n';
+  try{
+    const url=`https://api.torn.com/user/?selections=log&key=${S.key}`;
+    trackApiCall();
+    const r=await fetch(url); const d=await r.json();
+    if(d.error){el.textContent+=`ERROR [${d.error.code}]: ${d.error.error}\n`;return;}
+    const log=d.log||d;
+    const entries=Object.values(log);
+    el.textContent+=`Top-level keys: ${Object.keys(d).join(', ')}\n`;
+    el.textContent+=`Total entries: ${entries.length}\n\n`;
+
+    // Title distribution
+    const titleCounts={};
+    entries.forEach(e=>{ const t=e.title||'(no title)'; titleCounts[t]=(titleCounts[t]||0)+1; });
+    el.textContent+=`=== TITLE DISTRIBUTION (${Object.keys(titleCounts).length} unique) ===\n`;
+    Object.entries(titleCounts).sort((a,b)=>b[1]-a[1]).forEach(([t,n])=>{
+      el.textContent+=`  ${n}x  ${t}\n`;
+    });
+
+    // Send candidates — anything matching fetchOutgoingLog regex
+    const sendCandidates=entries.filter(e=>
+      /item.{0,15}send|send.{0,15}item|gave.{0,10}item|item.{0,10}gave|sent.{0,10}to|trade.{0,10}sent/i.test(e.title||'')||
+      /^sent\b/i.test(e.title||'')||
+      (e.log_type&&[3,4,5,6].includes(Number(e.log_type)))
+    );
+    el.textContent+=`\n=== SEND CANDIDATES (${sendCandidates.length} matched regex) ===\n`;
+    sendCandidates.slice(0,5).forEach((e,i)=>{
+      el.textContent+=`[${i}] ${JSON.stringify(e,null,2)}\n\n`;
+    });
+    if(!sendCandidates.length){
+      el.textContent+=`None matched — check title distribution above and report exact titles\n`;
+      el.textContent+=`First 3 raw entries for reference:\n`;
+      entries.slice(0,3).forEach((e,i)=>{ el.textContent+=`[${i}] ${JSON.stringify(e,null,2)}\n\n`; });
+    }
+  }catch(e){el.textContent+=`Error: ${e.message}`;}
+}
+</script>
+
+<!-- Post-verify Enter Dashboard overlay -->
+<div id="hvEnterOverlay" style="display:none;position:fixed;inset:0;z-index:500;background:var(--bg);flex-direction:column;align-items:center;justify-content:center;gap:20px;">
+  <div style="text-align:center;">
+    <div style="font-size:11px;font-family:'Space Mono',monospace;letter-spacing:3px;color:var(--muted2);text-transform:uppercase;margin-bottom:8px;" id="overlayFaction"></div>
+    <div style="font-size:28px;font-weight:800;color:var(--accent);letter-spacing:-1px;" id="overlayPlayer"></div>
+    <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);margin-top:6px;" id="overlayAccess"></div>
+  </div>
+  <button class="gate-btn-init" onclick="gateLaunchDashboard();document.getElementById('hvEnterOverlay').style.display='none';" style="max-width:320px;">
+    ⬡ ENTER DASHBOARD
+  </button>
+</div>
+
+</body>
+          </html>
