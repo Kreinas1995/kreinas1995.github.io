@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.38.6</title>
+<title>Faction Budget v2.38.7</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -364,7 +364,7 @@
         <div class="logo-name">⬡ <span id="factionTitle">HIGHVIBES</span></div>
         <div class="logo-sub">Faction Budget Dashboard</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer;" onclick="(function(){const from=localStorage.getItem('hv_upgrade_from');showChangelog(false,null,from||null);})()" title="View changelog">
-          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.38.6</div>
+          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.38.7</div>
           <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;">changelog</div>
         </div>
       </div>
@@ -656,6 +656,7 @@
       <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">
         OC 1.0 (crimenews) active
         <span id="ocV2Status" style="color:var(--accent2);margin-left:8px;"></span>
+        <span style="color:var(--muted2);margin-left:8px;">· period controlled by Faction Income card pill</span>
       </span>
       <details style="font-family:'Space Mono',monospace;font-size:9px;">
         <summary style="cursor:pointer;color:var(--muted);letter-spacing:1px;list-style:none;">⚙ v2 options</summary>
@@ -677,6 +678,7 @@
         <div class="pi"><label>Plushies %</label><input type="number" id="pct-Plushie" value="98" min="0" max="100" oninput="saveRates();renderReceipts();"></div>
         <div class="pi"><label>Flowers %</label><input type="number" id="pct-Flower" value="98" min="0" max="100" oninput="saveRates();renderReceipts();"></div>
         <div class="pi"><label>Xanax %</label><input type="number" id="pct-Xanax" value="98" min="0" max="100" oninput="saveRates();renderReceipts();"></div>
+        <div class="pi"><label>Drugs %</label><input type="number" id="pct-Drug" value="98" min="0" max="100" oninput="saveRates();renderReceipts();"></div>
         <div class="pi"><label>Alcohol %</label><input type="number" id="pct-Alcohol" value="98" min="0" max="100" oninput="saveRates();renderReceipts();"></div>
         <div class="pi"><label>Medical %</label><input type="number" id="pct-Medical" value="98" min="0" max="100" oninput="saveRates();renderReceipts();"></div>
       </div>
@@ -1029,7 +1031,7 @@
 // ════════════════════════════════════════════
 // VERSION & CHANGELOG
 // ════════════════════════════════════════════
-const APP_VERSION = '2.38.6';
+const APP_VERSION = '2.38.7';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1094,6 +1096,18 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.38.7', date:'2026-04-12', notes:[
+    '[*] BUG: Member owed card body now shows UNPAID items only (since last MARK PAID) — was incorrectly showing lifetime totals.',
+    '[*] BUG: $ stats button now also present on paid/grayed-out member cards (zero-balance cards).',
+    '[*] BUG: Faction Income card now includes war income in all render paths — renderOC() was overwriting cOC without war income, causing $0 display when OC tab was open.',
+    '[*] BUG: Outgoing log display-time name resolution now handles bare numeric IDs (e.g. 2622687) in addition to #-prefixed IDs.',
+    '[*] UPGRADE-1: hv_v1_ptprice + hv_v1_ptphist added to adminClearAll wipe array, storage inspector key list, and in-memory reset.',
+    '[*] UPGRADE-8: OC manual entry form — double-click prevention via window._ocSubmitting flag (2s lockout).',
+    '[*] PARTIAL-4: detectCat() — non-Xanax drugs now return Drug category instead of Xanax. Drug rate input added to settings. Drug:98 default rate added.',
+    '[+] UPGRADE-6: Expired access gate now shows personalised lapsed message ("Previous access granted to {name}") with renewal instructions.',
+    '[+] PARTIAL-6: Expiry warning banner shown when <24h of access remains — dismissible, skips lifetime/faction members.',
+    '[+] NOTE: OC tab now shows clarifying note that its period filter is controlled by the Faction Income card pill.',
+  ]},
   { v:'2.38.6', date:'2026-04-12', notes:[
     '[+] A-1: Member owed cards — lifetime stats moved out of card body into collapsible panel. Tap the $ button (top-right of card) to reveal per-category breakdown and total item count.',
     '[+] A-2: New items (received since last MARK PAID) highlighted with yellow tint in stats panel and a yellow ● dot on the card subtitle.',
@@ -1730,7 +1744,7 @@ let RMINS = 15; // default
 let S = {
   key:'', faction:null, donations:{}, armoryNews:[], events:[],
   prices:{}, ocRaw:[], attackNews:[], crimeNews:[],
-  receipts:[], paidLog:{}, rates:{Plushie:98,Flower:98,Xanax:98,Alcohol:98,Medical:98},
+  receipts:[], paidLog:{}, rates:{Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98},
   lastSync:null, loading:false, tab:'vault', typeFilter:'all',
   eventLog:[], // persistent full event log (merged across syncs)
   lastEventTs:0, // highest ts seen at last sync — used for delta display
@@ -2040,6 +2054,25 @@ function revealDash(){
   buildSyncSelector();
   // Start a 5s interval to decay old calls off the meter
   setInterval(updateRateMeter,5000);
+  // PARTIAL-6: Show expiry warning if <24h remaining
+  checkExpiryWarning();
+}
+
+// PARTIAL-6: Show a dismissible warning banner when access expires within 24h
+function checkExpiryWarning(){
+  const r=getAccessRecord();
+  if(!r||r.lifetime||r.method==='faction') return;
+  const rem=r.expiry ? r.expiry-Date.now() : (r.grantedAt+ACCESS_DURATION_MS)-Date.now();
+  if(rem<=0||rem>86400000) return; // already expired or >24h — no banner
+  const hrs=Math.max(1,Math.floor(rem/3600000));
+  // Don't show if already dismissed this session
+  if(window._expiryBannerShown) return;
+  window._expiryBannerShown=true;
+  const banner=document.createElement('div');
+  banner.id='expiryWarningBanner';
+  banner.style.cssText='position:fixed;top:0;left:0;right:0;z-index:1500;background:rgba(240,192,64,0.12);border-bottom:1px solid var(--accent3);padding:8px 16px;display:flex;align-items:center;gap:10px;font-family:Space Mono,monospace;font-size:10px;color:var(--accent3);letter-spacing:1px;';
+  banner.innerHTML=`<span>⚠ ACCESS EXPIRES IN ${hrs}H — send 1x Xanax or $1M to Sypharius with message: DashboardAccess to renew</span><button onclick="this.parentElement.remove()" style="margin-left:auto;background:none;border:1px solid var(--accent3);color:var(--accent3);font-family:Space Mono,monospace;font-size:9px;padding:3px 8px;cursor:pointer;letter-spacing:1px;">✕ DISMISS</button>`;
+  document.body.prepend(banner);
 }
 
 // Centralised session state reset — called by clearKey and adminClearAll
@@ -3218,9 +3251,12 @@ function detectCat(name){
     if(t==='flower') return 'Flower';
     if(t==='alcohol') return 'Alcohol';
     if(t==='medical') return 'Medical';
-    if(t==='drug') return 'Xanax';
+    if(t==='drug'||t==='drugs') return n.includes('xanax')?'Xanax':'Drug';
   }
   if(n.includes('xanax')) return 'Xanax';
+  if(n.includes('cannabis')||n.includes('ecstasy')||n.includes('ketamine')||
+     n.includes('lsd')||n.includes('opium')||n.includes('shrooms')||
+     n.includes('speed')||n.includes('pcp')) return 'Drug';
   if(n.includes('beer')||n.includes('wine')||n.includes('vodka')||n.includes('whiskey')||
      n.includes('rum')||n.includes('tequila')||n.includes('gin')||n.includes('brandy')||
      n.includes('champagne')||n.includes('sake')||n.includes('mead')) return 'Alcohol';
@@ -4540,6 +4576,11 @@ function ocManualSaveReward(id){
 }
 
 function ocManualSubmit(){
+  // UPGRADE-8: Prevent double-submit
+  if(window._ocSubmitting) return;
+  window._ocSubmitting=true;
+  setTimeout(()=>{ window._ocSubmitting=false; }, 2000);
+
   const type=document.getElementById('ocManualType')?.value||'Other';
   const rewardRaw=document.getElementById('ocManualReward')?.value||'0';
   const dateVal=document.getElementById('ocManualDate')?.value||'';
@@ -4678,7 +4719,9 @@ function renderOC(){
   if(useV2){
     const crimes=v2crimes.filter(c=>(c.executed_at||c.time_completed||0)>ocFrom);
     const totalPaid=crimes.reduce((s,c)=>s+(c._totalPaid||0),0);
-    document.getElementById('cOC').textContent=fmt$(totalPaid+manualTotal);
+    const ocFromMs=ocFrom*1000;
+    const warInc=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+(w.grossPayout||0),0);
+    document.getElementById('cOC').textContent=fmt$(totalPaid+manualTotal+warInc);
 
     let h=formHtml;
     h+=manualEntriesHtml(manualInPeriod);
@@ -4732,7 +4775,9 @@ function renderOC(){
         const m=(e.news||'').match(/\$[\d,]+/g)||[];
         return s+m.reduce((a,v)=>a+parseInt(v.replace(/[$,]/g,'')),0);
       },0);
-    document.getElementById('cOC').textContent=fmt$(crimenewsTotal+manualTotal);
+    const ocFromMs2=ocFrom*1000;
+    const warInc2=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs2; }).reduce((s,w)=>s+(w.grossPayout||0),0);
+    document.getElementById('cOC').textContent=fmt$(crimenewsTotal+manualTotal+warInc2);
 
     const selectionEntries=allEntries.filter(e=>/have been selected/i.test(e.news||''));
     const displayEntries=(periodEntries.length?periodEntries:allEntries.filter(e=>/successfully|tried to|but failed/i.test(e.news||''))).slice(0,100);
@@ -4845,14 +4890,18 @@ function renderOutgoing(){
   // Aggregate totals
   let totalMV=0;
   rows.forEach(r=>totalMV+=r.qty*(r.mv||0));
-  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Alcohol:'by',Medical:'br',Other:'bm'};
+  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Drug:'by',Alcohol:'by',Medical:'br',Other:'bm'};
   let h=`<table><thead><tr><th>Date</th><th>To Member</th><th>Item</th><th>Qty</th><th>Cat</th><th>Total MV</th></tr></thead><tbody>`;
   rows.slice(0,100).forEach(r=>{
     const cb=catBadge[r.cat]||'bm';
-    // F-5: Live name resolution — if stored name is raw ID (#XXXXXX), try faction members
+    // F-5: Live name resolution — if stored name looks like a raw ID, try faction members
     let displayName = r.toMember||'';
-    if(displayName.startsWith('#') && r.toMemberId){
-      displayName = S.faction?.members?.[r.toMemberId]?.name || displayName;
+    const looksLikeId = displayName.startsWith('#') || /^\d{5,}$/.test(displayName);
+    if(looksLikeId){
+      const rawId = displayName.replace(/^#/,'');
+      displayName = S.faction?.members?.[rawId]?.name
+        || S.faction?.members?.[r.toMemberId||'']?.name
+        || displayName;
     }
     h+=`<tr>
       <td class="cm" style="font-size:10px;white-space:nowrap">${ft(r.ts)}</td>
@@ -4880,8 +4929,9 @@ function lastPaidTs(member){
 
 function renderOwed(){
   const members={};
+  // Build LIFETIME stats (all non-deleted receipts)
   S.receipts.filter(r=>!r.deleted).forEach(r=>{
-    if(!members[r.member]) members[r.member]={name:r.member,memberId:r.memberId||'',cats:{},count:0};
+    if(!members[r.member]) members[r.member]={name:r.member,memberId:r.memberId||'',cats:{},count:0,unpaidCats:{},unpaidCount:0};
     members[r.member].cats[r.cat]=(members[r.member].cats[r.cat]||0)+r.qty;
     members[r.member].count+=r.qty;
     if(r.memberId&&r.memberId!=='0') members[r.member].memberId=r.memberId;
@@ -4892,6 +4942,15 @@ function renderOwed(){
   });
   Object.entries(S.faction?.members||{}).forEach(([id,m])=>{
     if(m.name&&members[m.name]&&!members[m.name].memberId) members[m.name].memberId=id;
+  });
+
+  // Build unpaid cats — items received SINCE last MARK PAID
+  Object.values(members).forEach(m=>{
+    const paidTs=lastPaidTs(m.name);
+    S.receipts.filter(r=>!r.deleted&&r.member===m.name&&r.ts>paidTs).forEach(r=>{
+      m.unpaidCats[r.cat]=(m.unpaidCats[r.cat]||0)+r.qty;
+      m.unpaidCount+=r.qty;
+    });
   });
 
   const entries=Object.values(members);
@@ -4912,29 +4971,27 @@ function renderOwed(){
   owedEntries.forEach(m=>{
     const owed=calcOwed(m.name);
     const paidTs=lastPaidTs(m.name);
-    const cats=Object.entries(m.cats).map(([c,q])=>`${q}x ${c}`).join(' · ');
+    // Card body: UNPAID items only (since last MARK PAID)
+    const unpaidCatsDisplay=Object.entries(m.unpaidCats).map(([c,q])=>`${q}x ${c}`).join(' · ');
     const amtInt=Math.round(owed);
     const vaultUrl=m.memberId&&m.memberId!=='0'
       ? `https://www.torn.com/factions.php?step=your#tab=controls&to=${m.memberId}&amount=${amtInt}`
       : `https://www.torn.com/factions.php?step=your`;
     const vaultBtn=`<a href="${vaultUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:6px 10px;text-decoration:none;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;" onmouseover="this.style.background='rgba(126,184,255,0.1)'" onmouseout="this.style.background='transparent'">⇒ PAY ${ff$(owed)}</a>`;
 
-    // A-2: Build new-item map (items received since last MARK PAID)
-    const newCats={};
-    S.receipts.filter(r=>!r.deleted&&r.member===m.name&&r.ts>paidTs)
-      .forEach(r=>{ newCats[r.cat]=(newCats[r.cat]||0)+r.qty; });
+    // A-2: newCats = unpaidCats (already computed above — items since last MARK PAID)
+    const newCats=m.unpaidCats;
     const hasNew=Object.keys(newCats).length>0;
-
-    // A-2: Append yellow dot to cats summary if any new items exist
-    const catsDisplay=cats+(hasNew?' <span style="color:var(--accent3);font-size:10px;" title="New items since last payment">●</span>':'');
+    const catsDisplay=unpaidCatsDisplay+(hasNew&&paidTs?' <span style="color:var(--accent3);font-size:10px;" title="New items since last payment">●</span>':'');
 
     // A-1: Unique ID for the stats panel
     const statsId='ms_'+m.name.replace(/[^a-z0-9]/gi,'_');
 
-    // A-1: Build lifetime stats rows with A-2 new-item highlighting
+    // A-1: Lifetime stats rows in $ panel with A-2 new-item highlighting
     const statsRows=Object.entries(m.cats).map(([c,q])=>{
-      const isNew=(newCats[c]||0)>0;
-      const newLabel=isNew?` <span style="color:var(--accent3);font-size:8px;">(+${newCats[c]} new)</span>`:'';
+      const newQty=newCats[c]||0;
+      const isNew=newQty>0;
+      const newLabel=isNew?` <span style="color:var(--accent3);font-size:8px;">(+${newQty} unpaid)</span>`:'';
       const rowBg=isNew?'background:rgba(240,192,64,0.08);padding:2px 6px;margin:0 -6px;':'padding:2px 0;';
       return `<div style="${rowBg}">${q}x ${c}${newLabel}</div>`;
     }).join('');
@@ -4948,7 +5005,7 @@ function renderOwed(){
         onmouseout="this.style.borderColor='var(--border)'">$</button>
       <div class="oc-name">${m.name}${m.memberId&&m.memberId!=='0'?`<span style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-left:6px;">#${m.memberId}</span>`:''}</div>
       <div class="oc-amt">${ff$(owed)}</div>
-      <div class="oc-sub">${catsDisplay}${paidTs?'<br>Last paid: '+fd(paidTs):''}</div>
+      <div class="oc-sub">${catsDisplay||'&nbsp;'}${paidTs?'<br>Last paid: '+fd(paidTs):''}</div>
       <div class="oc-actions">
         <button class="btn-paid" onclick="markPaid('${m.name.replace(/'/g,"\\'")}',${owed})">✓ MARK PAID</button>
         ${vaultBtn}
@@ -4958,7 +5015,7 @@ function renderOwed(){
         border-top:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);">
         <div style="color:var(--accent3);font-size:9px;letter-spacing:1px;margin-bottom:6px;">── LIFETIME STATS ──</div>
         ${statsRows}
-        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text);">Total: ${m.count} items</div>
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text);">Lifetime total: ${m.count} items</div>
       </div>
     </div>`;
   });
@@ -4976,12 +5033,26 @@ function renderOwed(){
       <div id="${paidId}" style="display:none;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:8px;">`;
     paidEntries.forEach(m=>{
       const paidTs=lastPaidTs(m.name);
-      html+=`<div class="oc paid-card" style="opacity:0.55;">
+      const statsId='ms_'+m.name.replace(/[^a-z0-9]/gi,'_');
+      const statsRows=Object.entries(m.cats).map(([c,q])=>`<div style="padding:2px 0;">${q}x ${c}</div>`).join('');
+      html+=`<div class="oc paid-card" style="opacity:0.55;position:relative;">
+        <button onclick="toggleMemberStats('${statsId}')" title="Lifetime stats"
+          style="position:absolute;top:8px;right:8px;background:var(--surface2);border:1px solid var(--border);
+          color:var(--accent3);font-family:'Space Mono',monospace;font-size:9px;padding:4px 8px;cursor:pointer;
+          letter-spacing:1px;transition:all 0.2s;z-index:1;"
+          onmouseover="this.style.borderColor='var(--accent3)'"
+          onmouseout="this.style.borderColor='var(--border)'">$</button>
         <div class="oc-name" style="font-size:13px;">${m.name}</div>
         <div class="oc-amt zero" style="font-size:16px;">$0</div>
         <div class="oc-sub">${paidTs?'Last paid: '+fd(paidTs):'No payment recorded'}</div>
         <div class="oc-actions"><span class="badge bg">PAID ✓</span>
           <button class="btn-viewlog" onclick="switchTab('receipts');filterRcptMember('${m.name.replace(/'/g,"\\'")}')">VIEW LOG</button>
+        </div>
+        <div id="${statsId}" style="display:none;margin-top:10px;padding-top:10px;
+          border-top:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);">
+          <div style="color:var(--accent3);font-size:9px;letter-spacing:1px;margin-bottom:6px;">── LIFETIME STATS ──</div>
+          ${statsRows}
+          <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text);">Lifetime total: ${m.count} items</div>
         </div>
       </div>`;
     });
@@ -5022,7 +5093,7 @@ function renderRcptLog(){
     return true;
   });
   if(!rows.length){document.getElementById('rcptTbl').innerHTML='<div class="empty">No receipts found.</div>';return;}
-  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Alcohol:'by',Medical:'br'};
+  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Drug:'by',Alcohol:'by',Medical:'br'};
   let h=`<table><thead><tr><th>Date/Time</th><th>Member</th><th>Item</th><th>Qty</th><th>Cat</th><th>Unit MV</th><th>Owed</th><th>Status</th><th></th></tr></thead><tbody>`;
   rows.forEach(r=>{
     const paidTs=lastPaidTs(r.member), isPaid=r.ts<=paidTs;
@@ -5786,7 +5857,7 @@ function adminAddManualReceipt(){
 
 // ── STORAGE INSPECTOR
 function adminInspectStorage(){
-  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache'];
+  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist'];
   let out='=== LOCALSTORAGE ===\n\n';
   keys.forEach(k=>{
     const v=localStorage.getItem(k);
@@ -5847,9 +5918,10 @@ function adminClearAll(){
   const paidCount=Object.keys(S.paidLog).length;
   const warCount=S.wars.length;
   if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• ${warCount} war payout record(s)\n• All payout rates & card settings\n• Sync settings\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
-  ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache'].forEach(k=>localStorage.removeItem(k));
-  S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Alcohol:98,Medical:98}; S.refundedPayments=new Set();
+  ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist'].forEach(k=>localStorage.removeItem(k));
+  S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98}; S.refundedPayments=new Set();
   S.cardPeriods={supply:'30d',oc:'30d',pnl:'30d'}; RMINS=15;
+  S.pointPrice=0; S.pointPriceHistory=[];
   clearSessionState();
   loadRateInputs(); buildSyncSelector(); restoreCardPeriodPills();
   renderReceipts(); renderCards(); updateBadge(); renderWarPanel();
@@ -5865,7 +5937,7 @@ function adminRenderAudit(){
   const tbl=document.getElementById('adminAuditTbl');
   tbl.style.display='block';
   if(!S.receipts.length){tbl.innerHTML='<div class="empty">No receipts in memory.</div>';return;}
-  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Alcohol:'by',Medical:'br'};
+  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Drug:'by',Alcohol:'by',Medical:'br'};
   let h=`<table><thead><tr><th>Date</th><th>Member</th><th>ID</th><th>Item</th><th>Qty</th><th>Cat</th><th>MV</th><th>Owed</th><th>Status</th><th></th></tr></thead><tbody>`;
   [...S.receipts].sort((a,b)=>b.ts-a.ts).forEach(r=>{
     const owed=r.qty*r.mv*(S.rates[r.cat]||98)/100;
@@ -6696,7 +6768,14 @@ function checkAccessOnLoad(){
       clog(`Access valid — ${days}d ${hrs}h remaining (via ${r.method} from ${r.from})`,'ok');
     }
   } else {
+    // UPGRADE-6: Lapsed membership — show specific expired message on gate
     clog('Access expired — showing gate','warn');
+    const r2 = getAccessRecord();
+    const lapsedMsg = r2?.from
+      ? `<span style="color:var(--accent4)">⚠ Access expired</span><br><span style="color:var(--muted);font-size:9px;">Previous access was granted to <strong style="color:var(--text)">${r2.from}</strong>.<br>Send 1x Xanax or $1,000,000 to <strong style="color:var(--text)">Sypharius</strong><br>with message: <strong style="color:var(--accent3)">DashboardAccess</strong> to renew.</span>`
+      : `<span style="color:var(--accent4)">⚠ Access expired</span><br><span style="color:var(--muted);font-size:9px;">Send 1x Xanax or $1,000,000 to <strong style="color:var(--text)">Sypharius</strong><br>with message: <strong style="color:var(--accent3)">DashboardAccess</strong></span>`;
+    const statusEl = document.getElementById('accessStatus');
+    if(statusEl) statusEl.innerHTML = lapsedMsg;
     showAccessGate(true);
   }
 }
