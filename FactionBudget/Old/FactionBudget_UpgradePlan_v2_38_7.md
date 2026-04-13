@@ -13,6 +13,7 @@
 - PARTIAL-6: Expiry warning banner when <24h remains (dismissible, skips lifetime/faction)
 - BUG: Member card body now shows unpaid items only (was lifetime totals)
 - BUG: $ stats button now on paid/grayed cards too
+- BUG: Lifetime stats panel (both owed & paid cards) now shows payout per category + lifetime total payout (uses paidLog recorded amounts where available, falls back to qty×MV×rate)
 - BUG: Faction Income card includes war income in all render paths (renderOC was overwriting cOC without war)
 - BUG: Outgoing display-time name resolution handles bare numeric IDs (e.g. `2622687`) not just `#`-prefixed
 - NOTE: OC tab shows clarifying label that its period is controlled by Faction Income card pill
