@@ -1,0 +1,38 @@
+{
+  "_meta": {
+    "exported": "2026-04-13T12:15:55.780Z",
+    "version": "2.38.8"
+  },
+  "players": [
+    {
+      "name": "Chubbs",
+      "events": [
+        {
+          "ts": 1776031259,
+          "type": "Xanax",
+          "qty": 1,
+          "refunded": true,
+          "rawEvent": "You were sent some Xanax from Chubbs with the message: DashboardAccess"
+        }
+      ],
+      "xanaxTotal": 0,
+      "moneyUnits": 0,
+      "combinedUnits": 0,
+      "lifetime": false,
+      "daysGranted": 0,
+      "isTester": true,
+      "grantedAt": 1776031259000,
+      "expiry": 1776031259000,
+      "expired": true,
+      "daysLeft": 0
+    }
+  ],
+  "testers": [
+    {
+      "name": "Chubbs",
+      "grantedAt": 1776054916022,
+      "notes": "Tested Payment Access"
+    }
+  ],
+  "factionWhitelist": []
+}
