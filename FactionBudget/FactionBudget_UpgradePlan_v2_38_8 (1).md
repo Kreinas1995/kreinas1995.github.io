@@ -189,3 +189,14 @@ All keys use `hv_v1_` prefix. When adding new persisted state, add the key to:
 2. **Section D** (admin panel reorganization) — medium UX
 3. **Sections E, F-1 to F-4** (supply overhaul + reimbursement) — large, own session
 4. **Sections G, H** remaining partials/upgrades — fill-in as capacity allows
+
+**Notes from partial run**
+Let me read the plan and orient before touching anything.Priority order is C → D → E/F → G/H. Section C requires deploying a separate file to GitHub which can't happen here — so I'll skip to **Section D** (Admin Panel Reorganization) as the top actionable item. Let me read the source file state first.Good. Now I have a clear picture of the full structure. Let me plan Section D carefully before writing any code:
+
+**D-1:** Move `cLines` / `cLinesPost` / `postConsole` / CONSOLE button out of the key bar — console only lives inside Admin panel
+**D-2:** Admin tab click shows a confirmation popup before revealing the panel
+**D-3:** Admin panel gets a top-level menu: Data Management / Debug Tools / Access Payments / Storage Inspector / Audit Log — each as a clickable section that expands the relevant content
+**D-4:** Error log always pinned at bottom of Admin panel (already there, just ensure always visible)
+**D-5:** Debug tab removed from tabs bar; accessible only via Admin → Debug Tools
+
+Let me look at more structure before writing:Now I have full orientation. Let me write the complete Section D implementation script:The replace deleted too much — the old debug panel string wasn't matching exactly. The file shrunk catastrophically. Let me restore from the output and use a different approach:Good. The issue was that I tried to replace the old debug panel + admin as one string — the exact whitespace didn't match. I need to make two separate targeted replacements. Let me approach this more carefully — operate on each piece independently:Now I have clean boundaries. Let me do this correctly with a single Python script that operates on precise character positions:All checks passed. Now add the new JS functions and fix `switchTab` to not reference `debug`:`clog` still writes to `cLinesPost` — it's fine, that ID still exists inside the admin console section. The check was looking at the wrong slice. Let me verify integrity and output:
