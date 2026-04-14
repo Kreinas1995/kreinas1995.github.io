@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.39.0</title>
+<title>Faction Budget v2.39.2</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -121,10 +121,18 @@
   /* Member tooltip — works on desktop hover AND mobile tap */
   .mem-tip{position:relative;cursor:pointer;}
   .mem-tip .mem-tip-box{
-    display:none;position:absolute;z-index:999;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+    display:none;position:absolute;z-index:999;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
     background:var(--surface2);border:1px solid var(--border);color:var(--text);
     font-family:'Space Mono',monospace;font-size:10px;padding:6px 10px;white-space:nowrap;
     box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:none;line-height:1.7;
+  }
+  .mem-tip .mem-tip-box::after{
+    content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
+    border:6px solid transparent;border-top-color:var(--border);
+  }
+  .mem-tip .mem-tip-box::before{
+    content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
+    border:5px solid transparent;border-top-color:var(--surface2);margin-top:-1px;z-index:1;
   }
   .mem-tip:hover .mem-tip-box,
   .mem-tip.tip-open .mem-tip-box{display:block;}
@@ -233,7 +241,7 @@
 
   /* SPINNER */
   .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(10,13,15,0.5);border-top-color:var(--bg);border-radius:50%;animation:rot 0.6s linear infinite;flex-shrink:0;}
-  @keyframes badgeGlow{0%,100%{box-shadow:0 0 4px var(--accent3);border-color:var(--accent3);}50%{box-shadow:0 0 12px var(--accent3),0 0 20px rgba(240,192,64,0.3);border-color:var(--accent3);}}
+  @keyframes badgeGlow{0%,100%{box-shadow:0 0 4px var(--accent);border-color:var(--accent);}50%{box-shadow:0 0 12px var(--accent),0 0 20px rgba(127,255,110,0.4);border-color:var(--accent);}}
   @keyframes syncPulse{0%{left:-40%;width:40%;}60%{left:100%;width:40%;}100%{left:100%;width:40%;}}
   .rp{position:relative;overflow:hidden;}
   .rp-fill{height:100%;background:var(--accent2);transition:width 0.6s ease;}
@@ -375,7 +383,7 @@
         <div class="logo-name">⬡ <span id="factionTitle">HIGHVIBES</span></div>
         <div class="logo-sub">Faction Budget Dashboard</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer;" onclick="(function(){const from=localStorage.getItem('hv_upgrade_from');showChangelog(false,null,from||null);})()" title="View changelog">
-          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.39.0</div>
+          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.39.2</div>
           <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;">changelog</div>
         </div>
       </div>
@@ -1036,7 +1044,7 @@
 // ════════════════════════════════════════════
 // VERSION & CHANGELOG
 // ════════════════════════════════════════════
-const APP_VERSION = '2.39.0';
+const APP_VERSION = '2.39.2';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1101,6 +1109,17 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.39.2', date:'2026-04-13', notes:[
+    '[*] BUG-OC-MEMBERS: OC member auto-match from selection entries now requires selection timestamp to precede completion (no future-matching). Claimed selections are tracked and cannot match multiple completions — eliminates random wrong members appearing in tooltips.',
+    '[*] WAR: War history table now shows Opponent column ("vs ROMAN EMPIRE") and Win/Loss status with color (🏆 Win / ✗ Loss). Both fields parsed from ArmaSync payout page.',
+    '[*] WAR: Lifetime member payout grid replaced with a single collapsible "Lifetime Payouts" bar — tap to expand clean single-column list sorted by payout.',
+    '[*] UX: Version badge now glows green (not yellow) when upgrade is available. Badge text shows "⬆ Upgrade Available". Tapping the glowing badge redirects directly to the new version without opening changelog first.',
+    '[*] UX: Member tooltip (.mem-tip-box) now has a downward CSS arrow pointing to the tapped element.',
+    '[*] UX: Faction Balance card shows "≈{memberTotal} (members)" as emergency fallback when vault is unavailable (API permission missing), instead of showing ---.',
+  ]},
+  { v:'2.39.1', date:'2026-04-13', notes:[
+    '[!!] BUG-CRITICAL: Missing `function ocToggleEditMem(id){` function declaration — syntax error caused entire script to fail on load.',
+  ]},
   { v:'2.39.0', date:'2026-04-13', notes:[
     '[!!] BUG-CRITICAL: Missing `function setWarPeriod(el, period){` declaration — war period pills (30D/90D/1Y/LIFETIME) threw a reference error and broke the entire war panel.',
     '[*] BUG: warTotalPot() / warFactionCut() — added Number() coercions and isFinite() guards. Old localStorage war records with corrupt or string-typed factionCutPct caused NaN to propagate to Faction Income card, showing — instead of a value.',
@@ -1693,7 +1712,7 @@ function glowVersionBadge(label){
   const sub=document.getElementById('versionSub');
   if(!badge) return;
   badge.style.animation='badgeGlow 1.5s ease-in-out infinite';
-  badge.style.color='var(--accent3)';
+  badge.style.color='var(--accent)';
   if(sub) sub.textContent=label||'updated — tap to see what\'s new';
   // Clear pending flag — badge glow is the notification now
   localStorage.removeItem('hv_pending_changelog');
@@ -1730,12 +1749,17 @@ async function checkForUpdate(fromAdmin=false){
     const downloadUrl=REPO_BASE+bestFile;
     const curParts=APP_VERSION.split('.').map(Number);
     if(vNum(bestVer)>vNum(curParts)){
-      glowVersionBadge(`upgrade to v${latest}`);
+      latestVer=latest;
+      glowVersionBadge('⬆ Upgrade Available');
       badge.textContent=`v${APP_VERSION}`;
-      sub.textContent=`⬆ upgrade to v${latest}`;
+      // Wire badge click to redirect directly when upgrade available
+      badge.style.cursor='pointer';
+      badge.onclick=function(){ doUpdate(); };
+      sub.textContent='⬆ Upgrade Available';
+      sub.style.color='var(--accent)';
       clog(`Update available: v${latest} — ${downloadUrl}`,'warn');
       if(adminStatus){
-        adminStatus.innerHTML=`<span style="color:var(--accent3)">⬆ Update available: v${latest}</span>`;
+        adminStatus.innerHTML=`<span style="color:var(--accent)">⬆ Update available: v${latest}</span>`;
       }
       const btn=document.getElementById('btnDoUpdate');
       btn.style.display='flex';
@@ -1744,8 +1768,9 @@ async function checkForUpdate(fromAdmin=false){
       return {available:true,latest,url:downloadUrl};
     } else {
       badge.textContent=`v${APP_VERSION}`;
-      badge.style.borderColor='';badge.style.color='';
+      badge.style.borderColor='';badge.style.color='';badge.style.cursor='';badge.onclick=null;
       sub.textContent='changelog';
+      sub.style.color='';
       clog(`Version up to date: v${APP_VERSION}`,'ok');
       if(adminStatus) adminStatus.innerHTML=`<span style="color:var(--accent2)">✓ Up to date (v${APP_VERSION})</span>`;
       return {available:false,latest};
@@ -5090,6 +5115,8 @@ function renderOC(){
     updateOcBanner(crimenewsTotal+manualTotal, warInc2, ocPeriod);
 
     const selectionEntries=allEntries.filter(e=>/have been selected/i.test(e.news||''));
+    // Track which selection entries have been claimed so they can't match multiple completions
+    const claimedSelections=new Set();
     const displayEntries=(periodEntries.length?periodEntries:allEntries.filter(e=>/successfully|tried to|but failed/i.test(e.news||''))).slice(0,100);
     const successes=displayEntries.filter(e=>/successfully/i.test(e.news||'')).length;
     const failures=displayEntries.filter(e=>/tried to|but failed/i.test(e.news||'')).length;
@@ -5132,10 +5159,18 @@ function renderOC(){
         if(S.ocOverrides?.[cnMemKey]?.members?.length){
           parsedMembers=S.ocOverrides[cnMemKey].members;
         } else if(!parsedMembers.length){
-          // Try to match from upcoming selections — find selection entry close in time with same crime type
+          // Try to match from selection entries — STRICT rules:
+          // 1. Selection must be BEFORE the completion (sel.timestamp < e.timestamp)
+          // 2. Selection must be within 7 days before completion
+          // 3. Selection must not already be claimed by another completion
+          // 4. Crime type must match
           const selMatch=selectionEntries.find(sel=>{
-            const selAge=Math.abs((sel.timestamp||0)-(e.timestamp||0));
-            if(selAge>7*86400) return false; // must be within 7 days
+            const selTs=sel.timestamp||0;
+            const compTs=e.timestamp||0;
+            if(selTs>=compTs) return false; // selection must precede completion
+            const selAge=compTs-selTs;
+            if(selAge>7*86400) return false; // must be within 7 days before
+            if(claimedSelections.has(selTs)) return false; // already claimed
             const selType=parseCrimeType(sel.news||'');
             return selType===type;
           });
@@ -5144,6 +5179,7 @@ function renderOC(){
             const selParts=selClean.match(/^(.+?)\s+and\s+(.+?)\s+have been selected/i);
             if(selParts){
               parsedMembers=[selParts[1].trim(),selParts[2].trim()];
+              claimedSelections.add(selMatch.timestamp); // mark as claimed
               // Auto-save to overrides so it persists
               if(!S.ocOverrides) S.ocOverrides={};
               S.ocOverrides[cnMemKey]={members:parsedMembers};
@@ -5588,7 +5624,7 @@ function renderCards(){
   const vtEl=document.getElementById('cVaultTotal');
   const vEl=document.getElementById('cVault');
   if(vtEl) vtEl.textContent=vault>0?fmt$(vault):mT>0?fmt$(mT):'---';
-  if(vEl) vEl.textContent=vault>0?fmt$(net):'---';
+  if(vEl) vEl.textContent=vault>0?fmt$(net):mT>0?`≈${fmt$(mT)} (members)`:'---';
 
   // Supply cost — filtered by card period
   const supplyPeriod=S.cardPeriods.supply||'30d';
@@ -6530,7 +6566,8 @@ function parseArmaSync(html, url){
   const memberPayout = grossPayout; // what members received
 
   if(!members.length||!memberPayout) return null;
-  return{url,name,date,result,totalPot:0,memberPayout,grossPayout:memberPayout,factionCutPct:20,totalAtk,members,importedAt:Date.now()};
+  const opponent = vsM ? vsM[2].trim() : 'Unknown';
+  return{url,name,date,result,opponent,totalPot:0,memberPayout,grossPayout:memberPayout,factionCutPct:20,totalAtk,members,importedAt:Date.now()};
   // Note: totalPot is computed as memberPayout/(1-factionCutPct/100) at render time,
   // or can be overridden. factionCutPct defaults to 20 and is editable per war.
 }
@@ -6629,7 +6666,7 @@ function renderWarPanel(){
     if(wd) wd.textContent=filtered.length===1?filtered[0].date:`${period==='all'?'Lifetime':period}`;
   }
 
-  // Member payout grid (aggregate across filtered wars)
+  // Member payout — collapsed into a single tappable "Lifetime Payouts" bar
   const memberTotals={};
   filtered.forEach(w=>{
     w.members.forEach(m=>{
@@ -6642,14 +6679,27 @@ function renderWarPanel(){
   });
   const sorted=Object.values(memberTotals).sort((a,b)=>b.payout-a.payout);
   if(memberGrid){
-    memberGrid.innerHTML=sorted.map(m=>`
-      <div class="war-member-row">
-        <div>
-          <div class="war-member-name">${m.name}</div>
-          <div class="war-member-hits">${m.warHits} war hits · ${m.wars} war${m.wars!==1?'s':''} · ${m.respect.toFixed(1)} resp</div>
+    const listId='warLifetimeList';
+    memberGrid.innerHTML=`
+      <div onclick="(function(){var el=document.getElementById('${listId}');var arr=document.getElementById('${listId}Arr');el.style.display=el.style.display==='none'?'block':'none';arr.textContent=el.style.display==='none'?'▸':'▾';})()"
+        style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;user-select:none;margin-bottom:0;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="${listId}Arr" style="font-size:12px;color:var(--muted)">▸</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);">Lifetime Payouts</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);">${sorted.length} members</span>
         </div>
-        <div class="war-member-amt">${fmt$(m.payout)}</div>
-      </div>`).join('');
+        <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent3);font-weight:700;">${fmt$(sorted.reduce((s,m)=>s+m.payout,0))}</span>
+      </div>
+      <div id="${listId}" style="display:none;border:1px solid var(--border);border-top:none;background:var(--surface);">
+        ${sorted.map(m=>`
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 14px;border-bottom:1px solid var(--border);">
+            <div>
+              <span style="font-family:'Syne',sans-serif;font-weight:600;font-size:12px;color:var(--text);">${m.name}</span>
+              <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-left:8px;">${m.warHits} hits · ${m.wars} war${m.wars!==1?'s':''}</span>
+            </div>
+            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent3);font-weight:700;">${fmt$(m.payout)}</span>
+          </div>`).join('')}
+      </div>`;
   }
 
   // War history table — always shown, with per-war details
@@ -6657,6 +6707,7 @@ function renderWarPanel(){
     warTbl.style.display='block';
     let h=`<table><thead><tr>
       <th>War</th>
+      <th>Opponent</th>
       <th>Result</th>
       <th>Total Pot</th>
       <th style="white-space:nowrap;">Faction %</th>
@@ -6673,10 +6724,13 @@ function renderWarPanel(){
       const mpay=w.memberPayout||w.grossPayout||0;
       const result=w.result||'Unknown';
       const resultColor=result==='Win'?'var(--accent2)':result==='Loss'?'var(--accent4)':'var(--muted)';
+      const resultIcon=result==='Win'?'🏆 Win':result==='Loss'?'✗ Loss':result;
+      const opponent=w.opponent||'—';
       const memberRowId=`warMembers_${wIdx}`;
       h+=`<tr style="cursor:pointer;" onclick="(function(){var el=document.getElementById('${memberRowId}');el.style.display=el.style.display==='none'?'table-row':'none';})()">
         <td class="cn" style="font-size:11px">${w.name}</td>
-        <td style="font-size:11px;font-weight:700;color:${resultColor}">${result}</td>
+        <td style="font-size:10px;color:var(--accent5)">vs ${opponent}</td>
+        <td style="font-size:11px;font-weight:700;color:${resultColor}">${resultIcon}</td>
         <td class="cy">${fmt$(pot)}</td>
         <td style="font-size:10px;white-space:nowrap;">
           <input type="number" value="${w.factionCutPct!==undefined?w.factionCutPct:20}" min="0" max="99" step="1"
@@ -6690,7 +6744,7 @@ function renderWarPanel(){
         <td><button class="del-btn" title="Remove" onclick="event.stopPropagation();removeWar(${wIdx})">✕</button></td>
       </tr>
       <tr id="${memberRowId}" style="display:none;background:rgba(127,255,110,0.02);">
-        <td colspan="8" style="padding:8px 12px;">
+        <td colspan="9" style="padding:8px 12px;">
           <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">${w.name} — ${w.date} — ${w.members.length} members</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;">
             ${w.members.sort((a,b)=>b.payout-a.payout).map(m=>`
@@ -6705,7 +6759,7 @@ function renderWarPanel(){
 
     // Summary footer row
     h+=`<tr style="border-top:2px solid var(--border);background:rgba(127,255,110,0.02);">
-      <td style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;color:var(--muted);letter-spacing:1px;" colspan="2">TOTALS (${filtered.length} war${filtered.length!==1?'s':''})</td>
+      <td style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;color:var(--muted);letter-spacing:1px;" colspan="3">TOTALS (${filtered.length} war${filtered.length!==1?'s':''})</td>
       <td class="cy" style="font-weight:700;">${fmt$(grandPot)}</td>
       <td></td>
       <td class="cy" style="font-weight:700;">${fmt$(grandCut)}</td>
