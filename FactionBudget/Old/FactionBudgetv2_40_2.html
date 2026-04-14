@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.1</title>
+<title>Faction Budget v2.40.2</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -384,7 +384,7 @@
         <div class="logo-sub">Faction Budget Dashboard</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer;" onclick="(function(){const from=localStorage.getItem('hv_upgrade_from');showChangelog(false,null,from||null);})()" title="View changelog">
           <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v—</div>
-          <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;">changelog</div>
+          <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--text);letter-spacing:1px;">changelog</div>
         </div>
       </div>
     </div>
@@ -1047,7 +1047,12 @@
 // ════════════════════════════════════════════
 // VERSION & CHANGELOG
 // ════════════════════════════════════════════
-const APP_VERSION = '2.40.1';
+// ══════════════════════════════════════════════════════════════════
+// !! SINGLE SOURCE OF TRUTH FOR VERSION — update this and ONLY this
+//    revealDash() injects it into <title> and #versionBadge at load
+//    CHANGELOG array first entry must also match this version
+// ══════════════════════════════════════════════════════════════════
+const APP_VERSION = '2.40.2';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1112,6 +1117,14 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.2', date:'2026-04-13', notes:[
+    '[*] BUG: versionSub ("changelog" label) was hardcoded var(--muted2) gray — now var(--text) white in HTML, and reset to white in showChangelog() + checkForUpdate() no-update branch.',
+    '[*] OC: saveOcManual() now verifies write with a read-back and logs errors to Console tab instead of silently swallowing them.',
+    '[*] OC: ocManualSubmit() logs array length and LS preview to Console immediately before/after save — open Console tab then submit an entry to see exact failure point.',
+    '[*] OC: Debug panel auto-refreshes after every submit if panel is open. Separate S.ocManual vs LS comparison added — drift between in-memory and stored state now immediately visible.',
+    '[*] OC: Debug shows zero-reward entries warning and period-filter miss warning (switch to ALL if entries exist but dont show).',
+    '[+] CODE: APP_VERSION now has prominent comment block — single source of truth, never needs updating in more than one place.',
+  ]},
   { v:'2.40.1', date:'2026-04-13', notes:[
     '[*] VERSION: All 3 version locations (APP_VERSION constant, <title>, versionBadge) now driven by single APP_VERSION constant. revealDash() injects it at load — no more drift between them.',
     '[*] UX: "No update available" sub-label now renders in white (var(--text)) instead of inheriting muted gray.',
@@ -1719,7 +1732,7 @@ function showChangelog(updateAvailable=false, latestVersion=null, sinceVersion=n
   const badge=document.getElementById('versionBadge');
   const sub=document.getElementById('versionSub');
   if(badge){ badge.style.animation=''; }
-  if(sub&&sub.textContent.includes('new')){ sub.textContent='changelog'; }
+  if(sub&&sub.textContent.includes('new')){ sub.textContent='changelog'; sub.style.color='var(--text)'; }
   localStorage.removeItem('hv_upgrade_from');
 }
 
@@ -3371,7 +3384,19 @@ function detectCat(name){
 }
 
 function saveReceipts(){ try{localStorage.setItem('hv_v1_rcpts',JSON.stringify(S.receipts));}catch(e){} }
-function saveOcManual(){ try{localStorage.setItem('hv_v1_oc_manual',JSON.stringify(S.ocManual));}catch(e){} }
+function saveOcManual(){
+  try{
+    const json=JSON.stringify(S.ocManual);
+    localStorage.setItem('hv_v1_oc_manual', json);
+    // Verify write succeeded
+    const check=localStorage.getItem('hv_v1_oc_manual');
+    if(!check||check==='[]'&&S.ocManual.length>0){
+      clog(`OC save verify FAILED — LS returned "${check}" for ${S.ocManual.length} entries`,'err');
+    }
+  }catch(e){
+    clog(`saveOcManual ERROR: ${e.message}`,'err');
+  }
+}
 function saveOcOverrides(){ try{localStorage.setItem('hv_v1_oc_overrides',JSON.stringify(S.ocOverrides));}catch(e){} }
 function saveRespectOverrides(){ try{localStorage.setItem('hv_v1_respect_overrides',JSON.stringify(S.respectOverrides));}catch(e){} }
 function saveRefundedPayments(){ try{localStorage.setItem('hv_v1_refunded_payments',JSON.stringify([...S.refundedPayments]));}catch(e){} }
@@ -4870,35 +4895,57 @@ function ocDebugRun(){
   const inPeriod=manual.filter(e=>e.ts>ocFrom);
   const total=inPeriod.reduce((s,e)=>s+Number(e.reward||0),0);
 
+  // Read directly from localStorage for comparison
+  const lsRaw=localStorage.getItem('hv_v1_oc_manual')||'null';
+  let lsParsed=[];
+  try{ lsParsed=JSON.parse(lsRaw)||[]; }catch(e){}
+
   let lines=[];
   lines.push(`APP_VERSION  : ${APP_VERSION}`);
   lines.push(`Period       : ${ocPeriod}  (ocFrom=${ocFrom})`);
   lines.push(`Now (unix)   : ${Math.floor(Date.now()/1000)}`);
-  lines.push(`S.ocManual   : ${manual.length} entries total`);
+  lines.push('');
+  lines.push(`── S.ocManual (in-memory) ──`);
+  lines.push(`Count        : ${manual.length} entries`);
   lines.push(`In period    : ${inPeriod.length} entries`);
   lines.push(`Manual total : ${total} = ${fmt$(total)}`);
-  lines.push(`LS key       : hv_v1_oc_manual`);
-  const raw=localStorage.getItem('hv_v1_oc_manual');
-  lines.push(`LS raw len   : ${raw?raw.length:0} chars`);
   lines.push('');
-  if(manual.length===0){
-    lines.push('⚠ S.ocManual is EMPTY — entries not loaded or not saved');
-    lines.push('  → Try: save a test entry, reload, then run debug again');
-    lines.push('  LS raw: '+(raw||'(null)'));
-  } else {
+  lines.push(`── localStorage ──`);
+  lines.push(`LS raw len   : ${lsRaw.length} chars`);
+  lines.push(`LS parsed    : ${lsParsed.length} entries`);
+  lines.push(`LS preview   : ${lsRaw.slice(0,120)}`);
+  lines.push('');
+
+  // Check for drift between memory and LS
+  if(manual.length !== lsParsed.length){
+    lines.push(`⚠ DRIFT: memory has ${manual.length} entries, LS has ${lsParsed.length}`);
+    lines.push(`  → saveOcManual() may have failed silently, or LS was cleared after save`);
+  }
+
+  if(manual.length===0 && lsParsed.length===0){
+    lines.push('⚠ BOTH empty — no entries in memory or LS');
+    lines.push('  → Check Console tab for saveOcManual errors after submitting an entry');
+  } else if(manual.length===0 && lsParsed.length>0){
+    lines.push('⚠ LS has data but S.ocManual is empty — load failed');
+    lines.push('  → Try: reload the page');
+  } else if(manual.length>0){
     lines.push(`Entries (most recent first):`);
     manual.slice(0,10).forEach((e,i)=>{
       const inP=e.ts>ocFrom;
       const rewardN=Number(e.reward||0);
-      lines.push(`  [${i}] id=${e.id} ts=${e.ts} type=${e.type} reward=${e.reward} (Number=${rewardN}) members=${(e.members||[]).length} inPeriod=${inP}`);
+      lines.push(`  [${i}] id=${e.id} ts=${e.ts} type=${e.type} reward=${e.reward}→${rewardN} mems=${(e.members||[]).length} inPeriod=${inP}`);
     });
     if(manual.length>10) lines.push(`  … and ${manual.length-10} more`);
   }
+
   lines.push('');
-  // Check for string vs number reward type
   const strRewards=manual.filter(e=>typeof e.reward==='string');
-  if(strRewards.length) lines.push(`⚠ ${strRewards.length} entries have reward stored as STRING — coerced OK by Number() but check LS`);
-  // Check war income
+  if(strRewards.length) lines.push(`⚠ ${strRewards.length} entries have reward as STRING type — coerced by Number() but odd`);
+  const zeroRewards=manual.filter(e=>Number(e.reward||0)===0);
+  if(zeroRewards.length) lines.push(`⚠ ${zeroRewards.length} entries have reward=0 — won't count toward total`);
+  const futurePeriod=manual.filter(e=>e.ts<=ocFrom);
+  if(futurePeriod.length&&ocPeriod!=='all') lines.push(`ℹ ${futurePeriod.length} entries outside current period (${ocPeriod}) — switch to ALL to see them`);
+
   const ocFromMs=ocFrom*1000;
   const warInc=(S.wars||[]).filter(w=>{const d=w.date?new Date(w.date).getTime():0;return d>=ocFromMs;}).reduce((s,w)=>s+warFactionCut(w),0);
   lines.push(`War income   : ${fmt$(warInc)} (${(S.wars||[]).length} wars total)`);
@@ -4997,12 +5044,16 @@ function ocManualSubmit(){
   if(!S.ocManual) S.ocManual=[];
   S.ocManual.push({id,type,reward,members,ts});
   S.ocManual.sort((a,b)=>b.ts-a.ts);
+  clog(`OC pre-save: S.ocManual.length=${S.ocManual.length}, reward=${reward}`, 'info');
   saveOcManual();
+  clog(`OC post-save: LS="${localStorage.getItem('hv_v1_oc_manual')?.slice(0,80)}"`, 'info');
   document.getElementById('ocManualReward').value='';
   document.getElementById('ocManualDate').value='';
   // Uncheck all member boxes
   document.querySelectorAll('.ocMemberChk').forEach(el=>el.checked=false);
   clog(`OC manual entry: ${type} +${fmt$(reward)} (${members.length} members)`,'ok');
+  // Auto-refresh debug panel if open
+  if(document.getElementById('ocDebugPanel')?.style.display!=='none') ocDebugRun();
   renderOC(); renderCards();
 }
 
