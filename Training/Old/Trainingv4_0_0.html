@@ -246,8 +246,8 @@
   .api-sync-btn{background:#4bcc9a;color:#000;border:none;border-radius:5px;padding:7px 12px;font-family:'Orbitron',monospace;font-size:.58rem;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .15s;}
   .api-sync-btn:hover{opacity:.85;}
   .api-sync-btn:disabled{opacity:.35;cursor:not-allowed;}
-  .api-get-key{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);text-decoration:none;display:block;margin-bottom:8px;}
-  .api-get-key:hover{color:#4bcc9a;}
+  .api-get-key{font-family:'Share Tech Mono',monospace;font-size:.54rem;color:#000;text-decoration:none;display:inline-flex;align-items:center;gap:5px;margin-bottom:10px;background:#4bcc9a;border:none;border-radius:5px;padding:7px 13px;cursor:pointer;font-weight:700;letter-spacing:.06em;transition:opacity .15s;}
+  .api-get-key:hover{opacity:.85;}
   .api-info{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);line-height:1.6;margin-bottom:8px;}
   .api-status{font-family:'Share Tech Mono',monospace;font-size:.54rem;padding:6px 10px;border-radius:4px;background:var(--s1);border:1px solid var(--border);display:none;}
   .api-status.show{display:block;}
@@ -272,6 +272,30 @@
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(50px);background:var(--s3);border:1px solid var(--gold);border-radius:6px;padding:8px 18px;font-family:'Share Tech Mono',monospace;font-size:.62rem;color:var(--gold2);z-index:9999;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   .toast.err{border-color:var(--danger);color:var(--danger);}
+
+  /* API KEY TOP BAR */
+  .api-key-topbar{background:var(--s2);border:1px solid rgba(75,204,154,.25);border-radius:8px;padding:11px 13px;margin-bottom:14px;display:none;}
+  .api-key-topbar.show{display:block;}
+  .api-key-topbar-title{font-family:'Share Tech Mono',monospace;font-size:.54rem;color:var(--muted);letter-spacing:.07em;margin-bottom:7px;display:flex;align-items:center;justify-content:space-between;}
+  .api-key-topbar-row{display:flex;gap:6px;align-items:center;}
+
+  /* START DATE FIELD */
+  .start-date-bar{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:10px 13px;margin-bottom:14px;}
+  .start-date-bar label{font-family:'Share Tech Mono',monospace;font-size:.54rem;color:var(--muted);letter-spacing:.07em;display:block;margin-bottom:6px;}
+  .start-date-row{display:flex;gap:6px;align-items:center;}
+  .start-date-input{flex:1;background:var(--s1);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.7rem;padding:7px 10px;outline:none;transition:border-color .15s;letter-spacing:.04em;}
+  .start-date-input:focus{border-color:var(--gold);}
+  .start-date-cal{background:var(--s3);border:1px solid var(--border);border-radius:5px;color:var(--muted);font-size:.75rem;padding:6px 10px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+  .start-date-cal:hover{border-color:var(--gold);color:var(--gold);}
+  .start-date-native{position:absolute;opacity:0;width:0;height:0;pointer-events:none;}
+  .start-date-sub{font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--muted);margin-top:5px;}
+  .start-date-sub.filled{color:var(--gold);}
+
+  /* EMPLOYEE TRACK MODE */
+  .emp-mode-bar{display:flex;align-items:center;gap:0;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:2px;margin-bottom:14px;width:100%;}
+  .emp-mode-btn{flex:1;background:none;border:none;border-radius:5px;font-family:'Share Tech Mono',monospace;font-size:.58rem;letter-spacing:.06em;color:var(--muted);padding:7px 4px;cursor:pointer;transition:all .15s;text-align:center;}
+  .emp-mode-btn.active{background:var(--s3);color:var(--gold2);border:1px solid var(--gold);}
+  .trains-mode-section{} .goal-mode-section{}
 
   /* DATA BUTTONS */
   .data-row{display:flex;gap:6px;margin-top:10px;}
@@ -303,6 +327,14 @@
         <div class="form-row">
           <label>PLAYER NAME</label>
           <input type="text" id="fName" placeholder="e.g. Kush_McLoud"/>
+        </div>
+        <div class="form-sec">TRACKING MODE</div>
+        <div class="form-row">
+          <label>MODE</label>
+          <select id="fTrackMode" style="background:var(--s1);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.68rem;padding:7px 10px;outline:none;width:100%;">
+            <option value="goal">🎯 GOAL MODE — Full calculator with schedule & projection</option>
+            <option value="trains"># TRAINS MODE — Simple train count & growth tracking</option>
+          </select>
         </div>
         <div class="form-sec">PASSIVE ROLE (position held in company)</div>
         <div class="form-row">
@@ -376,6 +408,29 @@
   <span class="mode-bar-label api dim" id="modeLabelApi">API SYNC</span>
 </div>
 
+<!-- API KEY TOP BAR (shown in API mode) -->
+<div class="api-key-topbar" id="apiKeyTopbar">
+  <div class="api-key-topbar-title">
+    <span>⚡ API KEY</span>
+    <a class="api-get-key" href="https://www.torn.com/preferences.php#tab=api" target="_blank">🔑 GET / MANAGE KEY</a>
+  </div>
+  <div class="api-key-topbar-row">
+    <input type="password" class="api-key-input" id="apiKeyInput" placeholder="Paste API key (Limited+ access)…" autocomplete="off"/>
+    <button class="api-sync-btn" id="apiSyncBtn" onclick="runApiSync()">SYNC</button>
+  </div>
+</div>
+
+<!-- START DATE BAR -->
+<div class="start-date-bar" id="startDateBar">
+  <label>📅 TRAINING START DATE</label>
+  <div class="start-date-row">
+    <input type="text" class="start-date-input" id="startDateDisplay" placeholder="DD/MM/YYYY" maxlength="10" oninput="onStartDateInput(this)" onblur="onStartDateBlur(this)"/>
+    <input type="date" class="start-date-native" id="startDateNative" onchange="onNativeDateChange(this)"/>
+    <button class="start-date-cal" onclick="document.getElementById('startDateNative').showPicker ? document.getElementById('startDateNative').showPicker() : document.getElementById('startDateNative').click()">📅</button>
+  </div>
+  <div class="start-date-sub" id="startDateSub">Used to calculate days elapsed and API train counts</div>
+</div>
+
 <!-- STARTING STATS BOX -->
 <div class="starts-box" id="startsBox">
   <div class="starts-hdr">
@@ -403,11 +458,43 @@
 </div>
 
 <div class="stats-grid">
+  <!-- EMPLOYEE TRACK MODE TOGGLE -->
+  <div style="grid-column:1/-1;margin-bottom:4px;">
+    <div class="emp-mode-bar" id="empModeBar">
+      <button class="emp-mode-btn active" id="empModeTrains" onclick="setEmpMode('trains')"># TRAINS MODE</button>
+      <button class="emp-mode-btn" id="empModeGoal" onclick="setEmpMode('goal')">🎯 GOAL MODE</button>
+    </div>
+  </div>
   <div class="sc man"><div class="sc-lbl">MANUAL</div><div class="sc-val" id="vMan">0</div><div class="sc-goal" id="gMan">GOAL: —</div><div class="bar-wrap"><div class="bar-fill" id="bMan"></div></div><div class="sc-rem" id="rMan"></div></div>
   <div class="sc int"><div class="sc-lbl">INTELLIGENCE</div><div class="sc-val" id="vInt">0</div><div class="sc-goal" id="gInt">GOAL: —</div><div class="bar-wrap"><div class="bar-fill" id="bInt"></div></div><div class="sc-rem" id="rInt"></div></div>
   <div class="sc end"><div class="sc-lbl">ENDURANCE</div><div class="sc-val" id="vEnd">0</div><div class="sc-goal" id="gEnd">GOAL: —</div><div class="bar-wrap"><div class="bar-fill" id="bEnd"></div></div><div class="sc-rem" id="rEnd"></div></div>
 </div>
 
+<!-- TRAINS MODE SECTION (simple view) -->
+<div class="trains-mode-section" id="trainsModeSection" style="display:none">
+  <div class="proj-grid" style="margin-bottom:14px;">
+    <div class="info-card"><div class="lbl">TOTAL TRAINS</div><div class="val" id="tmTrains">0</div><div class="sub">lifetime applied</div></div>
+    <div class="info-card"><div class="lbl">DAYS ELAPSED</div><div class="val" id="tmDays">0</div><div class="sub" id="tmDaysSub">since start date</div></div>
+    <div class="info-card"><div class="lbl">TRAINS / DAY</div><div class="val" id="tmRate">—</div><div class="sub">avg actual</div></div>
+    <div class="info-card"><div class="lbl">TRAINS/DAY TARGET</div><div class="val" id="tmTarget">—</div><div class="sub">configured</div></div>
+  </div>
+  <div class="today-box" style="margin-bottom:14px;">
+    <div style="font-family:'Share Tech Mono',monospace;font-size:.56rem;color:var(--muted);margin-bottom:8px;letter-spacing:.06em;">GROWTH SINCE START</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+      <div class="sv"><div class="sv-lbl man">MANUAL</div><div class="sv-val man" id="tmGainMan">+0</div><div style="font-family:'Share Tech Mono',monospace;font-size:.48rem;color:var(--muted)" id="tmCurMan">—</div></div>
+      <div class="sv"><div class="sv-lbl int">INTEL</div><div class="sv-val int" id="tmGainInt">+0</div><div style="font-family:'Share Tech Mono',monospace;font-size:.48rem;color:var(--muted)" id="tmCurInt">—</div></div>
+      <div class="sv"><div class="sv-lbl end">ENDURANCE</div><div class="sv-val end" id="tmGainEnd">+0</div><div style="font-family:'Share Tech Mono',monospace;font-size:.48rem;color:var(--muted)" id="tmCurEnd">—</div></div>
+    </div>
+    <div style="font-family:'Share Tech Mono',monospace;font-size:.54rem;color:var(--muted);margin-bottom:6px;letter-spacing:.06em;">LOG TRAINS TODAY</div>
+    <div class="train-slots" id="tmTrainSlots"></div>
+    <div class="prog-wrap" style="margin-bottom:6px;"><div class="prog-fill" id="tmProgFill" style="width:0%"></div></div>
+    <div class="prog-lbl"><span id="tmTrainCount">0 trains marked</span></div>
+    <button class="apply-btn" id="tmApplyBtn" onclick="applyDayTrainsMode()">APPLY TRAINS &amp; ADVANCE DAY</button>
+  </div>
+  <button class="reset-btn" onclick="confirmReset()" style="margin-bottom:10px;">⚠ RESET PROGRESS FOR CURRENT EMPLOYEE</button>
+</div>
+
+<div class="goal-mode-section" id="goalModeSection">
 <div class="eff-strip">
   <div class="eff-item"><div class="eff-lbl">EFFECTIVENESS</div><div class="eff-val" id="eEff">—</div><div class="eff-sub" id="eEffSub">passive role</div></div>
   <div class="eff-divider"></div>
@@ -442,6 +529,7 @@
 </div>
 
 <button class="reset-btn" onclick="confirmReset()">⚠ RESET PROGRESS FOR CURRENT EMPLOYEE</button>
+</div><!-- /goal-mode-section -->
 
 <!-- EXPORT / IMPORT -->
 <div class="data-row">
@@ -457,15 +545,6 @@
   </div>
   <div class="api-info">
     Fetches company news to count actual trains since your start date. Caches locally — only new entries fetched each sync. Requires <strong style="color:var(--gold)">Limited Access</strong> key or higher.
-  </div>
-  <a class="api-get-key" href="https://www.torn.com/preferences.php#tab=api" target="_blank">→ Get / manage your API key on torn.com</a>
-  <div class="api-key-row">
-    <input type="password" class="api-key-input" id="apiKeyInput" placeholder="Paste API key (Limited+ access)…" autocomplete="off"/>
-    <button class="api-sync-btn" id="apiSyncBtn" onclick="runApiSync()">SYNC</button>
-  </div>
-  <div class="api-date-row">
-    <label>COUNT TRAINS FROM DATE</label>
-    <input type="date" id="apiStartDate" onchange="saveApiStartDate()"/>
   </div>
   <div class="api-status" id="apiStatus"></div>
   <div class="api-results-list" id="apiResultsList"></div>
@@ -727,10 +806,10 @@ function showToast(msg, isErr=false) {
 function onModeToggle() {
   const apiMode = document.getElementById('modeToggle').checked;
   STORE.apiMode = apiMode;
-  document.getElementById('modeLabelManual').className = 'mode-bar-label manual' + (apiMode?'':' active').replace('manual active','manual');
   document.getElementById('modeLabelManual').style.opacity = apiMode ? '.45' : '1';
   document.getElementById('modeLabelApi').style.opacity = apiMode ? '1' : '.45';
   document.getElementById('modeLabelApi').style.color = apiMode ? '#4bcc9a' : '';
+  document.getElementById('apiKeyTopbar').classList.toggle('show', apiMode);
   document.getElementById('apiSyncBox').style.display = apiMode ? 'block' : 'none';
   saveStore();
 }
@@ -741,19 +820,19 @@ function syncModeUI() {
   document.getElementById('modeLabelManual').style.opacity = apiMode ? '.45' : '1';
   document.getElementById('modeLabelApi').style.opacity = apiMode ? '1' : '.45';
   document.getElementById('modeLabelApi').style.color = apiMode ? '#4bcc9a' : '';
+  document.getElementById('apiKeyTopbar').classList.toggle('show', apiMode);
   document.getElementById('apiSyncBox').style.display = apiMode ? 'block' : 'none';
-  // Restore API start date
+  // Restore API key
   const emp = ae();
-  if (emp.apiStartDate) document.getElementById('apiStartDate').value = emp.apiStartDate;
-  else {
-    // default to employee's start date or today
-    document.getElementById('apiStartDate').value = emp.startDate || new Date().toISOString().slice(0,10);
-  }
+  if (STORE.apiKey) document.getElementById('apiKeyInput').value = STORE.apiKey;
+  // Sync start date display from employee record
+  syncStartDateDisplay();
+  // Sync emp mode
+  syncEmpModeUI();
 }
 
 function saveApiStartDate() {
-  ae().apiStartDate = document.getElementById('apiStartDate').value;
-  saveStore();
+  // No-op — start date now managed by unified startDateDisplay
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -791,6 +870,7 @@ function toggleStartsEdit() {
 
 function saveStartDate() {
   ae().startDate = document.getElementById('sStartDate').value;
+  syncStartDateDisplay();
   saveStore();
 }
 
@@ -817,10 +897,13 @@ function saveStartingStats() {
 async function runApiSync() {
   const key = document.getElementById('apiKeyInput').value.trim();
   if (!key) { setApiStatus('Enter an API key first.', 'err'); return; }
+  // Save key for persistence
+  STORE.apiKey = key; saveStore();
 
-  const startDateStr = document.getElementById('apiStartDate').value;
-  if (!startDateStr) { setApiStatus('Set a start date to filter trains from.', 'err'); return; }
-  const startTs = Math.floor(new Date(startDateStr).getTime() / 1000);
+  // Use unified start date
+  const startDateIso = getStartDateIso();
+  if (!startDateIso) { setApiStatus('Set a training start date (top bar) to filter trains from.', 'err'); return; }
+  const startTs = Math.floor(new Date(startDateIso).getTime() / 1000);
 
   const btn = document.getElementById('apiSyncBtn');
   btn.disabled = true;
@@ -907,7 +990,7 @@ async function runApiSync() {
 
     // Render results
     renderApiResults(trainCounts);
-    setApiStatus(`✓ Sync complete — found ${Object.keys(trainCounts).length} employee(s) with trains since ${startDateStr}`, 'ok');
+    setApiStatus(`✓ Sync complete — found ${Object.keys(trainCounts).length} employee(s) with trains since ${startDateIso}`, 'ok');
 
   } catch(err) {
     setApiStatus('✗ ' + (err.message || 'Unknown error'), 'err');
@@ -980,7 +1063,7 @@ function applyApiTrains(name, trainCount, itemId) {
       passiveRoleIdx: 0,
       trainsPerDay: tpd,
       starts:{man:0,int:0,end:0},
-      startDate: document.getElementById('apiStartDate').value,
+      startDate: getStartDateIso(),
       goals:{man:0,int:0,end:0},
       progress:{man:0,int:0,end:0, day:Math.floor(trainCount/tpd), totalTrains:trainCount, checks:Array(tpd).fill(false)}
     };
@@ -1032,6 +1115,10 @@ function render() {
   const pos   = apos();
   const tpd   = emp.trainsPerDay || 5;
 
+  // Sync start date display and employee mode
+  syncStartDateDisplay();
+  syncEmpModeUI();
+
   const allDone = ['man','int','end'].every(k => goals[k]===0 || s[k]>=goals[k]);
   const { assignments, totalGains, passive, trainGains } = allocateTrains(s, goals, ack(), tpd, pos);
   const trainsNeeded = assignments.filter(a=>a!==null).length;
@@ -1041,10 +1128,13 @@ function render() {
   document.getElementById('userBtnName').textContent = emp.name;
   document.getElementById('hdrSub').textContent = `${co.name.toUpperCase()} · ${tpd} TRAINS/DAY`;
   document.getElementById('dayPill').textContent = `DAY ${s.day}`;
-  document.getElementById('completeBanner').classList.toggle('show', allDone);
+  document.getElementById('completeBanner').classList.toggle('show', allDone && (emp.trackMode||'goal')==='goal');
 
   // Starting stats box
   renderStartsBox();
+
+  // Trains mode render (always update even if hidden)
+  renderTrainsMode();
 
   // Stat cards
   for (const k of ['man','int','end']) {
@@ -1182,7 +1272,8 @@ function render() {
 
   renderProjectionTable(s, goals, ack(), tpd, pos);
 
-  document.getElementById('pDays').textContent=s.day;
+  const daysForDisplay = emp.startDate ? calcDaysSince(emp.startDate) : s.day;
+  document.getElementById('pDays').textContent=daysForDisplay;
   document.getElementById('pTrains').textContent=s.totalTrains;
   const remDays=allDone?0:simDaysRemaining(s,goals,ack(),tpd,pos);
   document.getElementById('pRem').textContent=allDone?'✓ DONE':remDays+'d';
@@ -1329,6 +1420,7 @@ function renderUserList(){
           <span class="c-int">${fmt(emp.progress.int)}</span> /
           <span class="c-end">${fmt(emp.progress.end)}</span>
           · Day ${emp.progress.day}
+          · <span style="color:${(emp.trackMode||'goal')==='trains'?'var(--gold)':'#4bcc9a'};font-size:.5rem">${(emp.trackMode||'goal')==='trains'?'#TRAINS':'GOAL'}</span>
         </div>
       </div>
       <div class="user-item-actions">
@@ -1343,6 +1435,7 @@ function renderUserList(){
 function switchEmployee(id){
   STORE.activeId=id;
   saveStore(); renderUserList(); syncCompanyTab(); syncModeUI(); render();
+  syncStartDateDisplay(); syncEmpModeUI();
 }
 
 function deleteEmployee(id){
@@ -1379,9 +1472,11 @@ function showEditForm(id){
     document.getElementById('fGMan').value=emp.goals.man;
     document.getElementById('fGInt').value=emp.goals.int;
     document.getElementById('fGEnd').value=emp.goals.end;
+    document.getElementById('fTrackMode').value=emp.trackMode||'goal';
     populatePassiveRoleSelect(compKey, emp.passiveRoleIdx||0);
   } else {
     ['fName','fMan','fInt','fEnd','fGMan','fGInt','fGEnd'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('fTrackMode').value='goal';
     populatePassiveRoleSelect(compKey, 0);
   }
 }
@@ -1397,19 +1492,20 @@ function saveEmployee(){
   const gInt=parseInt(document.getElementById('fGInt').value)||0;
   const gEnd=parseInt(document.getElementById('fGEnd').value)||0;
   const passiveRoleIdx=parseInt(document.getElementById('fPassiveRole').value)||0;
+  const trackMode=document.getElementById('fTrackMode')?document.getElementById('fTrackMode').value:'goal';
   const companyKey=ack();
   const tpd=ae().trainsPerDay||5;
   if(editingId&&STORE.employees[editingId]){
     const emp=STORE.employees[editingId];
     emp.name=name; emp.starts={man,int:int_,end}; emp.goals={man:gMan,int:gInt,end:gEnd};
-    emp.passiveRoleIdx=passiveRoleIdx; emp.companyKey=companyKey;
+    emp.passiveRoleIdx=passiveRoleIdx; emp.companyKey=companyKey; emp.trackMode=trackMode;
     const p=emp.progress;
     p.man=Math.max(man,p.man); p.int=Math.max(int_,p.int); p.end=Math.max(end,p.end);
     STORE.activeId=editingId;
   } else {
     const id='emp_'+Date.now();
     STORE.employees[id]={
-      id,name,companyKey,passiveRoleIdx,trainsPerDay:tpd,
+      id,name,companyKey,passiveRoleIdx,trainsPerDay:tpd,trackMode,
       starts:{man,int:int_,end},startDate:'',
       goals:{man:gMan,int:gInt,end:gEnd},
       progress:{man,int:int_,end,day:0,totalTrains:0,checks:Array(tpd).fill(false)}
@@ -1428,6 +1524,160 @@ function initCompanySelectors(){
     if(key===ack()) opt.selected=true;
     sel.appendChild(opt);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// START DATE — unified dd/mm/yyyy display with calendar picker
+// ═══════════════════════════════════════════════════════════════════
+function isoToDmy(iso) {
+  if (!iso) return '';
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+function dmyToIso(dmy) {
+  if (!dmy) return '';
+  const parts = dmy.split('/');
+  if (parts.length !== 3) return '';
+  const [d,m,y] = parts;
+  if (!d||!m||!y||y.length<4) return '';
+  return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+}
+function getStartDateIso() {
+  return ae().startDate || '';
+}
+function syncStartDateDisplay() {
+  const emp = ae();
+  const iso = emp.startDate || '';
+  const dispEl = document.getElementById('startDateDisplay');
+  const nativeEl = document.getElementById('startDateNative');
+  const subEl = document.getElementById('startDateSub');
+  if (dispEl) dispEl.value = iso ? isoToDmy(iso) : '';
+  if (nativeEl) nativeEl.value = iso;
+  if (subEl) {
+    if (iso) {
+      const days = calcDaysSince(iso);
+      subEl.textContent = `Day ${days} elapsed since ${isoToDmy(iso)}`;
+      subEl.className = 'start-date-sub filled';
+    } else {
+      subEl.textContent = 'Used to calculate days elapsed and API train counts';
+      subEl.className = 'start-date-sub';
+    }
+  }
+  // Also keep legacy sStartDate in sync
+  const legacy = document.getElementById('sStartDate');
+  if (legacy) legacy.value = iso;
+}
+function calcDaysSince(isoDate) {
+  if (!isoDate) return 0;
+  const start = new Date(isoDate);
+  const now = new Date();
+  start.setHours(0,0,0,0); now.setHours(0,0,0,0);
+  return Math.max(0, Math.round((now - start) / 86400000));
+}
+function onStartDateInput(el) {
+  // Auto-insert slashes for dd/mm/yyyy
+  let v = el.value.replace(/[^\d]/g,'');
+  if (v.length > 2) v = v.slice(0,2) + '/' + v.slice(2);
+  if (v.length > 5) v = v.slice(0,5) + '/' + v.slice(5);
+  if (v.length > 10) v = v.slice(0,10);
+  el.value = v;
+}
+function onStartDateBlur(el) {
+  const iso = dmyToIso(el.value);
+  if (iso) {
+    ae().startDate = iso;
+    saveStore();
+    syncStartDateDisplay();
+    render();
+  } else if (el.value === '') {
+    ae().startDate = '';
+    saveStore();
+    syncStartDateDisplay();
+  }
+}
+function onNativeDateChange(el) {
+  const iso = el.value;
+  ae().startDate = iso;
+  saveStore();
+  syncStartDateDisplay();
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EMPLOYEE MODE — # TRAINS vs GOAL
+// ═══════════════════════════════════════════════════════════════════
+function setEmpMode(mode) {
+  ae().trackMode = mode;
+  saveStore();
+  syncEmpModeUI();
+  render();
+}
+function syncEmpModeUI() {
+  const mode = ae().trackMode || 'goal';
+  document.getElementById('empModeTrains').classList.toggle('active', mode==='trains');
+  document.getElementById('empModeGoal').classList.toggle('active', mode==='goal');
+  document.getElementById('goalModeSection').style.display = mode==='goal' ? 'block' : 'none';
+  document.getElementById('trainsModeSection').style.display = mode==='trains' ? 'block' : 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TRAINS MODE RENDER
+// ═══════════════════════════════════════════════════════════════════
+function renderTrainsMode() {
+  const emp = ae();
+  const s = ap();
+  const st = emp.starts;
+  const tpd = emp.trainsPerDay || 5;
+  const startIso = emp.startDate || '';
+  const daysElapsed = startIso ? calcDaysSince(startIso) : s.day;
+
+  document.getElementById('tmTrains').textContent = s.totalTrains;
+  document.getElementById('tmDays').textContent = daysElapsed;
+  document.getElementById('tmDaysSub').textContent = startIso ? `since ${isoToDmy(startIso)}` : 'since day 1';
+
+  const actualRate = daysElapsed > 0 ? (s.totalTrains / daysElapsed).toFixed(1) : '—';
+  document.getElementById('tmRate').textContent = actualRate;
+  document.getElementById('tmTarget').textContent = tpd;
+
+  // Growth since starts
+  const gainMan = s.man - st.man, gainInt = s.int - st.int, gainEnd = s.end - st.end;
+  document.getElementById('tmGainMan').textContent = gainMan >= 0 ? `+${fmt(gainMan)}` : fmt(gainMan);
+  document.getElementById('tmGainInt').textContent = gainInt >= 0 ? `+${fmt(gainInt)}` : fmt(gainInt);
+  document.getElementById('tmGainEnd').textContent = gainEnd >= 0 ? `+${fmt(gainEnd)}` : fmt(gainEnd);
+  document.getElementById('tmCurMan').textContent = fmt(s.man);
+  document.getElementById('tmCurInt').textContent = fmt(s.int);
+  document.getElementById('tmCurEnd').textContent = fmt(s.end);
+
+  // Train slots (simple check-off)
+  const slotsEl = document.getElementById('tmTrainSlots');
+  slotsEl.innerHTML = '';
+  while(s.checks.length < tpd) s.checks.push(false);
+  s.checks = s.checks.slice(0, tpd);
+  const cols = tpd <= 5 ? tpd : 5;
+  slotsEl.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+  const marked = s.checks.filter(Boolean).length;
+
+  for (let i = 0; i < tpd; i++) {
+    const slot = document.createElement('div');
+    slot.className = 't-slot' + (s.checks[i] ? ' done' : '');
+    slot.onclick = () => { s.checks[i] = !s.checks[i]; saveStore(); renderTrainsMode(); };
+    slot.innerHTML = `<div class="t-num">#${i+1}</div><div class="t-pos" style="font-size:.58rem">TRAIN</div>`;
+    slotsEl.appendChild(slot);
+  }
+
+  document.getElementById('tmProgFill').style.width = (marked / tpd * 100) + '%';
+  document.getElementById('tmTrainCount').textContent = `${marked} / ${tpd} trains marked`;
+  document.getElementById('tmApplyBtn').textContent = `APPLY ${marked} TRAIN${marked!==1?'S':''} & ADVANCE DAY`;
+}
+
+function applyDayTrainsMode() {
+  const emp = ae(), s = ap(), tpd = emp.trainsPerDay || 5;
+  const marked = s.checks.filter(Boolean).length;
+  s.day++;
+  s.totalTrains += marked;
+  s.checks = Array(tpd).fill(false);
+  saveStore();
+  render();
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────
