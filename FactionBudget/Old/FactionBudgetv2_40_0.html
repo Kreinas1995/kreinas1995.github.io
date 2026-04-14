@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.39.2</title>
+<title>Faction Budget v2.40.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -383,7 +383,7 @@
         <div class="logo-name">⬡ <span id="factionTitle">HIGHVIBES</span></div>
         <div class="logo-sub">Faction Budget Dashboard</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer;" onclick="(function(){const from=localStorage.getItem('hv_upgrade_from');showChangelog(false,null,from||null);})()" title="View changelog">
-          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.39.2</div>
+          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.40.0</div>
           <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;">changelog</div>
         </div>
       </div>
@@ -771,47 +771,40 @@
   <!-- WAR FUNDS -->
   <div class="panel" id="panel-war">
     <div class="war-card">
-      <div class="war-card-header">
-        <div>
-          <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);font-family:'Space Mono',monospace;margin-bottom:4px;">⚔ WAR FUNDS TRACKER</div>
-          <div style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;">Paste a TC ArmaSync payout results URL to import</div>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-        <input type="text" id="warUrlInput" placeholder="https://tc-armasync.netlify.app/payout-results/..." style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:8px 10px;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--accent3)'" onblur="this.style.borderColor='var(--border)'">
-        <button class="btn-primary" onclick="importWarUrl()">IMPORT</button>
-        <button class="btn-sm" onclick="clearWarData()" style="border-color:var(--accent4);color:var(--accent4);">✕ CLEAR</button>
-      </div>
-      <!-- Manual paste fallback — shown automatically on proxy failure or via toggle -->
-      <div style="margin-bottom:10px;">
-        <button onclick="toggleWarPaste()" id="warPasteToggle" style="background:none;border:none;font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);cursor:pointer;letter-spacing:1px;padding:0;text-decoration:underline;">▼ PASTE PAGE SOURCE MANUALLY</button>
-        <div id="warPasteArea" style="display:none;margin-top:8px;">
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.6;">Open the ArmaSync URL in your browser → tap ⋮ menu → <b style="color:var(--text)">View page source</b> → select all → copy → paste below.</div>
-          <textarea id="warPasteInput" placeholder="Paste full page source here…" style="width:100%;min-height:80px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:8px;outline:none;resize:vertical;transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--accent3)'" onblur="this.style.borderColor='var(--border)'"></textarea>
-          <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">
-            <button class="btn-primary" onclick="importWarPaste()" style="font-size:11px;">PARSE &amp; IMPORT</button>
-            <input type="text" id="warPasteUrlHint" placeholder="Optional: ArmaSync URL (for dedup)" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:6px 8px;outline:none;">
+      <div class="war-card-header" style="cursor:pointer;user-select:none;" onclick="(function(){var b=document.getElementById('warImportBody');var arr=document.getElementById('warImportArr');var open=b.style.display!=='none';b.style.display=open?'none':'block';arr.textContent=open?'▸':'▾';})()">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span id="warImportArr" style="font-size:12px;color:var(--muted);">▸</span>
+          <div>
+            <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);font-family:'Space Mono',monospace;margin-bottom:4px;">⚔ WAR FUNDS TRACKER</div>
+            <div style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;">Tap to expand · paste a TC ArmaSync payout results URL to import</div>
           </div>
         </div>
       </div>
-      <div id="warImportStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:10px;display:none;"></div>
+      <div id="warImportBody" style="display:none;margin-top:12px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <input type="text" id="warUrlInput" placeholder="https://tc-armasync.netlify.app/payout-results/..." style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:8px 10px;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--accent3)'" onblur="this.style.borderColor='var(--border)'">
+          <button class="btn-primary" onclick="importWarUrl()">IMPORT</button>
+          <button class="btn-sm" onclick="clearWarData()" style="border-color:var(--accent4);color:var(--accent4);">✕ CLEAR</button>
+        </div>
+        <!-- Manual paste fallback — shown automatically on proxy failure or via toggle -->
+        <div style="margin-bottom:10px;">
+          <button onclick="toggleWarPaste()" id="warPasteToggle" style="background:none;border:none;font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);cursor:pointer;letter-spacing:1px;padding:0;text-decoration:underline;">▼ PASTE PAGE SOURCE MANUALLY</button>
+          <div id="warPasteArea" style="display:none;margin-top:8px;">
+            <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.6;">Open the ArmaSync URL in your browser → tap ⋮ menu → <b style="color:var(--text)">View page source</b> → select all → copy → paste below.</div>
+            <textarea id="warPasteInput" placeholder="Paste full page source here…" style="width:100%;min-height:80px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:8px;outline:none;resize:vertical;transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--accent3)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+            <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">
+              <button class="btn-primary" onclick="importWarPaste()" style="font-size:11px;">PARSE &amp; IMPORT</button>
+              <input type="text" id="warPasteUrlHint" placeholder="Optional: ArmaSync URL (for dedup)" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:6px 8px;outline:none;">
+            </div>
+          </div>
+        </div>
+        <div id="warImportStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:10px;display:none;"></div>
+      </div>
     </div>
 
-    <!-- War summary cards -->
+    <!-- War period toggle -->
     <div id="warSummaryCards" style="display:none;margin-bottom:16px;">
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px;">
-        <div class="sc" style="--ca:var(--accent3)">
-          <div class="sc-label">Total Payout</div>
-          <div class="sc-value" id="wTotalPayout">—</div>
-          <div class="sc-sub" id="wWarName">—</div>
-        </div>
-        <div class="sc" style="--ca:var(--accent4)">
-          <div class="sc-label">War Attacks</div>
-          <div class="sc-value" id="wTotalAtk">—</div>
-          <div class="sc-sub" id="wWarDate">—</div>
-        </div>
-      </div>
-      <!-- Lifetime/period toggle for war funds -->
+      <!-- period toggle for war funds -->
       <div class="sh">
         <span class="st">Member Payouts</span>
         <div style="display:flex;gap:5px;flex-wrap:wrap;">
@@ -1109,6 +1102,14 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.0', date:'2026-04-13', notes:[
+    '[*] OC: Income banner now sums ONLY manually logged rewards — ignores broken crimenews API parsing. cOC card and OC banner are now reliable when API v2 is unavailable.',
+    '[*] WAR: Removed redundant "War" name column from war history table. Single "War vs" column now shows opponent name only (no "vs " prefix). Colspan adjusted throughout.',
+    '[*] WAR: Two large summary stat cards (Total Payout / War Attacks) removed — redundant with the war history table totals row.',
+    '[*] WAR: ArmaSync import header is now collapsible — tap ⚔ WAR FUNDS TRACKER to expand/collapse. Body starts collapsed.',
+    '[*] WAR: Member payouts in expanded war row now laid out vertically (flex column) sorted by amount — no more horizontal grid overflow on mobile.',
+    '[+] WAR: fmtM() helper — war table dollar figures truncated to nearest M/B for compact mobile display.',
+  ]},
   { v:'2.39.2', date:'2026-04-13', notes:[
     '[*] BUG-OC-MEMBERS: OC member auto-match from selection entries now requires selection timestamp to precede completion (no future-matching). Claimed selections are tracked and cannot match multiple completions — eliminates random wrong members appearing in tooltips.',
     '[*] WAR: War history table now shows Opponent column ("vs ROMAN EMPIRE") and Win/Loss status with color (🏆 Win / ✗ Loss). Both fields parsed from ArmaSync payout page.',
@@ -3866,6 +3867,14 @@ function fmt$(n){
   return sg+'$'+Math.round(a).toLocaleString();
 }
 function ff$(n){ return n?'$'+Math.round(n).toLocaleString():'$0'; }
+function fmtM(n){ // compact: always truncate to nearest million/billion for small-panel display
+  if(n==null||isNaN(n)) return '—';
+  const a=Math.abs(n),sg=n<0?'-':'';
+  if(a>=1e9) return sg+'$'+(a/1e9).toFixed(1)+'B';
+  if(a>=1e6) return sg+'$'+Math.round(a/1e6)+'M';
+  if(a>=1e3) return sg+'$'+Math.round(a/1e3)+'K';
+  return sg+'$'+Math.round(a);
+}
 function fd(ts){ return new Date(ts*1000).toLocaleDateString([],{month:'short',day:'numeric',year:'2-digit'}); }
 function ft(ts){ const d=new Date(ts*1000); return d.toLocaleDateString([],{month:'short',day:'numeric'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
 
@@ -5111,8 +5120,9 @@ function renderOC(){
       },0);
     const ocFromMs2=ocFrom*1000;
     const warInc2=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs2; }).reduce((s,w)=>s+warFactionCut(w),0);
-    document.getElementById('cOC').textContent=fmt$(crimenewsTotal+manualTotal+warInc2);
-    updateOcBanner(crimenewsTotal+manualTotal, warInc2, ocPeriod);
+    // When API v2 is unavailable, only count manually logged OC rewards (ignore broken crimenews parsing)
+    document.getElementById('cOC').textContent=fmt$(manualTotal+warInc2);
+    updateOcBanner(manualTotal, warInc2, ocPeriod);
 
     const selectionEntries=allEntries.filter(e=>/have been selected/i.test(e.news||''));
     // Track which selection entries have been claimed so they can't match multiple completions
@@ -6460,6 +6470,11 @@ async function importWarUrl(){
   // All proxies failed — auto-reveal manual paste
   status.style.color='var(--accent4)';
   status.textContent='✗ All proxies blocked. Use manual paste below ↓';
+  // Ensure import body is open
+  const importBody=document.getElementById('warImportBody');
+  const importArr=document.getElementById('warImportArr');
+  if(importBody){ importBody.style.display='block'; }
+  if(importArr){ importArr.textContent='▾'; }
   // Pre-fill URL hint and open paste area
   const hint=document.getElementById('warPasteUrlHint');
   if(hint) hint.value=url;
@@ -6655,15 +6670,6 @@ function renderWarPanel(){
 
   if(summaryCards){
     summaryCards.style.display='block';
-    const wn=document.getElementById('wWarName');
-    const wp=document.getElementById('wTotalPayout');
-    const wa=document.getElementById('wTotalAtk');
-    const wd=document.getElementById('wWarDate');
-    if(wn) wn.textContent=filtered.length===1?filtered[0].name:`${filtered.length} wars`;
-    // Show member payout in the "Total Payout" card (what was paid to members)
-    if(wp) wp.textContent=fmt$(grandMemberPayout);
-    if(wa) wa.textContent=grandAtk.toLocaleString()+' war hits';
-    if(wd) wd.textContent=filtered.length===1?filtered[0].date:`${period==='all'?'Lifetime':period}`;
   }
 
   // Member payout — collapsed into a single tappable "Lifetime Payouts" bar
@@ -6706,13 +6712,12 @@ function renderWarPanel(){
   if(warTbl){
     warTbl.style.display='block';
     let h=`<table><thead><tr>
-      <th>War</th>
-      <th>Opponent</th>
+      <th>War vs</th>
       <th>Result</th>
       <th>Total Pot</th>
       <th style="white-space:nowrap;">Faction %</th>
       <th>Faction Cut</th>
-      <th>Member Payout</th>
+      <th>Mbr Payout</th>
       <th></th>
       <th></th>
     </tr></thead><tbody>`;
@@ -6728,27 +6733,26 @@ function renderWarPanel(){
       const opponent=w.opponent||'—';
       const memberRowId=`warMembers_${wIdx}`;
       h+=`<tr style="cursor:pointer;" onclick="(function(){var el=document.getElementById('${memberRowId}');el.style.display=el.style.display==='none'?'table-row':'none';})()">
-        <td class="cn" style="font-size:11px">${w.name}</td>
-        <td style="font-size:10px;color:var(--accent5)">vs ${opponent}</td>
+        <td class="cn" style="font-size:11px">${opponent}</td>
         <td style="font-size:11px;font-weight:700;color:${resultColor}">${resultIcon}</td>
-        <td class="cy">${fmt$(pot)}</td>
+        <td class="cy">${fmtM(pot)}</td>
         <td style="font-size:10px;white-space:nowrap;">
           <input type="number" value="${w.factionCutPct!==undefined?w.factionCutPct:20}" min="0" max="99" step="1"
             onclick="event.stopPropagation()"
             onchange="saveWarFactionCut(${wIdx},this.value)"
             style="width:44px;background:var(--bg);border:1px solid var(--border);color:var(--accent3);font-family:'Space Mono',monospace;font-size:10px;padding:2px 4px;text-align:center;">%
         </td>
-        <td class="cy">${fmt$(cut)}</td>
-        <td class="cm">${fmt$(mpay)}</td>
+        <td class="cy">${fmtM(cut)}</td>
+        <td class="cm">${fmtM(mpay)}</td>
         <td style="font-size:9px;color:var(--muted)">▸</td>
         <td><button class="del-btn" title="Remove" onclick="event.stopPropagation();removeWar(${wIdx})">✕</button></td>
       </tr>
       <tr id="${memberRowId}" style="display:none;background:rgba(127,255,110,0.02);">
-        <td colspan="9" style="padding:8px 12px;">
-          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">${w.name} — ${w.date} — ${w.members.length} members</div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;">
+        <td colspan="8" style="padding:8px 12px;">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">${opponent} — ${w.date} — ${w.members.length} members</div>
+          <div style="display:flex;flex-direction:column;gap:2px;">
             ${w.members.sort((a,b)=>b.payout-a.payout).map(m=>`
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;background:var(--surface2);gap:8px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:var(--surface2);gap:8px;">
                 <span style="font-family:'Syne',sans-serif;font-weight:600;font-size:11px;color:var(--text);">${m.name}</span>
                 <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);">${fmt$(m.payout)}</span>
               </div>`).join('')}
@@ -6759,11 +6763,11 @@ function renderWarPanel(){
 
     // Summary footer row
     h+=`<tr style="border-top:2px solid var(--border);background:rgba(127,255,110,0.02);">
-      <td style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;color:var(--muted);letter-spacing:1px;" colspan="3">TOTALS (${filtered.length} war${filtered.length!==1?'s':''})</td>
-      <td class="cy" style="font-weight:700;">${fmt$(grandPot)}</td>
+      <td style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;color:var(--muted);letter-spacing:1px;" colspan="2">TOTALS (${filtered.length} war${filtered.length!==1?'s':''})</td>
+      <td class="cy" style="font-weight:700;">${fmtM(grandPot)}</td>
       <td></td>
-      <td class="cy" style="font-weight:700;">${fmt$(grandCut)}</td>
-      <td class="cm" style="font-weight:700;">${fmt$(grandMemberPayout)}</td>
+      <td class="cy" style="font-weight:700;">${fmtM(grandCut)}</td>
+      <td class="cm" style="font-weight:700;">${fmtM(grandMemberPayout)}</td>
       <td colspan="2"></td>
     </tr>`;
 
