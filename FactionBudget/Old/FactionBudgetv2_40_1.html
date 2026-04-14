@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.0</title>
+<title>Faction Budget v2.40.1</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -383,7 +383,7 @@
         <div class="logo-name">⬡ <span id="factionTitle">HIGHVIBES</span></div>
         <div class="logo-sub">Faction Budget Dashboard</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer;" onclick="(function(){const from=localStorage.getItem('hv_upgrade_from');showChangelog(false,null,from||null);})()" title="View changelog">
-          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.40.0</div>
+          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v—</div>
           <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;">changelog</div>
         </div>
       </div>
@@ -677,6 +677,16 @@
         <span id="ocV2Status" style="color:var(--accent2);margin-left:8px;"></span>
         <span style="color:var(--muted2);margin-left:8px;">· period controlled by Faction Income card pill</span>
       </span>
+      <button onclick="ocDebugToggle()" style="background:none;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;">🔬 DEBUG</button>
+    </div>
+    <!-- OC Debug Panel -->
+    <div id="ocDebugPanel" style="display:none;background:var(--bg);border:1px solid var(--accent3);padding:10px 12px;margin-bottom:12px;font-family:'Space Mono',monospace;font-size:9px;line-height:1.8;">
+      <div style="color:var(--accent3);font-size:8px;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">OC INCOME DEBUGGER</div>
+      <div id="ocDebugOut" style="color:var(--text);white-space:pre-wrap;word-break:break-all;"></div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        <button onclick="ocDebugRun()" style="background:var(--accent3);color:#000;border:none;padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">▶ RUN</button>
+        <button onclick="ocDebugClearManual()" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">✕ CLEAR MANUAL DATA</button>
+      </div>
     </div>
     <div id="ocRawOut" style="display:none;"></div>
     <div id="ocIncomeBanner" style="display:none;background:var(--surface2);border:1px solid var(--border);padding:10px 14px;margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;"></div>
@@ -1037,7 +1047,7 @@
 // ════════════════════════════════════════════
 // VERSION & CHANGELOG
 // ════════════════════════════════════════════
-const APP_VERSION = '2.39.2';
+const APP_VERSION = '2.40.1';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1102,6 +1112,12 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.1', date:'2026-04-13', notes:[
+    '[*] VERSION: All 3 version locations (APP_VERSION constant, <title>, versionBadge) now driven by single APP_VERSION constant. revealDash() injects it at load — no more drift between them.',
+    '[*] UX: "No update available" sub-label now renders in white (var(--text)) instead of inheriting muted gray.',
+    '[*] VAULT: Removed member-balance fallback from renderCards(). Vault Balance and Faction Balance both show --- when faction/currency API is unavailable — consistent with renderVault() behavior.',
+    '[+] OC: Debug panel added to OC tab (🔬 DEBUG button). Shows S.ocManual count, period filter, per-entry breakdown, localStorage raw state, string-vs-number reward type check, and war income. Helps diagnose $0 income display.',
+  ]},
   { v:'2.40.0', date:'2026-04-13', notes:[
     '[*] OC: Income banner now sums ONLY manually logged rewards — ignores broken crimenews API parsing. cOC card and OC banner are now reliable when API v2 is unavailable.',
     '[*] WAR: Removed redundant "War" name column from war history table. Single "War vs" column now shows opponent name only (no "vs " prefix). Colspan adjusted throughout.',
@@ -1771,7 +1787,7 @@ async function checkForUpdate(fromAdmin=false){
       badge.textContent=`v${APP_VERSION}`;
       badge.style.borderColor='';badge.style.color='';badge.style.cursor='';badge.onclick=null;
       sub.textContent='changelog';
-      sub.style.color='';
+      sub.style.color='var(--text)';
       clog(`Version up to date: v${APP_VERSION}`,'ok');
       if(adminStatus) adminStatus.innerHTML=`<span style="color:var(--accent2)">✓ Up to date (v${APP_VERSION})</span>`;
       return {available:false,latest};
@@ -2123,6 +2139,10 @@ async function saveKey(){
 
 function revealDash(){
   document.getElementById('apiSetup').style.display='none';
+  // Set version badge and page title from single APP_VERSION constant
+  const _vBadge=document.getElementById('versionBadge');
+  if(_vBadge) _vBadge.textContent=`v${APP_VERSION}`;
+  document.title=`Faction Budget v${APP_VERSION}`;
   // Restore the active tab panel (default to vault if none active)
   if(!document.querySelector('.panel.active')){
     const vaultPanel=document.getElementById('panel-vault');
@@ -4832,6 +4852,69 @@ function ocManualPreFill(type,dateStr){
   formEl&&formEl.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
+// ── OC INCOME DEBUGGER
+function ocDebugToggle(){
+  const p=document.getElementById('ocDebugPanel');
+  if(!p) return;
+  const open=p.style.display!=='none';
+  p.style.display=open?'none':'block';
+  if(!open) ocDebugRun();
+}
+
+function ocDebugRun(){
+  const out=document.getElementById('ocDebugOut');
+  if(!out) return;
+  const ocPeriod=S.cardPeriods?.oc||'30d';
+  const ocFrom=periodToSeconds(ocPeriod);
+  const manual=S.ocManual||[];
+  const inPeriod=manual.filter(e=>e.ts>ocFrom);
+  const total=inPeriod.reduce((s,e)=>s+Number(e.reward||0),0);
+
+  let lines=[];
+  lines.push(`APP_VERSION  : ${APP_VERSION}`);
+  lines.push(`Period       : ${ocPeriod}  (ocFrom=${ocFrom})`);
+  lines.push(`Now (unix)   : ${Math.floor(Date.now()/1000)}`);
+  lines.push(`S.ocManual   : ${manual.length} entries total`);
+  lines.push(`In period    : ${inPeriod.length} entries`);
+  lines.push(`Manual total : ${total} = ${fmt$(total)}`);
+  lines.push(`LS key       : hv_v1_oc_manual`);
+  const raw=localStorage.getItem('hv_v1_oc_manual');
+  lines.push(`LS raw len   : ${raw?raw.length:0} chars`);
+  lines.push('');
+  if(manual.length===0){
+    lines.push('⚠ S.ocManual is EMPTY — entries not loaded or not saved');
+    lines.push('  → Try: save a test entry, reload, then run debug again');
+    lines.push('  LS raw: '+(raw||'(null)'));
+  } else {
+    lines.push(`Entries (most recent first):`);
+    manual.slice(0,10).forEach((e,i)=>{
+      const inP=e.ts>ocFrom;
+      const rewardN=Number(e.reward||0);
+      lines.push(`  [${i}] id=${e.id} ts=${e.ts} type=${e.type} reward=${e.reward} (Number=${rewardN}) members=${(e.members||[]).length} inPeriod=${inP}`);
+    });
+    if(manual.length>10) lines.push(`  … and ${manual.length-10} more`);
+  }
+  lines.push('');
+  // Check for string vs number reward type
+  const strRewards=manual.filter(e=>typeof e.reward==='string');
+  if(strRewards.length) lines.push(`⚠ ${strRewards.length} entries have reward stored as STRING — coerced OK by Number() but check LS`);
+  // Check war income
+  const ocFromMs=ocFrom*1000;
+  const warInc=(S.wars||[]).filter(w=>{const d=w.date?new Date(w.date).getTime():0;return d>=ocFromMs;}).reduce((s,w)=>s+warFactionCut(w),0);
+  lines.push(`War income   : ${fmt$(warInc)} (${(S.wars||[]).length} wars total)`);
+  lines.push(`Banner total : OC ${fmt$(total)} + WAR ${fmt$(warInc)} = ${fmt$(total+warInc)}`);
+  out.textContent=lines.join('\n');
+}
+
+function ocDebugClearManual(){
+  if(!confirm('Clear ALL manually logged OC entries from memory and localStorage?')) return;
+  S.ocManual=[];
+  try{localStorage.removeItem('hv_v1_oc_manual');}catch(e){}
+  ocDebugRun();
+  renderOC(); renderCards();
+  clog('OC manual data cleared via debug panel','warn');
+}
+
 function ocUpdateMemberRequired(){
   const type=document.getElementById('ocManualType')?.value||'Other';
   const req=OC_CRIME_MEMBERS[type]||2;
@@ -5633,8 +5716,8 @@ function renderCards(){
   const net=vault-mT;
   const vtEl=document.getElementById('cVaultTotal');
   const vEl=document.getElementById('cVault');
-  if(vtEl) vtEl.textContent=vault>0?fmt$(vault):mT>0?fmt$(mT):'---';
-  if(vEl) vEl.textContent=vault>0?fmt$(net):mT>0?`≈${fmt$(mT)} (members)`:'---';
+  if(vtEl) vtEl.textContent=vault>0?fmt$(vault):'---';
+  if(vEl) vEl.textContent=vault>0?fmt$(net):'---';
 
   // Supply cost — filtered by card period
   const supplyPeriod=S.cardPeriods.supply||'30d';
