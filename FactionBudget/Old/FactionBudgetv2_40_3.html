@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.2</title>
+<title>Faction Budget v2.40.3</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -685,7 +685,7 @@
       <div id="ocDebugOut" style="color:var(--text);white-space:pre-wrap;word-break:break-all;"></div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
         <button onclick="ocDebugRun()" style="background:var(--accent3);color:#000;border:none;padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">▶ RUN</button>
-        <button onclick="ocDebugClearManual()" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">✕ CLEAR MANUAL DATA</button>
+        <button onclick="ocDebugClearOverrides()" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">✕ CLEAR OC OVERRIDES</button>
       </div>
     </div>
     <div id="ocRawOut" style="display:none;"></div>
@@ -1052,7 +1052,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.2';
+const APP_VERSION = '2.40.3';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1117,6 +1117,13 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.3', date:'2026-04-14', notes:[
+    '[-] OC: Removed manual OC reward entry form (➕ LOG OC REWARD) and all associated functions (ocManualSubmit, ocManualDelete, ocManualSaveReward, ocManualSaveMembers, ocUpdateMemberRequired, saveOcManual). S.ocManual state and hv_v1_oc_manual localStorage key removed.',
+    '[*] OC: Income calculation (cOC card, Faction Income card, P&L) now sums ocOverrides reward values (keys oc_<timestamp>) for crimenews entries within the selected period — replacing the former S.ocManual reduce.',
+    '[*] OC: Debug panel updated — shows ocOverrides reward override state (count, in-period total, per-key breakdown) instead of removed S.ocManual data.',
+    '[*] OC: Debug panel CLEAR button renamed to "CLEAR OC OVERRIDES" — now wipes only oc_<ts> reward keys, preserving cn_members_<ts> member overrides.',
+    '[-] Backup export/import: ocManual field removed from export object and import handler.',
+  ]},
   { v:'2.40.2', date:'2026-04-13', notes:[
     '[*] BUG: versionSub ("changelog" label) was hardcoded var(--muted2) gray — now var(--text) white in HTML, and reset to white in showChangelog() + checkForUpdate() no-update branch.',
     '[*] OC: saveOcManual() now verifies write with a read-back and logs errors to Console tab instead of silently swallowing them.',
@@ -1858,7 +1865,6 @@ let S = {
   cardPeriods:{supply:'30d', oc:'30d', pnl:'30d'},
   wars:[], warPeriod:'all',
   outgoing:[], // items sent from you to faction members
-  ocManual:[], // manually logged OC rewards [{id,type,reward,member,ts}]
   ocOverrides:{}, // inline edits on crimenews rows: {ts_key:{reward,respect}}
   respectOverrides:{}, // inline edits on attacknews rows: {ts_member_key:{respect}}
   refundedPayments:new Set(), // payment event timestamps marked as refunded by Sypharius
@@ -1980,7 +1986,6 @@ async function rateSafeGet(section, sel, extra=''){
   });
   try{ const cp=JSON.parse(localStorage.getItem('hv_v1_card_periods')||'{}'); S.cardPeriods={...S.cardPeriods,...cp}; }catch(e){}
   try{ S.outgoing=JSON.parse(localStorage.getItem('hv_v1_outgoing')||'[]'); }catch(e){}
-  try{ S.ocManual=JSON.parse(localStorage.getItem('hv_v1_oc_manual')||'[]'); }catch(e){}
   try{ S.ocOverrides=JSON.parse(localStorage.getItem('hv_v1_oc_overrides')||'{}'); }catch(e){}
   try{ S.respectOverrides=JSON.parse(localStorage.getItem('hv_v1_respect_overrides')||'{}'); }catch(e){}
   try{ const rp=JSON.parse(localStorage.getItem('hv_v1_refunded_payments')||'[]'); S.refundedPayments=new Set(rp); }catch(e){}
@@ -3384,19 +3389,6 @@ function detectCat(name){
 }
 
 function saveReceipts(){ try{localStorage.setItem('hv_v1_rcpts',JSON.stringify(S.receipts));}catch(e){} }
-function saveOcManual(){
-  try{
-    const json=JSON.stringify(S.ocManual);
-    localStorage.setItem('hv_v1_oc_manual', json);
-    // Verify write succeeded
-    const check=localStorage.getItem('hv_v1_oc_manual');
-    if(!check||check==='[]'&&S.ocManual.length>0){
-      clog(`OC save verify FAILED — LS returned "${check}" for ${S.ocManual.length} entries`,'err');
-    }
-  }catch(e){
-    clog(`saveOcManual ERROR: ${e.message}`,'err');
-  }
-}
 function saveOcOverrides(){ try{localStorage.setItem('hv_v1_oc_overrides',JSON.stringify(S.ocOverrides));}catch(e){} }
 function saveRespectOverrides(){ try{localStorage.setItem('hv_v1_respect_overrides',JSON.stringify(S.respectOverrides));}catch(e){} }
 function saveRefundedPayments(){ try{localStorage.setItem('hv_v1_refunded_payments',JSON.stringify([...S.refundedPayments]));}catch(e){} }
@@ -4865,18 +4857,6 @@ function parseOCId(news){
   return m?m[1]:null;
 }
 
-function ocManualPreFill(type,dateStr){
-  const formEl=document.getElementById('ocManualForm');
-  if(formEl) formEl.style.display='block';
-  const toggleBtn=document.getElementById('ocManualToggle');
-  if(toggleBtn) toggleBtn.textContent='✕ CLOSE FORM';
-  const typeEl=document.getElementById('ocManualType');
-  const dateEl=document.getElementById('ocManualDate');
-  if(typeEl){ typeEl.value=type||'Other'; ocUpdateMemberRequired(); }
-  if(dateEl&&dateStr) dateEl.value=dateStr;
-  formEl&&formEl.scrollIntoView({behavior:'smooth',block:'nearest'});
-}
-
 // ── OC INCOME DEBUGGER
 function ocDebugToggle(){
   const p=document.getElementById('ocDebugPanel');
@@ -4891,82 +4871,67 @@ function ocDebugRun(){
   if(!out) return;
   const ocPeriod=S.cardPeriods?.oc||'30d';
   const ocFrom=periodToSeconds(ocPeriod);
-  const manual=S.ocManual||[];
-  const inPeriod=manual.filter(e=>e.ts>ocFrom);
-  const total=inPeriod.reduce((s,e)=>s+Number(e.reward||0),0);
 
-  // Read directly from localStorage for comparison
-  const lsRaw=localStorage.getItem('hv_v1_oc_manual')||'null';
-  let lsParsed=[];
-  try{ lsParsed=JSON.parse(lsRaw)||[]; }catch(e){}
+  // Collect oc_<ts> reward overrides
+  const overrides=S.ocOverrides||{};
+  const rewardKeys=Object.keys(overrides).filter(k=>/^oc_\d+$/.test(k));
+  const inPeriod=rewardKeys.filter(k=>{
+    const ts=parseInt(k.slice(3));
+    return ts>ocFrom;
+  });
+  const total=inPeriod.reduce((s,k)=>s+Number(overrides[k]?.reward||0),0);
 
   let lines=[];
   lines.push(`APP_VERSION  : ${APP_VERSION}`);
   lines.push(`Period       : ${ocPeriod}  (ocFrom=${ocFrom})`);
   lines.push(`Now (unix)   : ${Math.floor(Date.now()/1000)}`);
   lines.push('');
-  lines.push(`── S.ocManual (in-memory) ──`);
-  lines.push(`Count        : ${manual.length} entries`);
-  lines.push(`In period    : ${inPeriod.length} entries`);
-  lines.push(`Manual total : ${total} = ${fmt$(total)}`);
-  lines.push('');
-  lines.push(`── localStorage ──`);
-  lines.push(`LS raw len   : ${lsRaw.length} chars`);
-  lines.push(`LS parsed    : ${lsParsed.length} entries`);
-  lines.push(`LS preview   : ${lsRaw.slice(0,120)}`);
+  lines.push(`── S.ocOverrides reward keys (oc_<ts>) ──`);
+  lines.push(`Total keys   : ${rewardKeys.length}`);
+  lines.push(`In period    : ${inPeriod.length}`);
+  lines.push(`Override total: ${total} = ${fmt$(total)}`);
   lines.push('');
 
-  // Check for drift between memory and LS
-  if(manual.length !== lsParsed.length){
-    lines.push(`⚠ DRIFT: memory has ${manual.length} entries, LS has ${lsParsed.length}`);
-    lines.push(`  → saveOcManual() may have failed silently, or LS was cleared after save`);
-  }
-
-  if(manual.length===0 && lsParsed.length===0){
-    lines.push('⚠ BOTH empty — no entries in memory or LS');
-    lines.push('  → Check Console tab for saveOcManual errors after submitting an entry');
-  } else if(manual.length===0 && lsParsed.length>0){
-    lines.push('⚠ LS has data but S.ocManual is empty — load failed');
-    lines.push('  → Try: reload the page');
-  } else if(manual.length>0){
-    lines.push(`Entries (most recent first):`);
-    manual.slice(0,10).forEach((e,i)=>{
-      const inP=e.ts>ocFrom;
-      const rewardN=Number(e.reward||0);
-      lines.push(`  [${i}] id=${e.id} ts=${e.ts} type=${e.type} reward=${e.reward}→${rewardN} mems=${(e.members||[]).length} inPeriod=${inP}`);
+  if(rewardKeys.length===0){
+    lines.push('ℹ No oc_<ts> reward overrides set — income shows $0 until rewards are entered via ✎ edit on crimenews rows');
+  } else {
+    lines.push(`Reward overrides (most recent first):`);
+    rewardKeys.slice().sort((a,b)=>parseInt(b.slice(3))-parseInt(a.slice(3))).slice(0,15).forEach((k,i)=>{
+      const ts=parseInt(k.slice(3));
+      const ov=overrides[k];
+      const inP=ts>ocFrom;
+      lines.push(`  [${i}] ${k}  reward=${ov?.reward||0}  inPeriod=${inP}`);
     });
-    if(manual.length>10) lines.push(`  … and ${manual.length-10} more`);
+    if(rewardKeys.length>15) lines.push(`  … and ${rewardKeys.length-15} more`);
   }
 
+  // cn_members keys summary
+  const memKeys=Object.keys(overrides).filter(k=>/^cn_members_/.test(k));
   lines.push('');
-  const strRewards=manual.filter(e=>typeof e.reward==='string');
-  if(strRewards.length) lines.push(`⚠ ${strRewards.length} entries have reward as STRING type — coerced by Number() but odd`);
-  const zeroRewards=manual.filter(e=>Number(e.reward||0)===0);
-  if(zeroRewards.length) lines.push(`⚠ ${zeroRewards.length} entries have reward=0 — won't count toward total`);
-  const futurePeriod=manual.filter(e=>e.ts<=ocFrom);
-  if(futurePeriod.length&&ocPeriod!=='all') lines.push(`ℹ ${futurePeriod.length} entries outside current period (${ocPeriod}) — switch to ALL to see them`);
+  lines.push(`── cn_members_<ts> keys: ${memKeys.length} (preserved by CLEAR) ──`);
+
+  const zeroRewards=inPeriod.filter(k=>Number(overrides[k]?.reward||0)===0);
+  if(zeroRewards.length) lines.push(`⚠ ${zeroRewards.length} in-period keys have reward=0`);
+  const outsidePeriod=rewardKeys.filter(k=>parseInt(k.slice(3))<=ocFrom);
+  if(outsidePeriod.length&&ocPeriod!=='all') lines.push(`ℹ ${outsidePeriod.length} override keys outside period (${ocPeriod}) — switch to ALL to see them`);
 
   const ocFromMs=ocFrom*1000;
   const warInc=(S.wars||[]).filter(w=>{const d=w.date?new Date(w.date).getTime():0;return d>=ocFromMs;}).reduce((s,w)=>s+warFactionCut(w),0);
+  lines.push('');
   lines.push(`War income   : ${fmt$(warInc)} (${(S.wars||[]).length} wars total)`);
   lines.push(`Banner total : OC ${fmt$(total)} + WAR ${fmt$(warInc)} = ${fmt$(total+warInc)}`);
   out.textContent=lines.join('\n');
 }
 
-function ocDebugClearManual(){
-  if(!confirm('Clear ALL manually logged OC entries from memory and localStorage?')) return;
-  S.ocManual=[];
-  try{localStorage.removeItem('hv_v1_oc_manual');}catch(e){}
+function ocDebugClearOverrides(){
+  if(!confirm('Clear all oc_<ts> reward overrides? Member overrides (cn_members_*) will be preserved.')) return;
+  const overrides=S.ocOverrides||{};
+  Object.keys(overrides).filter(k=>/^oc_\d+$/.test(k)).forEach(k=>delete overrides[k]);
+  S.ocOverrides=overrides;
+  saveOcOverrides();
   ocDebugRun();
   renderOC(); renderCards();
-  clog('OC manual data cleared via debug panel','warn');
-}
-
-function ocUpdateMemberRequired(){
-  const type=document.getElementById('ocManualType')?.value||'Other';
-  const req=OC_CRIME_MEMBERS[type]||2;
-  const el=document.getElementById('ocMemberRequired');
-  if(el) el.textContent=`${req} required`;
+  clog('OC reward overrides cleared via debug panel','warn');
 }
 
 // Save manually-set members for a crimenews completed OC entry (stored in ocOverrides)
@@ -4993,14 +4958,6 @@ function ocToggleEditMem(id){
   if(row) row.style.display=row.style.display==='none'?'table-row':'none';
 }
 
-function ocManualSaveMembers(id){
-  const entry=S.ocManual.find(e=>e.id===id);
-  if(!entry) return;
-  entry.members=[...document.querySelectorAll('.ocEditChk_'+CSS.escape(id)+':checked')].map(el=>el.value);
-  saveOcManual();
-  renderOC();
-}
-
 function ocFilterMembers(query, gridId){
   const q=query.toLowerCase().trim();
   const grid=document.getElementById(gridId);
@@ -5009,58 +4966,6 @@ function ocFilterMembers(query, gridId){
     const name=(lbl.textContent||'').toLowerCase();
     lbl.style.display=(!q||name.includes(q))?'':'none';
   });
-}
-
-function ocManualSaveReward(id){
-  const entry=S.ocManual.find(e=>e.id===id);
-  if(!entry) return;
-  const safeId=id.replace(/[^a-z0-9]/gi,'_');
-  const rewEl=document.getElementById('ocR_'+safeId);
-  const respEl=document.getElementById('ocP_'+safeId);
-  const newReward=parseInt((rewEl?.value||'').replace(/[$,]/g,''))||entry.reward;
-  const newResp=parseFloat(respEl?.value||'')||0;
-  entry.reward=newReward;
-  if(newResp>0) entry.respect=newResp; else delete entry.respect;
-  saveOcManual();
-  clog('OC manual updated: '+fmt$(newReward)+(newResp?' / '+newResp+' resp':''),'ok');
-  renderOC(); renderCards();
-}
-
-function ocManualSubmit(){
-  // UPGRADE-8: Prevent double-submit
-  if(window._ocSubmitting) return;
-  window._ocSubmitting=true;
-  setTimeout(()=>{ window._ocSubmitting=false; }, 2000);
-
-  const type=document.getElementById('ocManualType')?.value||'Other';
-  const rewardRaw=document.getElementById('ocManualReward')?.value||'0';
-  const dateVal=document.getElementById('ocManualDate')?.value||'';
-  const reward=parseInt(rewardRaw.replace(/[$,]/g,''))||0;
-  if(!reward){ alert('Enter a reward amount > 0'); return; }
-  // Collect checked members
-  const members=[...document.querySelectorAll('.ocMemberChk:checked')].map(el=>el.value);
-  const ts=dateVal?Math.floor(new Date(dateVal).getTime()/1000):Math.floor(Date.now()/1000);
-  const id='ocm_'+ts+'_'+Math.random().toString(36).slice(2,7);
-  if(!S.ocManual) S.ocManual=[];
-  S.ocManual.push({id,type,reward,members,ts});
-  S.ocManual.sort((a,b)=>b.ts-a.ts);
-  clog(`OC pre-save: S.ocManual.length=${S.ocManual.length}, reward=${reward}`, 'info');
-  saveOcManual();
-  clog(`OC post-save: LS="${localStorage.getItem('hv_v1_oc_manual')?.slice(0,80)}"`, 'info');
-  document.getElementById('ocManualReward').value='';
-  document.getElementById('ocManualDate').value='';
-  // Uncheck all member boxes
-  document.querySelectorAll('.ocMemberChk').forEach(el=>el.checked=false);
-  clog(`OC manual entry: ${type} +${fmt$(reward)} (${members.length} members)`,'ok');
-  // Auto-refresh debug panel if open
-  if(document.getElementById('ocDebugPanel')?.style.display!=='none') ocDebugRun();
-  renderOC(); renderCards();
-}
-
-function ocManualDelete(id){
-  S.ocManual=(S.ocManual||[]).filter(e=>e.id!==id);
-  saveOcManual();
-  renderOC(); renderCards();
 }
 
 function updateOcBanner(ocIncome, warIncome, period){
@@ -5087,48 +4992,13 @@ function renderOC(){
   const ocPeriod=S.cardPeriods.oc||'30d';
   const ocFrom=periodToSeconds(ocPeriod);
 
-  // BUG-8: Preserve checkbox state before re-render wipes the form
-  const _checkedMembers=new Set([...document.querySelectorAll('.ocMemberChk:checked')].map(el=>el.value));
-
-  const manualInPeriod=(S.ocManual||[]).filter(e=>e.ts>ocFrom);
-  const manualTotal=manualInPeriod.reduce((s,e)=>s+Number(e.reward||0),0);
+  // Override-based OC income: sum oc_<ts> reward keys for entries in period
+  const overrides=S.ocOverrides||{};
+  const overrideIncome=Object.keys(overrides)
+    .filter(k=>/^oc_\d+$/.test(k)&&parseInt(k.slice(3))>ocFrom)
+    .reduce((s,k)=>s+Number(overrides[k]?.reward||0),0);
 
   const memberNames=Object.values(S.faction?.members||{}).map(m=>m.name||'').filter(Boolean).sort();
-  const memberOpts=memberNames.map(n=>`<option value="${n}">${n}</option>`).join('');
-  const typeOpts=OC_CRIME_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('');
-
-  // Member checkboxes for the form
-  const req=OC_CRIME_MEMBERS[OC_CRIME_TYPES[0]]||2;
-  const memberCheckboxes=memberNames.map(n=>`
-    <label style="display:flex;align-items:center;gap:5px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);cursor:pointer;padding:2px 0;">
-      <input type="checkbox" class="ocMemberChk" value="${n}" ${_checkedMembers.has(n)?'checked':''} style="accent-color:var(--accent3);width:13px;height:13px;">
-      ${n}
-    </label>`).join('');
-
-  const formHtml=`
-  <button onclick="(function(){var f=document.getElementById('ocManualForm');var open=f.style.display!=='none';f.style.display=open?'none':'block';this.textContent=open?'➕ LOG OC REWARD':'✕ CLOSE FORM';}).call(this)" id="ocManualToggle" style="background:transparent;border:1px solid var(--accent3);color:var(--accent3);padding:5px 14px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;margin-bottom:10px;">➕ LOG OC REWARD</button>
-  <div id="ocManualForm" style="display:none;background:var(--surface2);border:1px solid var(--border);padding:12px;margin-bottom:16px;">
-    <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent3);margin-bottom:10px;font-family:'Space Mono',monospace;">LOG OC REWARD</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
-      <div>
-        <div style="font-size:9px;color:var(--muted);margin-bottom:3px;font-family:'Space Mono',monospace;">CRIME TYPE</div>
-        <select id="ocManualType" onchange="ocUpdateMemberRequired()" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px 6px;font-size:11px;font-family:'Space Mono',monospace;">${typeOpts}</select>
-        <div style="font-size:9px;color:var(--accent3);margin-top:3px;font-family:'Space Mono',monospace;" id="ocMemberRequired">${req} required</div>
-      </div>
-      <div>
-        <div style="font-size:9px;color:var(--muted);margin-bottom:3px;font-family:'Space Mono',monospace;">REWARD ($)</div>
-        <input id="ocManualReward" type="text" placeholder="e.g. 5000000" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px 6px;font-size:11px;font-family:'Space Mono',monospace;box-sizing:border-box;">
-        <div style="font-size:9px;color:var(--muted);margin-bottom:3px;font-family:'Space Mono',monospace;margin-top:6px;">DATE</div>
-        <input id="ocManualDate" type="date" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px 6px;font-size:11px;font-family:'Space Mono',monospace;box-sizing:border-box;">
-      </div>
-    </div>
-    <div style="font-size:9px;color:var(--muted);margin-bottom:6px;font-family:'Space Mono',monospace;">MEMBERS INVOLVED</div>
-    <input id="ocMemberSearch" type="text" placeholder="Search members…" oninput="ocFilterMembers(this.value,'ocMemberGrid')" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:3px 8px;font-size:10px;font-family:'Space Mono',monospace;box-sizing:border-box;margin-bottom:4px;">
-    <div id="ocMemberGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:2px 6px;max-height:110px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);padding:6px;margin-bottom:10px;">
-      ${memberCheckboxes||'<span style="font-size:9px;color:var(--muted2);font-family:\'Space Mono\',monospace;">No faction members loaded</span>'}
-    </div>
-    <button onclick="ocManualSubmit()" style="background:var(--accent3);color:#000;border:none;padding:6px 16px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;">SAVE ENTRY</button>
-  </div>`;
 
   function memberBadge(members){
     if(!members||!members.length) return `<td class="cm" style="font-size:10px;">—</td>`;
@@ -5140,55 +5010,6 @@ function renderOC(){
     </td>`;
   }
 
-  function manualEntriesHtml(entries){
-    if(!entries.length) return '';
-    let h=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;font-family:'Space Mono',monospace;">MANUAL ENTRIES (${entries.length}) — ${fmt$(manualTotal)}</div>`;
-    h+=`<table><thead><tr><th>Date</th><th>Type</th><th>Members</th><th>Reward</th><th></th><th></th></tr></thead><tbody>`;
-    entries.forEach(e=>{
-      const mems=e.members||[];
-      const editRowId=`ocMemEdit_${e.id}`;
-      const allMemberChks=memberNames.map(n=>`
-        <label style="display:flex;align-items:center;gap:4px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);cursor:pointer;">
-          <input type="checkbox" class="ocEditChk_${e.id.replace(/[^a-z0-9]/gi,'_')}" value="${n}" ${mems.includes(n)?'checked':''} style="accent-color:var(--accent3);">
-          ${n}
-        </label>`).join('');
-      const editRewId=`ocER_${e.id.replace(/[^a-z0-9]/gi,"_")}`;
-      const safeId=e.id.replace(/[^a-z0-9]/gi,"_");
-      h+=`<tr style="background:rgba(240,192,64,0.04)">
-        <td class="cm" style="font-size:10px;white-space:nowrap">${fd(e.ts)}</td>
-        <td style="font-size:10px;color:var(--accent3)">${e.type}</td>
-        ${memberBadge(mems)}
-        <td class="cg" style="font-size:10px;cursor:pointer;" onclick="toggleInlineEdit('${editRewId}')" title="Edit reward/respect">${fmt$(e.reward)}${e.respect?`<span style="font-size:8px;color:var(--accent5);margin-left:3px">(${e.respect} resp)</span>`:""}</td>
-        <td style="font-size:10px;"><span style="cursor:pointer;color:var(--muted);font-size:11px;" onclick="toggleInlineEdit('${editRowId}')" title="Edit members">✎</span></td>
-        <td style="font-size:10px;"><span class="badge br" style="cursor:pointer;" onclick="ocManualDelete('${e.id}')">✕</span></td>
-      </tr>
-      <tr id="${editRewId}" style="display:none;background:rgba(61,214,140,0.04);">
-        <td colspan="6" style="padding:8px 12px;">
-          <div style="display:flex;gap:8px;align-items:flex-end;">
-            <div><div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">REWARD ($)</div>
-              <input id="ocR_${safeId}" type="text" value="${e.reward||''}" style="width:110px;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px 6px;font-size:11px;font-family:'Space Mono',monospace;"></div>
-            <div><div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">RESPECT</div>
-              <input id="ocP_${safeId}" type="text" value="${e.respect||''}" style="width:70px;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px 6px;font-size:11px;font-family:'Space Mono',monospace;"></div>
-            <button onclick="ocManualSaveReward('${e.id}')" style="background:var(--accent2);color:#000;border:none;padding:4px 12px;font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;">SAVE</button>
-            <button onclick="toggleInlineEdit('${editRewId}')" style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:4px 10px;font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;">CANCEL</button>
-          </div>
-        </td>
-      </tr>
-      <tr id="${editRowId}" style="display:none;background:rgba(240,192,64,0.06);">
-        <td colspan="6" style="padding:8px 12px;">
-          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px;">EDIT MEMBERS</div>
-          <input type="text" placeholder="Search…" oninput="ocFilterMembers(this.value,'ocEditGrid_${e.id.replace(/[^a-z0-9]/gi,'_')}')" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:3px 7px;font-size:10px;font-family:'Space Mono',monospace;box-sizing:border-box;margin-bottom:4px;">
-          <div id="ocEditGrid_${e.id.replace(/[^a-z0-9]/gi,'_')}" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:2px 6px;max-height:100px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);padding:6px;margin-bottom:8px;">
-            ${allMemberChks||'<span style="font-size:9px;color:var(--muted2);">No members loaded</span>'}
-          </div>
-          <button onclick="ocManualSaveMembers('${e.id}')" style="background:var(--accent3);color:#000;border:none;padding:4px 12px;font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;">SAVE MEMBERS</button>
-        </td>
-      </tr>`;
-    });
-    h+='</tbody></table><div style="margin-top:14px;"></div>';
-    return h;
-  }
-
   const v2crimes=(S._ocCrimes||[]);
   const useV2=v2crimes.length>0&&v2crimes.some(c=>(c._totalPaid||0)>0);
 
@@ -5197,14 +5018,12 @@ function renderOC(){
     const totalPaid=crimes.reduce((s,c)=>s+(c._totalPaid||0),0);
     const ocFromMs=ocFrom*1000;
     const warInc=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
-    document.getElementById('cOC').textContent=fmt$(totalPaid+manualTotal+warInc);
-    updateOcBanner(totalPaid+manualTotal, warInc, ocPeriod);
+    document.getElementById('cOC').textContent=fmt$(totalPaid+overrideIncome+warInc);
+    updateOcBanner(totalPaid+overrideIncome, warInc, ocPeriod);
 
-    let h=formHtml;
-    h+=manualEntriesHtml(manualInPeriod);
-
-    if(!crimes.length&&!manualInPeriod.length){
-      h+='<div class="empty">No completed OCs in this period. Use the form above to log rewards manually.</div>';
+    let h='';
+    if(!crimes.length){
+      h+='<div class="empty">No completed OCs in this period.</div>';
       document.getElementById('ocTbl').innerHTML=h;
       return;
     }
@@ -5247,29 +5066,22 @@ function renderOC(){
     const allEntries=(S._crimeLog||[]);
     const resultEntries=allEntries.filter(e=>/successfully|tried to|but failed/i.test(e.news||''));
     const periodEntries=resultEntries.filter(e=>e.timestamp>ocFrom);
-    const crimenewsTotal=periodEntries.reduce((s,e)=>s+(e._reward||0),0)||
-      S.ocRaw.filter(e=>e.timestamp>ocFrom).reduce((s,e)=>{
-        const m=(e.news||'').match(/\$[\d,]+/g)||[];
-        return s+m.reduce((a,v)=>a+parseInt(v.replace(/[$,]/g,'')),0);
-      },0);
     const ocFromMs2=ocFrom*1000;
     const warInc2=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs2; }).reduce((s,w)=>s+warFactionCut(w),0);
-    // When API v2 is unavailable, only count manually logged OC rewards (ignore broken crimenews parsing)
-    document.getElementById('cOC').textContent=fmt$(manualTotal+warInc2);
-    updateOcBanner(manualTotal, warInc2, ocPeriod);
+    // Income = sum of oc_<ts> reward overrides in period (set via ✎ edit on each row)
+    document.getElementById('cOC').textContent=fmt$(overrideIncome+warInc2);
+    updateOcBanner(overrideIncome, warInc2, ocPeriod);
 
     const selectionEntries=allEntries.filter(e=>/have been selected/i.test(e.news||''));
-    // Track which selection entries have been claimed so they can't match multiple completions
     const claimedSelections=new Set();
     const displayEntries=(periodEntries.length?periodEntries:allEntries.filter(e=>/successfully|tried to|but failed/i.test(e.news||''))).slice(0,100);
     const successes=displayEntries.filter(e=>/successfully/i.test(e.news||'')).length;
     const failures=displayEntries.filter(e=>/tried to|but failed/i.test(e.news||'')).length;
 
-    let h=formHtml;
-    h+=manualEntriesHtml(manualInPeriod);
+    let h='';
 
-    if(!allEntries.length&&!manualInPeriod.length){
-      h+='<div class="empty">No OC data loaded yet. Run Initialize or Sync, or use the form above to log rewards manually.</div>';
+    if(!allEntries.length){
+      h+='<div class="empty">No OC data loaded yet. Run Initialize or Sync.</div>';
       document.getElementById('ocTbl').innerHTML=h;
       return;
     }
@@ -5279,7 +5091,6 @@ function renderOC(){
       h+=`<span style="color:var(--accent2)">✓ ${successes} success</span>`;
       h+=`<span style="color:var(--accent4)">✗ ${failures} failed</span>`;
       h+=`<span style="color:var(--muted)">${displayEntries.length} total in period</span>`;
-      if(crimenewsTotal>0) h+=`<span style="color:var(--accent3)">💰 ${fmt$(crimenewsTotal)}</span>`;
       h+=`</div>`;
       h+=`<table><thead><tr><th>Date</th><th>Type</th><th>Result</th><th>$</th><th>Resp</th><th>Members</th><th>Log</th><th></th></tr></thead><tbody>`;
       displayEntries.forEach(e=>{
@@ -5793,24 +5604,30 @@ function renderCards(){
   const supplySubEl=document.getElementById('cSupplySub');
   if(supplySubEl) supplySubEl.textContent=`consumables · ${supplyPeriod}`;
 
-  // Faction Income card — OC manual rewards + war payouts, filtered by card period
+  // Faction Income card — OC override rewards + war payouts, filtered by card period
   const ocPeriod=S.cardPeriods.oc||'30d';
   const ocFrom=periodToSeconds(ocPeriod);
-  // OC income: manually logged faction-share OC rewards
-  const ocManualIncome=(S.ocManual||[]).filter(e=>e.ts>ocFrom).reduce((s,e)=>s+Number(e.reward||0),0);
+  // OC income: sum oc_<ts> reward overrides in period (set via ✎ edit on crimenews rows)
+  const _ocOverrides=S.ocOverrides||{};
+  const ocOverrideIncome=Object.keys(_ocOverrides)
+    .filter(k=>/^oc_\d+$/.test(k)&&parseInt(k.slice(3))>ocFrom)
+    .reduce((s,k)=>s+Number(_ocOverrides[k]?.reward||0),0);
   // War income: faction CUT (totalPot × factionCutPct%) — not member payout
   const ocFromMs=ocFrom*1000;
   const warIncome=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
-  const factionIncome=ocManualIncome+warIncome;
+  const factionIncome=ocOverrideIncome+warIncome;
   document.getElementById('cOC').textContent=fmt$(factionIncome);
   const ocSubEl=document.getElementById('cOCSub');
-  if(ocSubEl) ocSubEl.textContent=`OC ${fmt$(ocManualIncome)} + war ${fmt$(warIncome)} · ${ocPeriod}`;
+  if(ocSubEl) ocSubEl.textContent=`OC ${fmt$(ocOverrideIncome)} + war ${fmt$(warIncome)} · ${ocPeriod}`;
 
-  // P&L — own period selector, formula: (OC manual + war) − supply
+  // P&L — own period selector, formula: (OC overrides + war) − supply
   const pnlPeriod=S.cardPeriods.pnl||'30d';
   const pnlFrom=periodToSeconds(pnlPeriod);
   const pnlFromMs=pnlFrom*1000;
-  const pnlOC=(S.ocManual||[]).filter(e=>e.ts>pnlFrom).reduce((s,e)=>s+Number(e.reward||0),0);
+  const _pnlOverrides=S.ocOverrides||{};
+  const pnlOC=Object.keys(_pnlOverrides)
+    .filter(k=>/^oc_\d+$/.test(k)&&parseInt(k.slice(3))>pnlFrom)
+    .reduce((s,k)=>s+Number(_pnlOverrides[k]?.reward||0),0);
   const pnlWar=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=pnlFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
   const pnlIncome=pnlOC+pnlWar;
   // Supply cost over pnl period
@@ -6220,7 +6037,6 @@ function adminExport(type){
       cardPeriods:S.cardPeriods,
       events_count:S.events.length,
       faction_name:S.faction?.name||'',
-      ocManual:S.ocManual||[],
       ocOverrides:S.ocOverrides||{},
       respectOverrides:S.respectOverrides||{},
       exemptReceipts:[...(S.exemptReceipts||new Set())],
@@ -6336,13 +6152,6 @@ function adminImport(evt){
         const existingOut=new Set(S.outgoing.map(r=>r.id));
         data.outgoing.forEach(r=>{ if(!existingOut.has(r.id)) S.outgoing.push(r); });
         try{localStorage.setItem('hv_v1_outgoing',JSON.stringify(S.outgoing));}catch(ex){}
-      }
-      // Import ocManual (merge by id)
-      if(data.ocManual&&Array.isArray(data.ocManual)){
-        if(!S.ocManual) S.ocManual=[];
-        const existingOC=new Set(S.ocManual.map(e=>e.id));
-        data.ocManual.forEach(e=>{ if(!existingOC.has(e.id)) S.ocManual.push(e); });
-        try{localStorage.setItem('hv_v1_oc_manual',JSON.stringify(S.ocManual));}catch(ex){}
       }
       // Import ocOverrides (merge)
       if(data.ocOverrides&&typeof data.ocOverrides==='object'){
