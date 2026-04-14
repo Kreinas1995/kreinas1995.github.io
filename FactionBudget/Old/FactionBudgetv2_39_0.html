@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.38.9</title>
+<title>Faction Budget v2.39.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -117,6 +117,17 @@
   .br{background:rgba(255,107,107,0.12);color:var(--accent4);border:1px solid rgba(255,107,107,0.2);}
   .bb{background:rgba(126,184,255,0.12);color:var(--accent5);border:1px solid rgba(126,184,255,0.2);}
   .bm{background:rgba(90,106,122,0.15);color:var(--muted);border:1px solid rgba(90,106,122,0.2);}
+
+  /* Member tooltip — works on desktop hover AND mobile tap */
+  .mem-tip{position:relative;cursor:pointer;}
+  .mem-tip .mem-tip-box{
+    display:none;position:absolute;z-index:999;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+    background:var(--surface2);border:1px solid var(--border);color:var(--text);
+    font-family:'Space Mono',monospace;font-size:10px;padding:6px 10px;white-space:nowrap;
+    box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:none;line-height:1.7;
+  }
+  .mem-tip:hover .mem-tip-box,
+  .mem-tip.tip-open .mem-tip-box{display:block;}
 
   .empty{text-align:center;padding:36px 16px;color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;line-height:2;}
   .err-box{background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.3);color:var(--accent4);padding:10px 14px;font-family:'Space Mono',monospace;font-size:10px;margin-bottom:12px;display:none;}
@@ -364,7 +375,7 @@
         <div class="logo-name">⬡ <span id="factionTitle">HIGHVIBES</span></div>
         <div class="logo-sub">Faction Budget Dashboard</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer;" onclick="(function(){const from=localStorage.getItem('hv_upgrade_from');showChangelog(false,null,from||null);})()" title="View changelog">
-          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.38.9</div>
+          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.39.0</div>
           <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;">changelog</div>
         </div>
       </div>
@@ -660,6 +671,7 @@
       </span>
     </div>
     <div id="ocRawOut" style="display:none;"></div>
+    <div id="ocIncomeBanner" style="display:none;background:var(--surface2);border:1px solid var(--border);padding:10px 14px;margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;"></div>
     <div class="tw" id="ocTbl"><div class="empty">No OC data yet.</div></div>
   </div>
 
@@ -1024,7 +1036,7 @@
 // ════════════════════════════════════════════
 // VERSION & CHANGELOG
 // ════════════════════════════════════════════
-const APP_VERSION = '2.38.9';
+const APP_VERSION = '2.39.0';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1089,6 +1101,13 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.39.0', date:'2026-04-13', notes:[
+    '[!!] BUG-CRITICAL: Missing `function setWarPeriod(el, period){` declaration — war period pills (30D/90D/1Y/LIFETIME) threw a reference error and broke the entire war panel.',
+    '[*] BUG: warTotalPot() / warFactionCut() — added Number() coercions and isFinite() guards. Old localStorage war records with corrupt or string-typed factionCutPct caused NaN to propagate to Faction Income card, showing — instead of a value.',
+    '[*] BUG: OC reward values coerced to Number() in all three reduce() calls (ocManualIncome, pnlOC, manualTotal) — localStorage restores reward as a string, causing string concatenation instead of addition.',
+    '[*] UX: Member count badge in OC table now uses a CSS tap-tooltip (.mem-tip / .mem-tip-box) instead of title="" attribute — member names now visible on mobile tap as well as desktop hover. Tap outside to dismiss.',
+    '[+] OC: Income summary banner added to top of OC panel — shows OC Income, War Cut (if non-zero), and Total Faction Income for the active period. Updates from both v2 and crimenews render paths.',
+  ]},
   { v:'2.38.9', date:'2026-04-13', notes:[
     '[*] BUG-PROXY: Removed broken allorigins.win proxy — war import now tries corsproxy.io (primary) then thingproxy.freeboard.io (backup) before revealing manual paste.',
     '[*] BUG-CHANGELOG: Changelog no longer shows "Upgraded from vX" banner. When an update IS available, shows an "⬆ UPGRADE TO vX" button that opens the new version. When already on latest, shows "✓ Updated from vX — you are on the latest version".',
@@ -4877,6 +4896,15 @@ function ocManualDelete(id){
   renderOC(); renderCards();
 }
 
+if(!window._memTipListenerAdded){
+  window._memTipListenerAdded=true;
+  document.addEventListener('click',function(e){
+    if(!e.target.closest('.mem-tip')){
+      document.querySelectorAll('.mem-tip.tip-open').forEach(el=>el.classList.remove('tip-open'));
+    }
+  });
+}
+
 function renderOC(){
   const ocPeriod=S.cardPeriods.oc||'30d';
   const ocFrom=periodToSeconds(ocPeriod);
@@ -4885,7 +4913,7 @@ function renderOC(){
   const _checkedMembers=new Set([...document.querySelectorAll('.ocMemberChk:checked')].map(el=>el.value));
 
   const manualInPeriod=(S.ocManual||[]).filter(e=>e.ts>ocFrom);
-  const manualTotal=manualInPeriod.reduce((s,e)=>s+(e.reward||0),0);
+  const manualTotal=manualInPeriod.reduce((s,e)=>s+Number(e.reward||0),0);
 
   const memberNames=Object.values(S.faction?.members||{}).map(m=>m.name||'').filter(Boolean).sort();
   const memberOpts=memberNames.map(n=>`<option value="${n}">${n}</option>`).join('');
@@ -4927,9 +4955,8 @@ function renderOC(){
   function memberBadge(members){
     if(!members||!members.length) return `<td class="cm" style="font-size:10px;">—</td>`;
     const names=(members||[]).join(', ');
-    return `<td style="font-size:10px;cursor:default;" title="${names}">
-      <span style="color:var(--accent5);">${members.length}</span>
-      <span style="font-size:8px;color:var(--muted);"> ▸</span>
+    return `<td style="font-size:10px;">
+      <span class="mem-tip" onclick="this.classList.toggle('tip-open')">${members.length} members<span class="mem-tip-box">${names.replace(/,\s*/g,'<br>')}</span></span>
     </td>`;
   }
 
@@ -5195,6 +5222,40 @@ function renderOC(){
     }
     document.getElementById('ocTbl').innerHTML=h;
   }
+
+  // OC Income Banner
+  (function(){
+    const period = S.cardPeriods.oc || '30d';
+    const floorSec = periodToSeconds(period);
+    const floorMs = floorSec * 1000;
+    const ocIncome = (S.ocManual||[]).filter(e=>e.ts>=floorSec).reduce((a,e)=>a+Number(e.reward||0),0);
+    const warCut = (S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=floorMs; }).reduce((w_acc,w)=>{
+      const base=isFinite(Number(w.memberPayout))?Number(w.memberPayout):(isFinite(Number(w.grossPayout))?Number(w.grossPayout):0);
+      const pct=isFinite(Number(w.factionCutPct))?Number(w.factionCutPct):20;
+      if(pct>=100) return w_acc+base;
+      return w_acc+(Math.round(base/(1-pct/100))-base);
+    },0);
+    const total = ocIncome + warCut;
+    const banner = document.getElementById('ocIncomeBanner');
+    if(!banner) return;
+    if(total===0){ banner.style.display='none'; return; }
+    banner.style.display='flex';
+    banner.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;">OC Income</div>
+        <div style="font-size:16px;font-weight:800;color:var(--accent2);">${fmt$(ocIncome)}</div>
+      </div>
+      ${warCut>0?`<div style="display:flex;flex-direction:column;gap:2px;">
+        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;">War Cut</div>
+        <div style="font-size:16px;font-weight:800;color:var(--accent3);">${fmt$(warCut)}</div>
+      </div>`:''}
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;">Total Faction Income</div>
+        <div style="font-size:16px;font-weight:800;color:var(--accent);">${fmt$(total)}</div>
+      </div>
+      <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-left:auto;align-self:center;">Period: ${period.toUpperCase()}</div>
+    `;
+  })();
 }
 
 // ── RECEIPTS
@@ -5576,7 +5637,7 @@ function renderCards(){
   const ocPeriod=S.cardPeriods.oc||'30d';
   const ocFrom=periodToSeconds(ocPeriod);
   // OC income: manually logged faction-share OC rewards
-  const ocManualIncome=(S.ocManual||[]).filter(e=>e.ts>ocFrom).reduce((s,e)=>s+(e.reward||0),0);
+  const ocManualIncome=(S.ocManual||[]).filter(e=>e.ts>ocFrom).reduce((s,e)=>s+Number(e.reward||0),0);
   // War income: faction CUT (totalPot × factionCutPct%) — not member payout
   const ocFromMs=ocFrom*1000;
   const warIncome=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
@@ -5589,7 +5650,7 @@ function renderCards(){
   const pnlPeriod=S.cardPeriods.pnl||'30d';
   const pnlFrom=periodToSeconds(pnlPeriod);
   const pnlFromMs=pnlFrom*1000;
-  const pnlOC=(S.ocManual||[]).filter(e=>e.ts>pnlFrom).reduce((s,e)=>s+(e.reward||0),0);
+  const pnlOC=(S.ocManual||[]).filter(e=>e.ts>pnlFrom).reduce((s,e)=>s+Number(e.reward||0),0);
   const pnlWar=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=pnlFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
   const pnlIncome=pnlOC+pnlWar;
   // Supply cost over pnl period
@@ -6498,12 +6559,14 @@ function parseArmaSync(html, url){
 // totalPot = memberPayout / (1 - factionCutPct/100)
 // factionCut = totalPot - memberPayout
 function warTotalPot(w){
-  const pct = (w.factionCutPct !== undefined ? w.factionCutPct : 20);
-  if(pct >= 100) return w.memberPayout || w.grossPayout || 0;
-  return Math.round((w.memberPayout || w.grossPayout || 0) / (1 - pct/100));
+  const pct = isFinite(Number(w.factionCutPct)) ? Number(w.factionCutPct) : 20;
+  const base = isFinite(Number(w.memberPayout)) ? Number(w.memberPayout) : (isFinite(Number(w.grossPayout)) ? Number(w.grossPayout) : 0);
+  if(pct >= 100) return base;
+  return Math.round(base / (1 - pct/100));
 }
 function warFactionCut(w){
-  return warTotalPot(w) - (w.memberPayout || w.grossPayout || 0);
+  const base = isFinite(Number(w.memberPayout)) ? Number(w.memberPayout) : (isFinite(Number(w.grossPayout)) ? Number(w.grossPayout) : 0);
+  return warTotalPot(w) - base;
 }
 
 function saveWarFactionCut(idx, pct){
@@ -6514,10 +6577,9 @@ function saveWarFactionCut(idx, pct){
   renderCards();
 }
 
-
   S.warPeriod=period;
-  document.querySelectorAll('#panel-war .pill').forEach(p=>p.classList.remove('on'));
-  el.classList.add('on');
+  document.querySelectorAll('#warSummaryCards .pill').forEach(p=>p.classList.remove('on'));
+  if(el) el.classList.add('on');
   renderWarPanel();
 }
 
@@ -6527,6 +6589,13 @@ function clearWarData(){
   try{localStorage.removeItem('hv_v1_wars');}catch(e){}
   renderWarPanel();
   clog('War data cleared','warn');
+}
+
+function setWarPeriod(el, period){
+  S.warPeriod=period;
+  document.querySelectorAll('#warSummaryCards .pill').forEach(p=>p.classList.remove('on'));
+  if(el) el.classList.add('on');
+  renderWarPanel();
 }
 
 function renderWarPanel(){
