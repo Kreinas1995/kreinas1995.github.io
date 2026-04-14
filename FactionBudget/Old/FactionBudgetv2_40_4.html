@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.3</title>
+<title>Faction Budget v2.40.4</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1013,7 +1013,10 @@
     <!-- STORAGE INSPECTOR -->
     <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">🗄 LOCALSTORAGE INSPECTOR</div>
-      <button class="btn-sm" onclick="adminInspectStorage()">🔍 Inspect All Keys</button>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <button class="btn-sm" onclick="adminInspectStorage()">🔍 Inspect All Keys</button>
+        <span id="cacheSizeBadge" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);"></span>
+      </div>
       <div id="adminStorageOut" style="background:var(--bg);border:1px solid var(--border);padding:12px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);max-height:240px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;margin-top:12px;display:none;"></div>
     </div>
 
@@ -1052,7 +1055,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.3';
+const APP_VERSION = '2.40.4';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1117,6 +1120,13 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.4', date:'2026-04-14', notes:[
+    '[*] BUG-DEEP-FETCH: hv_v1_crime_log cap raised from 500 → 2000 entries in all 3 save paths (runInitialize, fetchAll, deep fetch source def) — deep-fetched older entries were being silently discarded by slice(0,500) after sort.',
+    '[*] STATUS: All LIVE status labels renamed to CONNECTED — "LIVE" was misleading (data is cached/polled, not a live socket).',
+    '[+] STATUS: Boot sequence now shows "FETCHING CACHE" immediately, then "SYNCING" when background sync starts, then "CONNECTED" on completion — was blank until fetchAll finished.',
+    '[*] BUG-OC-MEMBERS: Removed partMatch regex on crimenews completion text — completion news names are unreliable (reflect news-feed order, not actual OC pair). Member resolution now uses only: (1) stored cn_members_<ts> override, (2) selection-entry timestamp lookup. Fixes wrong members shown and "still in progress" entries that had already completed.',
+    '[+] ADMIN: Cache size badge added to Storage Inspector — shows total KB used and % of 5MB localStorage limit. Auto-updates on admin tab open.',
+  ]},
   { v:'2.40.3', date:'2026-04-14', notes:[
     '[-] OC: Removed manual OC reward entry form (➕ LOG OC REWARD) and all associated functions (ocManualSubmit, ocManualDelete, ocManualSaveReward, ocManualSaveMembers, ocUpdateMemberRequired, saveOcManual). S.ocManual state and hv_v1_oc_manual localStorage key removed.',
     '[*] OC: Income calculation (cOC card, Faction Income card, P&L) now sums ocOverrides reward values (keys oc_<timestamp>) for crimenews entries within the selected period — replacing the former S.ocManual reduce.',
@@ -2033,17 +2043,19 @@ async function rateSafeGet(section, sel, extra=''){
 
       setTimeout(()=>{
         // Stale render — show what we have immediately
+        setStatus('loading','FETCHING CACHE');
         if(hasCachedData){ renderAll(); clog('Loaded from cache','ok'); }
         if(S.receipts.length) renderReceipts();
         if(S.wars.length) renderWarPanel();
 
-        // Then kick off background sync if stale, otherwise just show LIVE
+        // Then kick off background sync if stale, otherwise just show CONNECTED
         if(needsSync){
           clog(`Cache age ${Math.round(msSinceSync/60000)}m — background sync starting`,'info');
+          setStatus('loading','SYNCING');
           fetchAll(false, true); // isManual=false, isBackground=true
         } else {
           clog(`Cache age ${Math.round(msSinceSync/60000)}m — skipping sync (next in ${Math.round((syncIntervalMs-msSinceSync)/60000)}m)`,'ok');
-          setStatus('live','LIVE');
+          setStatus('live','CONNECTED');
           document.getElementById('btnRefresh').disabled=false;
         }
       }, 0);
@@ -2139,7 +2151,7 @@ async function saveKey(){
       const sc2=restoreFromCacheStale();
       if(Object.keys(sc2).length>0){ setTimeout(()=>renderAll(),0); }
       const msSinceSync2=S.lastSync?Date.now()-S.lastSync:Infinity;
-      if(msSinceSync2>=RMINS*60*1000){ fetchAll(); } else { setStatus('live','LIVE'); document.getElementById('btnRefresh').disabled=false; }
+      if(msSinceSync2>=RMINS*60*1000){ fetchAll(); } else { setStatus('live','CONNECTED'); document.getElementById('btnRefresh').disabled=false; }
       clearTimeout(rTimer); clearInterval(rTimer); clearInterval(cTimer); clearTimeout(dTimer); clearTimeout(bgTimer);
       startCycle();
     } else {
@@ -2507,7 +2519,7 @@ async function runInitialize(){
     ilog(`✓ faction/attacknews: ${S.crimeNews.length}`);
     const crArr=await pages('faction','crimenews',20,fromFloor);
     S._crimeLog=crArr.sort((a,b)=>b.timestamp-a.timestamp);
-    try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog.slice(0,500)));}catch(e){}
+    try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog.slice(0,2000)));}catch(e){}
     ilog(`✓ faction/crimenews: ${S._crimeLog.length}`);
     stepDone('s-attacknews',`${S.crimeNews.length} atk · ${S._crimeLog.length} crime`);
 
@@ -2560,7 +2572,7 @@ async function runInitialize(){
         <button class="gate-btn-init" style="max-width:320px;margin-top:8px;" onclick="
           document.getElementById('initScreen').style.display='none';
           revealDash(); renderAll(); startCycle();
-          setStatus('live','LIVE');
+          setStatus('live','CONNECTED');
           const _rl=document.getElementById('rLast'); if(_rl&&S.lastSync) _rl.textContent='Updated '+new Date(S.lastSync).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
           fetchPointPrice().catch(()=>{});
           checkForUpdate().catch(()=>{});
@@ -2616,7 +2628,7 @@ async function adminDeepFetch(){
     { id:'crimenews',  section:'faction', sel:'crimenews',  metaKey:'crimenews',
       getArr:()=>S._crimeLog||[],         tsKey:'timestamp',
       merge:(old,nw)=>{ const map={}; old.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,20)]=e;}); nw.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,20)]=e;}); return Object.values(map).sort((a,b)=>b.timestamp-a.timestamp); },
-      save:(arr)=>{ S._crimeLog=arr; try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(arr.slice(0,500)));}catch(e){} }
+      save:(arr)=>{ S._crimeLog=arr; try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(arr.slice(0,2000)));}catch(e){} }
     },
   ];
 
@@ -3060,7 +3072,7 @@ async function fetchAll(isManual=false, isBackground=false){
       crArr.forEach(e=>{ crMap[e.timestamp+'_'+(e.news||'').slice(0,20)]=e; });
       const crAll=Object.values(crMap).sort((a,b)=>b.timestamp-a.timestamp);
       S._crimeLog=crAll;
-      try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog.slice(0,500)));}catch(e){}
+      try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog.slice(0,2000)));}catch(e){}
       writeFetchMeta(['crimenews']);
 
       // OC detail fetches (faction/crimes&ID=X) removed — always [16] on custom keys.
@@ -3085,7 +3097,7 @@ async function fetchAll(isManual=false, isBackground=false){
     // Only render to DOM on foreground syncs — background syncs just update cache
     // The display timer fires renderAll() at the configured interval
     if(!isBackground){ renderAll(); }
-    setStatus('live','LIVE');
+    setStatus('live','CONNECTED');
     document.getElementById('rLast').textContent='Updated '+new Date(S.lastSync).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     clog('──── Sync complete ✓ ────','ok');
 
@@ -5105,15 +5117,15 @@ function renderOC(){
         const dateStr=new Date((e.timestamp||0)*1000).toISOString().slice(0,10);
         const editId=`ocEdit_${e.timestamp}`;
         const memEditId=`ocMemEdit_cn_${e.timestamp}`;
-        // Parse participants from crimenews text where available
-        const newsClean=stripHtml(e.news||'');
-        const partMatch=newsClean.match(/^(.+?)\s+and\s+(.+?)\s+(?:successfully|tried to)/i);
-        let parsedMembers=partMatch?[partMatch[1].trim(),partMatch[2].trim()]:[];
+        // Parse participants: never trust completion news text (names in crimenews completion
+        // lines are unreliable — they reflect the news feed order, not the actual OC pair).
+        // Priority: (1) stored cn_members_<ts> override, (2) selection-entry timestamp lookup.
+        let parsedMembers=[];
         // Auto-transfer: check if we have a stored member override for this crimenews key
         const cnMemKey=`cn_members_${e.timestamp}`;
         if(S.ocOverrides?.[cnMemKey]?.members?.length){
           parsedMembers=S.ocOverrides[cnMemKey].members;
-        } else if(!parsedMembers.length){
+        } else {
           // Try to match from selection entries — STRICT rules:
           // 1. Selection must be BEFORE the completion (sel.timestamp < e.timestamp)
           // 2. Selection must be within 7 days before completion
@@ -6228,11 +6240,13 @@ function adminAddManualReceipt(){
 // ── STORAGE INSPECTOR
 function adminInspectStorage(){
   const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'];
+  let totalBytes=0;
   let out='=== LOCALSTORAGE ===\n\n';
   keys.forEach(k=>{
     const v=localStorage.getItem(k);
     if(!v){out+=`[${k}]: (empty)\n\n`;return;}
-    if(k==='hv_key'){out+=`[${k}]: ${v.slice(0,4)}••••••••${v.slice(-2)} (${v.length} chars)\n\n`;return;}
+    if(k==='hv_key'){out+=`[${k}]: ${v.slice(0,4)}••••••••${v.slice(-2)} (${v.length} chars)\n\n`;totalBytes+=v.length;return;}
+    totalBytes+=v.length;
     try{
       const parsed=JSON.parse(v);
       if(Array.isArray(parsed)) out+=`[${k}]: Array(${parsed.length})\n`;
@@ -6242,6 +6256,14 @@ function adminInspectStorage(){
       out+=`  Size: ${(v.length/1024).toFixed(1)} KB\n\n`;
     }catch(e){ out+=`[${k}]: ${v.slice(0,80)}…\n\n`; }
   });
+  // Total size summary
+  const totalKB=(totalBytes/1024).toFixed(1);
+  const totalMB=(totalBytes/1048576).toFixed(2);
+  const pct=((totalBytes/5242880)*100).toFixed(1); // 5MB typical localStorage limit
+  out=`=== TOTAL CACHE SIZE: ${totalKB} KB (${totalMB} MB) — ${pct}% of ~5MB limit ===\n\n`+out;
+  // Update summary badge if present
+  const badge=document.getElementById('cacheSizeBadge');
+  if(badge) badge.textContent=`${totalKB} KB used (${pct}% of 5MB)`;
   out+=`=== IN-MEMORY STATE ===\n`;
   out+=`S.receipts: ${S.receipts.length} (${S.receipts.filter(r=>!r.deleted).length} active)\n`;
   out+=`S.testers: ${(S.testers||[]).length}\n`;
