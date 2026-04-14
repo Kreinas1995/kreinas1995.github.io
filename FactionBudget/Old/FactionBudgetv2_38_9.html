@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.38.8</title>
+<title>Faction Budget v2.38.9</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -364,7 +364,7 @@
         <div class="logo-name">⬡ <span id="factionTitle">HIGHVIBES</span></div>
         <div class="logo-sub">Faction Budget Dashboard</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer;" onclick="(function(){const from=localStorage.getItem('hv_upgrade_from');showChangelog(false,null,from||null);})()" title="View changelog">
-          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.38.8</div>
+          <div id="versionBadge" style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);letter-spacing:1px;padding:2px 6px;border:1px solid var(--border);background:var(--surface2);transition:all 0.2s;">v2.38.9</div>
           <div id="versionSub" style="font-family:'Space Mono',monospace;font-size:7px;color:var(--muted2);letter-spacing:1px;">changelog</div>
         </div>
       </div>
@@ -654,19 +654,12 @@
   <div class="panel" id="panel-oc">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
       <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">
-        OC 1.0 (crimenews) active
+        OC log — manual rewards tracked
         <span id="ocV2Status" style="color:var(--accent2);margin-left:8px;"></span>
         <span style="color:var(--muted2);margin-left:8px;">· period controlled by Faction Income card pill</span>
       </span>
-      <details style="font-family:'Space Mono',monospace;font-size:9px;">
-        <summary style="cursor:pointer;color:var(--muted);letter-spacing:1px;list-style:none;">⚙ v2 options</summary>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
-          <button class="btn-sm" onclick="manualOCRefresh()" style="border-color:var(--accent3);color:var(--accent3);">↻ TRY OC v2</button>
-          <button class="btn-sm" onclick="ocRawDiag()" style="border-color:var(--muted);color:var(--muted);font-size:9px;">🔬 RAW RESPONSE</button>
-        </div>
-      </details>
     </div>
-    <div id="ocRawOut" style="display:none;background:var(--bg);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);padding:10px;margin-bottom:10px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;"></div>
+    <div id="ocRawOut" style="display:none;"></div>
     <div class="tw" id="ocTbl"><div class="empty">No OC data yet.</div></div>
   </div>
 
@@ -1031,7 +1024,7 @@
 // ════════════════════════════════════════════
 // VERSION & CHANGELOG
 // ════════════════════════════════════════════
-const APP_VERSION = '2.38.8';
+const APP_VERSION = '2.38.9';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1096,6 +1089,20 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.38.9', date:'2026-04-13', notes:[
+    '[*] BUG-PROXY: Removed broken allorigins.win proxy — war import now tries corsproxy.io (primary) then thingproxy.freeboard.io (backup) before revealing manual paste.',
+    '[*] BUG-CHANGELOG: Changelog no longer shows "Upgraded from vX" banner. When an update IS available, shows an "⬆ UPGRADE TO vX" button that opens the new version. When already on latest, shows "✓ Updated from vX — you are on the latest version".',
+    '[*] BUG-VERSION: Version badge sub-label now correctly says "⬆ upgrade to vX" instead of "vCurrent → vLatest" when update is detected.',
+    '[*] WAR: War records now store factionCutPct (default 20%) and totalPot (full war value). Faction income = totalPot × factionCutPct%. Member payout = totalPot − faction cut.',
+    '[*] WAR: Per-war line items in history table now show: "HighVibes vs X" | Win/Loss | Total Pot | Faction % | Faction Cut | Member Payout. Each row is expandable to view individual member payouts.',
+    '[*] WAR: Faction cut % is adjustable per war via inline edit in the war history table.',
+    '[*] WAR: renderCards() Faction Income now uses factionCut (totalPot × factionCutPct) instead of grossPayout for war income — correct P&L accounting.',
+    '[*] OC: Manually entered OC rewards now correctly tracked by Faction Income dashboard card.',
+    '[*] OC: Removed API v2 test buttons ("TRY OC v2", "RAW RESPONSE") from OC panel — v2 permissions unavailable.',
+    '[*] OC: Cleared stale OC Funds error messages.',
+    '[*] OC: Members assigned to upcoming OCs are now auto-transferred to the completed OC log entry when the crime completes (matched by crime type + date proximity).',
+    '[*] OC: Manual "add members" button added to all completed crimenews log entries.',
+  ]},
   { v:'2.38.8', date:'2026-04-12', notes:[
     '[+] B-1: Payment log redesigned — per-player collapsible cards showing Name, profile link, days remaining, Xanax total, $1M total, combined units, units to lifetime.',
     '[+] B-2: Tester button on each player card — prompts to mark as tester. Stored in hv_v1_testers, shown in TESTERS section.',
@@ -1629,7 +1636,17 @@ function showChangelog(updateAvailable=false, latestVersion=null, sinceVersion=n
 
   let html='';
   if(sinceVersion && hasNew){
-    html+=`<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2);letter-spacing:2px;text-transform:uppercase;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border);">⬆ UPDATED FROM v${sinceVersion}</div>`;
+    // Show upgrade button if an update is available, otherwise just show "new since" header
+    if(updateAvailable && latestVersion){
+      html+=`<div style="margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border);">
+        <button onclick="doUpdate()" style="background:var(--accent3);color:#000;border:none;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:8px 18px;cursor:pointer;letter-spacing:2px;text-transform:uppercase;display:inline-flex;align-items:center;gap:8px;">
+          ⬆ UPGRADE TO v${latestVersion}
+        </button>
+        <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-left:10px;">Opens in new tab · your data is preserved</span>
+      </div>`;
+    } else {
+      html+=`<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2);letter-spacing:2px;text-transform:uppercase;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border);">✓ UPDATED FROM v${sinceVersion} — YOU ARE ON THE LATEST VERSION</div>`;
+    }
     html+=newHtml;
     if(histHtml){
       html+=`<details style="margin-top:8px;"><summary style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);cursor:pointer;letter-spacing:1px;list-style:none;padding:6px 0;">▼ SHOW OLDER VERSIONS</summary><div style="opacity:0.6;margin-top:10px;">${histHtml}</div></details>`;
@@ -1694,8 +1711,9 @@ async function checkForUpdate(fromAdmin=false){
     const downloadUrl=REPO_BASE+bestFile;
     const curParts=APP_VERSION.split('.').map(Number);
     if(vNum(bestVer)>vNum(curParts)){
-      glowVersionBadge(`v${latest} available`);
-      badge.textContent=`v${APP_VERSION} → v${latest}`;
+      glowVersionBadge(`upgrade to v${latest}`);
+      badge.textContent=`v${APP_VERSION}`;
+      sub.textContent=`⬆ upgrade to v${latest}`;
       clog(`Update available: v${latest} — ${downloadUrl}`,'warn');
       if(adminStatus){
         adminStatus.innerHTML=`<span style="color:var(--accent3)">⬆ Update available: v${latest}</span>`;
@@ -1880,6 +1898,12 @@ async function rateSafeGet(section, sel, extra=''){
   try{ const r=JSON.parse(localStorage.getItem('hv_v1_rates')||'{}'); S.rates={...S.rates,...r}; }catch(e){}
   try{ const sr=localStorage.getItem('hv_v1_sync_rate'); if(sr){ RMINS=parseFloat(sr)||15; const rate=SYNC_RATES.find(r=>Math.abs(r.mins-RMINS)<0.01); if(rate) BG_INTERVAL=rate.bgInterval; } }catch(e){}
   try{ S.wars=JSON.parse(localStorage.getItem('hv_v1_wars')||'[]'); }catch(e){}
+  // Normalize old war records to new schema (memberPayout, factionCutPct, result)
+  S.wars.forEach(w=>{
+    if(!w.memberPayout && w.grossPayout) w.memberPayout=w.grossPayout;
+    if(w.factionCutPct===undefined) w.factionCutPct=20;
+    if(!w.result) w.result='Unknown';
+  });
   try{ const cp=JSON.parse(localStorage.getItem('hv_v1_card_periods')||'{}'); S.cardPeriods={...S.cardPeriods,...cp}; }catch(e){}
   try{ S.outgoing=JSON.parse(localStorage.getItem('hv_v1_outgoing')||'[]'); }catch(e){}
   try{ S.ocManual=JSON.parse(localStorage.getItem('hv_v1_oc_manual')||'[]'); }catch(e){}
@@ -4762,7 +4786,26 @@ function ocUpdateMemberRequired(){
   if(el) el.textContent=`${req} required`;
 }
 
-function ocManualEditMembers(id){
+// Save manually-set members for a crimenews completed OC entry (stored in ocOverrides)
+function cnSaveMembers(ts){
+  const key=`cn_members_${ts}`;
+  const members=[...document.querySelectorAll(`.cnMemChk_${ts}:checked`)].map(el=>el.value);
+  if(!S.ocOverrides) S.ocOverrides={};
+  S.ocOverrides[key]={members};
+  try{localStorage.setItem('hv_v1_oc_overrides',JSON.stringify(S.ocOverrides));}catch(e){}
+  clog(`OC crimenews members saved: ${members.join(', ')||'(none)'}  [ts=${ts}]`,'ok');
+  renderOC();
+}
+
+function cnClearMembers(ts){
+  const key=`cn_members_${ts}`;
+  if(S.ocOverrides) delete S.ocOverrides[key];
+  try{localStorage.setItem('hv_v1_oc_overrides',JSON.stringify(S.ocOverrides||{}));}catch(e){}
+  clog(`OC crimenews members cleared [ts=${ts}]`,'ok');
+  renderOC();
+}
+
+
   const row=document.getElementById('ocEditMem_'+id);
   if(row) row.style.display=row.style.display==='none'?'table-row':'none';
 }
@@ -4945,7 +4988,7 @@ function renderOC(){
     const crimes=v2crimes.filter(c=>(c.executed_at||c.time_completed||0)>ocFrom);
     const totalPaid=crimes.reduce((s,c)=>s+(c._totalPaid||0),0);
     const ocFromMs=ocFrom*1000;
-    const warInc=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+(w.grossPayout||0),0);
+    const warInc=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
     document.getElementById('cOC').textContent=fmt$(totalPaid+manualTotal+warInc);
 
     let h=formHtml;
@@ -5001,7 +5044,7 @@ function renderOC(){
         return s+m.reduce((a,v)=>a+parseInt(v.replace(/[$,]/g,'')),0);
       },0);
     const ocFromMs2=ocFrom*1000;
-    const warInc2=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs2; }).reduce((s,w)=>s+(w.grossPayout||0),0);
+    const warInc2=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs2; }).reduce((s,w)=>s+warFactionCut(w),0);
     document.getElementById('cOC').textContent=fmt$(crimenewsTotal+manualTotal+warInc2);
 
     const selectionEntries=allEntries.filter(e=>/have been selected/i.test(e.news||''));
@@ -5037,10 +5080,39 @@ function renderOC(){
         const respect=ov.respect??0;
         const dateStr=new Date((e.timestamp||0)*1000).toISOString().slice(0,10);
         const editId=`ocEdit_${e.timestamp}`;
+        const memEditId=`ocMemEdit_cn_${e.timestamp}`;
         // Parse participants from crimenews text where available
         const newsClean=stripHtml(e.news||'');
         const partMatch=newsClean.match(/^(.+?)\s+and\s+(.+?)\s+(?:successfully|tried to)/i);
-        const parsedMembers=partMatch?[partMatch[1].trim(),partMatch[2].trim()]:[];
+        let parsedMembers=partMatch?[partMatch[1].trim(),partMatch[2].trim()]:[];
+        // Auto-transfer: check if we have a stored member override for this crimenews key
+        const cnMemKey=`cn_members_${e.timestamp}`;
+        if(S.ocOverrides?.[cnMemKey]?.members?.length){
+          parsedMembers=S.ocOverrides[cnMemKey].members;
+        } else if(!parsedMembers.length){
+          // Try to match from upcoming selections — find selection entry close in time with same crime type
+          const selMatch=selectionEntries.find(sel=>{
+            const selAge=Math.abs((sel.timestamp||0)-(e.timestamp||0));
+            if(selAge>7*86400) return false; // must be within 7 days
+            const selType=parseCrimeType(sel.news||'');
+            return selType===type;
+          });
+          if(selMatch){
+            const selClean=stripHtml(selMatch.news||'');
+            const selParts=selClean.match(/^(.+?)\s+and\s+(.+?)\s+have been selected/i);
+            if(selParts){
+              parsedMembers=[selParts[1].trim(),selParts[2].trim()];
+              // Auto-save to overrides so it persists
+              if(!S.ocOverrides) S.ocOverrides={};
+              S.ocOverrides[cnMemKey]={members:parsedMembers};
+            }
+          }
+        }
+        const allMemberChks=(Object.values(S.faction?.members||{}).map(m=>m.name||'').filter(Boolean).sort()).map(n=>`
+          <label style="display:flex;align-items:center;gap:4px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);cursor:pointer;">
+            <input type="checkbox" class="cnMemChk_${e.timestamp}" value="${n}" ${parsedMembers.includes(n)?'checked':''} style="accent-color:var(--accent3);">
+            ${n}
+          </label>`).join('');
         const resultCol=success
           ?`<td style="color:var(--accent2);font-size:10px;">✓</td>`
           :`<td style="color:var(--accent4);font-size:10px;">✗</td>`;
@@ -5053,11 +5125,16 @@ function renderOC(){
         const linkCol=ocId
           ?`<td style="font-size:10px;"><a href="https://www.torn.com/organisedcrimes.php?step=log&ID=${ocId}" target="_blank" style="color:var(--accent5);">↗</a></td>`
           :`<td class="cm">—</td>`;
-        const editBtn=`<td><span style="cursor:pointer;color:var(--muted);font-size:11px;" onclick="toggleInlineEdit('${editId}')" title="Edit">✎</span></td>`;
+        // Edit button opens both $ edit and member edit
+        const editBtn=`<td style="white-space:nowrap;">
+          <span style="cursor:pointer;color:var(--muted);font-size:11px;margin-right:4px;" onclick="toggleInlineEdit('${editId}')" title="Edit reward/respect">✎</span>
+          <span style="cursor:pointer;color:var(--accent5);font-size:10px;" onclick="toggleInlineEdit('${memEditId}')" title="Edit members">👥</span>
+        </td>`;
         h+=`<tr>${`<td class="cm" style="font-size:10px;white-space:nowrap">${fd(e.timestamp)}</td>`}
           <td style="font-size:10px;color:var(--accent3)">${type}</td>
           ${resultCol}${rewardCol}${respCol}${memberBadge(parsedMembers)}${linkCol}${editBtn}
         </tr>`;
+        // Inline reward/respect edit row
         h+=`<tr id="${editId}" style="display:none;background:rgba(240,192,64,0.06);">
           <td colspan="8" style="padding:10px 12px;">
             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
@@ -5076,6 +5153,21 @@ function renderOC(){
               ${hasOv?`<button onclick="ocOverrideClear('${key}')"
                 style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:6px 10px;font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;">CLEAR OVERRIDE</button>`:''}
             </div>
+          </td>
+        </tr>`;
+        // Inline member edit row — available on ALL completed entries
+        h+=`<tr id="${memEditId}" style="display:none;background:rgba(126,184,255,0.04);">
+          <td colspan="8" style="padding:10px 12px;">
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px;">MEMBERS FOR THIS OC</div>
+            <input type="text" placeholder="Search members…" oninput="ocFilterMembers(this.value,'cnMemGrid_${e.timestamp}')"
+              style="width:100%;max-width:300px;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:3px 8px;font-size:10px;font-family:'Space Mono',monospace;box-sizing:border-box;margin-bottom:6px;">
+            <div id="cnMemGrid_${e.timestamp}" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:2px 6px;max-height:100px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);padding:6px;margin-bottom:8px;">
+              ${allMemberChks||'<span style="font-size:9px;color:var(--muted2);font-family:\'Space Mono\',monospace;">No faction members loaded</span>'}
+            </div>
+            <button onclick="cnSaveMembers(${e.timestamp})"
+              style="background:var(--accent5);color:#000;border:none;padding:5px 14px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;">SAVE MEMBERS</button>
+            ${parsedMembers.length?`<button onclick="cnClearMembers(${e.timestamp})"
+              style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:5px 10px;font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;margin-left:6px;">CLEAR</button>`:''}
           </td>
         </tr>`;
       });
@@ -5484,9 +5576,9 @@ function renderCards(){
   const ocFrom=periodToSeconds(ocPeriod);
   // OC income: manually logged faction-share OC rewards
   const ocManualIncome=(S.ocManual||[]).filter(e=>e.ts>ocFrom).reduce((s,e)=>s+(e.reward||0),0);
-  // War income: grossPayout of wars by actual war date (PARTIAL-3 fix: use w.date not w.importedAt)
+  // War income: faction CUT (totalPot × factionCutPct%) — not member payout
   const ocFromMs=ocFrom*1000;
-  const warIncome=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+(w.grossPayout||0),0);
+  const warIncome=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
   const factionIncome=ocManualIncome+warIncome;
   document.getElementById('cOC').textContent=fmt$(factionIncome);
   const ocSubEl=document.getElementById('cOCSub');
@@ -5497,7 +5589,7 @@ function renderCards(){
   const pnlFrom=periodToSeconds(pnlPeriod);
   const pnlFromMs=pnlFrom*1000;
   const pnlOC=(S.ocManual||[]).filter(e=>e.ts>pnlFrom).reduce((s,e)=>s+(e.reward||0),0);
-  const pnlWar=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=pnlFromMs; }).reduce((s,w)=>s+(w.grossPayout||0),0);
+  const pnlWar=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=pnlFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
   const pnlIncome=pnlOC+pnlWar;
   // Supply cost over pnl period
   const pnlArmParsed=S.armoryNews.filter(e=>e.timestamp>pnlFrom).map(parseArm).filter(e=>e.dir==='out'||e.dir==='loan');
@@ -5869,7 +5961,7 @@ async function dbgRunAll(){
   report+=`New since last sync: ${newSinceSync}\n`;
   report+=`\n=== WAR FUNDS ===\n`;
   report+=`Wars imported: ${S.wars.length}\n`;
-  S.wars.forEach(w=>{ report+=`  ${w.name} | ${w.date} | $${w.grossPayout.toLocaleString()} | ${w.members.length} members\n`; });
+  S.wars.forEach(w=>{ const pot=warTotalPot(w); const cut=warFactionCut(w); report+=`  ${w.name} | ${w.result||'?'} | ${w.date} | pot:$${pot.toLocaleString()} | cut:${w.factionCutPct||20}% ($${cut.toLocaleString()}) | members:$${(w.memberPayout||w.grossPayout||0).toLocaleString()} | ${w.members.length} members\n`; });
   out.textContent=report;
   status.textContent='✓ All tests complete — copy report and share';
 }
@@ -6002,11 +6094,17 @@ function adminImport(evt){
         try{localStorage.setItem('hv_v1_rates',JSON.stringify(S.rates));}catch(ex){}
         loadRateInputs();
       }
-      // Import wars (merge by URL)
+      // Import wars (merge by URL) — normalize old records to new schema
       if(data.wars&&Array.isArray(data.wars)){
         const existingUrls=new Set(S.wars.map(w=>w.url));
         let warsAdded=0;
-        data.wars.forEach(w=>{ if(!existingUrls.has(w.url)){S.wars.push(w);warsAdded++;} });
+        data.wars.forEach(w=>{
+          // Normalize old war records that only had grossPayout
+          if(!w.memberPayout && w.grossPayout) w.memberPayout=w.grossPayout;
+          if(w.factionCutPct===undefined) w.factionCutPct=20;
+          if(!w.result) w.result='Unknown';
+          if(!existingUrls.has(w.url)){S.wars.push(w);warsAdded++;}
+        });
         if(warsAdded>0) try{localStorage.setItem('hv_v1_wars',JSON.stringify(S.wars));}catch(ex){}
         if(warsAdded) clog(`Imported ${warsAdded} war(s)`,'ok');
       }
@@ -6243,24 +6341,24 @@ async function importWarUrl(){
     status.textContent='⚠ This war has already been imported'; return;
   }
 
-  // Try proxy chain: allorigins.win → corsproxy.io → reveal manual paste
+  // Try proxy chain: corsproxy.io → thingproxy.freeboard.io → reveal manual paste
   const proxies=[
-    u=>`https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
-    u=>`https://corsproxy.io/?${encodeURIComponent(u)}`
+    {fn: u=>`https://corsproxy.io/?${encodeURIComponent(u)}`, label:'corsproxy.io', raw:true},
+    {fn: u=>`https://thingproxy.freeboard.io/fetch/${encodeURIComponent(u)}`, label:'thingproxy', raw:true},
   ];
-  const extractHtml = async (proxyUrl, isCorsproxy) => {
+  const extractHtml = async (proxyUrl, isRaw) => {
     const r=await fetch(proxyUrl,{signal:AbortSignal.timeout(10000)});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    if(isCorsproxy) return await r.text();
+    if(isRaw) return await r.text();
     const json=await r.json(); return json.contents||'';
   };
 
   for(let i=0;i<proxies.length;i++){
-    const label=i===0?'allorigins.win':'corsproxy.io';
+    const {fn, label, raw}=proxies[i];
     status.style.display='block';status.style.color='var(--muted)';
-    status.textContent=`Fetching via ${label}… (attempt ${i+1}/2)`;
+    status.textContent=`Fetching via ${label}… (attempt ${i+1}/${proxies.length})`;
     try{
-      const html=await extractHtml(proxies[i](url), i===1);
+      const html=await extractHtml(fn(url), raw);
       if(!html) continue;
       const war=parseArmaSync(html,url);
       if(!war){
@@ -6281,9 +6379,9 @@ async function importWarUrl(){
     }
   }
 
-  // Both proxies failed — auto-reveal manual paste
+  // All proxies failed — auto-reveal manual paste
   status.style.color='var(--accent4)';
-  status.textContent='✗ Both proxies blocked. Use manual paste below ↓';
+  status.textContent='✗ All proxies blocked. Use manual paste below ↓';
   // Pre-fill URL hint and open paste area
   const hint=document.getElementById('warPasteUrlHint');
   if(hint) hint.value=url;
@@ -6291,7 +6389,7 @@ async function importWarUrl(){
   const btn=document.getElementById('warPasteToggle');
   if(area){ area.style.display='block'; }
   if(btn){ btn.textContent='▲ HIDE MANUAL PASTE'; }
-  clog('War import: both proxies failed — manual paste shown','warn');
+  clog('War import: all proxies failed — manual paste shown','warn');
 }
 
 function importWarPaste(){
@@ -6379,11 +6477,43 @@ function parseArmaSync(html, url){
     members.push({name:mName,payout,warHits,respect});
   }
 
-  if(!members.length||!grossPayout) return null;
-  return{url,name,date,grossPayout,totalAtk,members,importedAt:Date.now()};
+  // Win/Loss detection
+  const winM=txt.match(/\b(Win|Loss|Won|Lost)\b/i);
+  const result = winM ? (/(win|won)/i.test(winM[1]) ? 'Win' : 'Loss') : 'Unknown';
+
+  // Total pot — ArmaSync shows "Gross Payout" as the member-side payout.
+  // The user confirmed: 430m war, 20% faction cut → 344m to members.
+  // So totalPot = grossPayout / (1 - factionCutPct/100). We store grossPayout as memberPayout.
+  // Default faction cut stored per war, adjustable via UI.
+  const memberPayout = grossPayout; // what members received
+
+  if(!members.length||!memberPayout) return null;
+  return{url,name,date,result,totalPot:0,memberPayout,grossPayout:memberPayout,factionCutPct:20,totalAtk,members,importedAt:Date.now()};
+  // Note: totalPot is computed as memberPayout/(1-factionCutPct/100) at render time,
+  // or can be overridden. factionCutPct defaults to 20 and is editable per war.
+
+// Compute war financials — factionCutPct is stored per war (default 20)
+// memberPayout = what ArmaSync shows as "Gross Payout" (already after faction cut)
+// totalPot = memberPayout / (1 - factionCutPct/100)
+// factionCut = totalPot - memberPayout
+function warTotalPot(w){
+  const pct = (w.factionCutPct !== undefined ? w.factionCutPct : 20);
+  if(pct >= 100) return w.memberPayout || w.grossPayout || 0;
+  return Math.round((w.memberPayout || w.grossPayout || 0) / (1 - pct/100));
+}
+function warFactionCut(w){
+  return warTotalPot(w) - (w.memberPayout || w.grossPayout || 0);
 }
 
-function setWarPeriod(el, period){
+function saveWarFactionCut(idx, pct){
+  if(!S.wars[idx]) return;
+  S.wars[idx].factionCutPct = Math.max(0, Math.min(99, parseFloat(pct)||0));
+  try{localStorage.setItem('hv_v1_wars',JSON.stringify(S.wars));}catch(e){}
+  renderWarPanel();
+  renderCards();
+}
+
+
   S.warPeriod=period;
   document.querySelectorAll('#panel-war .pill').forEach(p=>p.classList.remove('on'));
   el.classList.add('on');
@@ -6414,7 +6544,7 @@ function renderWarPanel(){
   }
   empty.style.display='none';
 
-  // Filter by period (PARTIAL-3 fix: use actual war date not importedAt)
+  // Filter by period (use actual war date)
   const period=S.warPeriod||'all';
   const msAgo={'30d':30,'90d':90,'1y':365}[period];
   const fromMs=msAgo?Date.now()-msAgo*86400*1000:0;
@@ -6428,19 +6558,13 @@ function renderWarPanel(){
     return;
   }
 
-  // Aggregate across filtered wars
-  const memberTotals={};
-  let grandPayout=0, grandAtk=0;
+  // Summary totals across filtered wars
+  let grandPot=0, grandCut=0, grandMemberPayout=0, grandAtk=0;
   filtered.forEach(w=>{
-    grandPayout+=w.grossPayout;
+    grandPot+=warTotalPot(w);
+    grandCut+=warFactionCut(w);
+    grandMemberPayout+=(w.memberPayout||w.grossPayout||0);
     grandAtk+=w.totalAtk||0;
-    w.members.forEach(m=>{
-      if(!memberTotals[m.name]) memberTotals[m.name]={name:m.name,payout:0,warHits:0,respect:0,wars:0};
-      memberTotals[m.name].payout+=m.payout;
-      memberTotals[m.name].warHits+=m.warHits||0;
-      memberTotals[m.name].respect+=m.respect||0;
-      memberTotals[m.name].wars++;
-    });
   });
 
   if(summaryCards){
@@ -6450,12 +6574,23 @@ function renderWarPanel(){
     const wa=document.getElementById('wTotalAtk');
     const wd=document.getElementById('wWarDate');
     if(wn) wn.textContent=filtered.length===1?filtered[0].name:`${filtered.length} wars`;
-    if(wp) wp.textContent=fmt$(grandPayout);
+    // Show member payout in the "Total Payout" card (what was paid to members)
+    if(wp) wp.textContent=fmt$(grandMemberPayout);
     if(wa) wa.textContent=grandAtk.toLocaleString()+' war hits';
     if(wd) wd.textContent=filtered.length===1?filtered[0].date:`${period==='all'?'Lifetime':period}`;
   }
 
-  // Member payout grid
+  // Member payout grid (aggregate across filtered wars)
+  const memberTotals={};
+  filtered.forEach(w=>{
+    w.members.forEach(m=>{
+      if(!memberTotals[m.name]) memberTotals[m.name]={name:m.name,payout:0,warHits:0,respect:0,wars:0};
+      memberTotals[m.name].payout+=m.payout;
+      memberTotals[m.name].warHits+=m.warHits||0;
+      memberTotals[m.name].respect+=m.respect||0;
+      memberTotals[m.name].wars++;
+    });
+  });
   const sorted=Object.values(memberTotals).sort((a,b)=>b.payout-a.payout);
   if(memberGrid){
     memberGrid.innerHTML=sorted.map(m=>`
@@ -6468,22 +6603,68 @@ function renderWarPanel(){
       </div>`).join('');
   }
 
-  // War history table when multiple wars
+  // War history table — always shown, with per-war details
   if(warTbl){
-    if(filtered.length>1){
-      warTbl.style.display='block';
-      let h=`<table><thead><tr><th>War</th><th>Date</th><th>Gross Payout</th><th>Members</th><th></th></tr></thead><tbody>`;
-      [...filtered].reverse().forEach((w,i)=>{
-        h+=`<tr><td class="cn" style="font-size:11px">${w.name}</td>
-          <td class="cm" style="font-size:10px">${w.date}</td>
-          <td class="cy">${fmt$(w.grossPayout)}</td>
-          <td class="cm">${w.members.length}</td>
-          <td><button class="del-btn" title="Remove" onclick="removeWar(${S.wars.indexOf(w)})">✕</button></td></tr>`;
-      });
-      warTbl.innerHTML=h+'</tbody></table>';
-    } else {
-      warTbl.style.display='none';
-    }
+    warTbl.style.display='block';
+    let h=`<table><thead><tr>
+      <th>War</th>
+      <th>Result</th>
+      <th>Total Pot</th>
+      <th style="white-space:nowrap;">Faction %</th>
+      <th>Faction Cut</th>
+      <th>Member Payout</th>
+      <th></th>
+      <th></th>
+    </tr></thead><tbody>`;
+
+    [...filtered].reverse().forEach((w,ri)=>{
+      const wIdx=S.wars.indexOf(w);
+      const pot=warTotalPot(w);
+      const cut=warFactionCut(w);
+      const mpay=w.memberPayout||w.grossPayout||0;
+      const result=w.result||'Unknown';
+      const resultColor=result==='Win'?'var(--accent2)':result==='Loss'?'var(--accent4)':'var(--muted)';
+      const memberRowId=`warMembers_${wIdx}`;
+      h+=`<tr style="cursor:pointer;" onclick="(function(){var el=document.getElementById('${memberRowId}');el.style.display=el.style.display==='none'?'table-row':'none';})()">
+        <td class="cn" style="font-size:11px">${w.name}</td>
+        <td style="font-size:11px;font-weight:700;color:${resultColor}">${result}</td>
+        <td class="cy">${fmt$(pot)}</td>
+        <td style="font-size:10px;white-space:nowrap;">
+          <input type="number" value="${w.factionCutPct!==undefined?w.factionCutPct:20}" min="0" max="99" step="1"
+            onclick="event.stopPropagation()"
+            onchange="saveWarFactionCut(${wIdx},this.value)"
+            style="width:44px;background:var(--bg);border:1px solid var(--border);color:var(--accent3);font-family:'Space Mono',monospace;font-size:10px;padding:2px 4px;text-align:center;">%
+        </td>
+        <td class="cy">${fmt$(cut)}</td>
+        <td class="cm">${fmt$(mpay)}</td>
+        <td style="font-size:9px;color:var(--muted)">▸</td>
+        <td><button class="del-btn" title="Remove" onclick="event.stopPropagation();removeWar(${wIdx})">✕</button></td>
+      </tr>
+      <tr id="${memberRowId}" style="display:none;background:rgba(127,255,110,0.02);">
+        <td colspan="8" style="padding:8px 12px;">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">${w.name} — ${w.date} — ${w.members.length} members</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;">
+            ${w.members.sort((a,b)=>b.payout-a.payout).map(m=>`
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;background:var(--surface2);gap:8px;">
+                <span style="font-family:'Syne',sans-serif;font-weight:600;font-size:11px;color:var(--text);">${m.name}</span>
+                <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);">${fmt$(m.payout)}</span>
+              </div>`).join('')}
+          </div>
+        </td>
+      </tr>`;
+    });
+
+    // Summary footer row
+    h+=`<tr style="border-top:2px solid var(--border);background:rgba(127,255,110,0.02);">
+      <td style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;color:var(--muted);letter-spacing:1px;" colspan="2">TOTALS (${filtered.length} war${filtered.length!==1?'s':''})</td>
+      <td class="cy" style="font-weight:700;">${fmt$(grandPot)}</td>
+      <td></td>
+      <td class="cy" style="font-weight:700;">${fmt$(grandCut)}</td>
+      <td class="cm" style="font-weight:700;">${fmt$(grandMemberPayout)}</td>
+      <td colspan="2"></td>
+    </tr>`;
+
+    warTbl.innerHTML=h+'</tbody></table>';
   }
 }
 
