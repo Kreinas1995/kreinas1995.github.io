@@ -4825,7 +4825,6 @@ function cnClearMembers(ts){
 }
 
 
-function ocManualEditMembers(id){
   const row=document.getElementById('ocEditMem_'+id);
   if(row) row.style.display=row.style.display==='none'?'table-row':'none';
 }
@@ -4896,13 +4895,24 @@ function ocManualDelete(id){
   renderOC(); renderCards();
 }
 
-if(!window._memTipListenerAdded){
-  window._memTipListenerAdded=true;
-  document.addEventListener('click',function(e){
-    if(!e.target.closest('.mem-tip')){
-      document.querySelectorAll('.mem-tip.tip-open').forEach(el=>el.classList.remove('tip-open'));
-    }
-  });
+function updateOcBanner(ocIncome, warIncome, period){
+  const el=document.getElementById('ocIncomeBanner');
+  if(!el) return;
+  const total=ocIncome+warIncome;
+  el.style.display='flex';
+  el.innerHTML=`
+    <div style="flex:1;min-width:120px;">
+      <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">OC INCOME · ${period.toUpperCase()}</div>
+      <div style="font-size:18px;font-weight:700;color:var(--accent3);font-family:'Syne',sans-serif;">${fmt$(ocIncome)}</div>
+    </div>
+    ${warIncome>0?`<div style="flex:1;min-width:120px;">
+      <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">WAR CUT · ${period.toUpperCase()}</div>
+      <div style="font-size:18px;font-weight:700;color:var(--accent5);font-family:'Syne',sans-serif;">${fmt$(warIncome)}</div>
+    </div>`:''}
+    <div style="flex:1;min-width:120px;">
+      <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">TOTAL FACTION INCOME</div>
+      <div style="font-size:18px;font-weight:700;color:var(--accent);font-family:'Syne',sans-serif;">${fmt$(total)}</div>
+    </div>`;
 }
 
 function renderOC(){
@@ -4954,9 +4964,11 @@ function renderOC(){
 
   function memberBadge(members){
     if(!members||!members.length) return `<td class="cm" style="font-size:10px;">—</td>`;
-    const names=(members||[]).join(', ');
-    return `<td style="font-size:10px;">
-      <span class="mem-tip" onclick="this.classList.toggle('tip-open')">${members.length} members<span class="mem-tip-box">${names.replace(/,\s*/g,'<br>')}</span></span>
+    const names=(members||[]).join('<br>');
+    return `<td class="mem-tip" onclick="this.classList.toggle('tip-open')" style="font-size:10px;">
+      <span style="color:var(--accent5);">${members.length}</span>
+      <span style="font-size:8px;color:var(--muted);"> ▸</span>
+      <div class="mem-tip-box">${names}</div>
     </td>`;
   }
 
@@ -5018,6 +5030,7 @@ function renderOC(){
     const ocFromMs=ocFrom*1000;
     const warInc=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
     document.getElementById('cOC').textContent=fmt$(totalPaid+manualTotal+warInc);
+    updateOcBanner(totalPaid+manualTotal, warInc, ocPeriod);
 
     let h=formHtml;
     h+=manualEntriesHtml(manualInPeriod);
@@ -5074,6 +5087,7 @@ function renderOC(){
     const ocFromMs2=ocFrom*1000;
     const warInc2=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs2; }).reduce((s,w)=>s+warFactionCut(w),0);
     document.getElementById('cOC').textContent=fmt$(crimenewsTotal+manualTotal+warInc2);
+    updateOcBanner(crimenewsTotal+manualTotal, warInc2, ocPeriod);
 
     const selectionEntries=allEntries.filter(e=>/have been selected/i.test(e.news||''));
     const displayEntries=(periodEntries.length?periodEntries:allEntries.filter(e=>/successfully|tried to|but failed/i.test(e.news||''))).slice(0,100);
@@ -5222,40 +5236,6 @@ function renderOC(){
     }
     document.getElementById('ocTbl').innerHTML=h;
   }
-
-  // OC Income Banner
-  (function(){
-    const period = S.cardPeriods.oc || '30d';
-    const floorSec = periodToSeconds(period);
-    const floorMs = floorSec * 1000;
-    const ocIncome = (S.ocManual||[]).filter(e=>e.ts>=floorSec).reduce((a,e)=>a+Number(e.reward||0),0);
-    const warCut = (S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=floorMs; }).reduce((w_acc,w)=>{
-      const base=isFinite(Number(w.memberPayout))?Number(w.memberPayout):(isFinite(Number(w.grossPayout))?Number(w.grossPayout):0);
-      const pct=isFinite(Number(w.factionCutPct))?Number(w.factionCutPct):20;
-      if(pct>=100) return w_acc+base;
-      return w_acc+(Math.round(base/(1-pct/100))-base);
-    },0);
-    const total = ocIncome + warCut;
-    const banner = document.getElementById('ocIncomeBanner');
-    if(!banner) return;
-    if(total===0){ banner.style.display='none'; return; }
-    banner.style.display='flex';
-    banner.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:2px;">
-        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;">OC Income</div>
-        <div style="font-size:16px;font-weight:800;color:var(--accent2);">${fmt$(ocIncome)}</div>
-      </div>
-      ${warCut>0?`<div style="display:flex;flex-direction:column;gap:2px;">
-        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;">War Cut</div>
-        <div style="font-size:16px;font-weight:800;color:var(--accent3);">${fmt$(warCut)}</div>
-      </div>`:''}
-      <div style="display:flex;flex-direction:column;gap:2px;">
-        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;">Total Faction Income</div>
-        <div style="font-size:16px;font-weight:800;color:var(--accent);">${fmt$(total)}</div>
-      </div>
-      <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-left:auto;align-self:center;">Period: ${period.toUpperCase()}</div>
-    `;
-  })();
 }
 
 // ── RECEIPTS
@@ -6559,14 +6539,18 @@ function parseArmaSync(html, url){
 // totalPot = memberPayout / (1 - factionCutPct/100)
 // factionCut = totalPot - memberPayout
 function warTotalPot(w){
-  const pct = isFinite(Number(w.factionCutPct)) ? Number(w.factionCutPct) : 20;
-  const base = isFinite(Number(w.memberPayout)) ? Number(w.memberPayout) : (isFinite(Number(w.grossPayout)) ? Number(w.grossPayout) : 0);
-  if(pct >= 100) return base;
-  return Math.round(base / (1 - pct/100));
+  const pct = Number(w.factionCutPct !== undefined ? w.factionCutPct : 20);
+  const memberPay = Number(w.memberPayout || w.grossPayout || 0);
+  if(!isFinite(pct) || pct >= 100) return memberPay;
+  if(!isFinite(memberPay)) return 0;
+  const result = Math.round(memberPay / (1 - pct/100));
+  return isFinite(result) ? result : memberPay;
 }
 function warFactionCut(w){
-  const base = isFinite(Number(w.memberPayout)) ? Number(w.memberPayout) : (isFinite(Number(w.grossPayout)) ? Number(w.grossPayout) : 0);
-  return warTotalPot(w) - base;
+  const memberPay = Number(w.memberPayout || w.grossPayout || 0);
+  const pot = warTotalPot(w);
+  const cut = pot - memberPay;
+  return isFinite(cut) ? cut : 0;
 }
 
 function saveWarFactionCut(idx, pct){
@@ -6577,9 +6561,10 @@ function saveWarFactionCut(idx, pct){
   renderCards();
 }
 
+function setWarPeriod(el, period){
   S.warPeriod=period;
-  document.querySelectorAll('#warSummaryCards .pill').forEach(p=>p.classList.remove('on'));
-  if(el) el.classList.add('on');
+  document.querySelectorAll('#panel-war .pill').forEach(p=>p.classList.remove('on'));
+  el.classList.add('on');
   renderWarPanel();
 }
 
@@ -6589,13 +6574,6 @@ function clearWarData(){
   try{localStorage.removeItem('hv_v1_wars');}catch(e){}
   renderWarPanel();
   clog('War data cleared','warn');
-}
-
-function setWarPeriod(el, period){
-  S.warPeriod=period;
-  document.querySelectorAll('#warSummaryCards .pill').forEach(p=>p.classList.remove('on'));
-  if(el) el.classList.add('on');
-  renderWarPanel();
 }
 
 function renderWarPanel(){
@@ -7352,6 +7330,13 @@ async function dbgUserLog(){
     }
   }catch(e){el.textContent+=`Error: ${e.message}`;}
 }
+
+// Close member tooltips when tapping outside
+document.addEventListener('click', function(ev){
+  if(!ev.target.closest('.mem-tip')){
+    document.querySelectorAll('.mem-tip.tip-open').forEach(el=>el.classList.remove('tip-open'));
+  }
+});
 </script>
 
 <!-- Post-verify Enter Dashboard overlay -->
