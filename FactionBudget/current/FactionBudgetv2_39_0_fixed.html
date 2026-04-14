@@ -4824,7 +4824,7 @@ function cnClearMembers(ts){
   renderOC();
 }
 
-
+function ocToggleEditMem(id){
   const row=document.getElementById('ocEditMem_'+id);
   if(row) row.style.display=row.style.display==='none'?'table-row':'none';
 }
@@ -6533,6 +6533,7 @@ function parseArmaSync(html, url){
   return{url,name,date,result,totalPot:0,memberPayout,grossPayout:memberPayout,factionCutPct:20,totalAtk,members,importedAt:Date.now()};
   // Note: totalPot is computed as memberPayout/(1-factionCutPct/100) at render time,
   // or can be overridden. factionCutPct defaults to 20 and is editable per war.
+}
 
 // Compute war financials — factionCutPct is stored per war (default 20)
 // memberPayout = what ArmaSync shows as "Gross Payout" (already after faction cut)
