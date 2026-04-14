@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Torn — Company Training Tracker v2</title>
+<title>Torn — Training Tracker v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -197,87 +197,89 @@
   .reset-btn{width:100%;background:transparent;color:var(--danger);border:1px solid rgba(204,80,80,.3);border-radius:5px;padding:8px;font-family:'Share Tech Mono',monospace;font-size:.56rem;cursor:pointer;letter-spacing:.08em;transition:all .15s;}
   .reset-btn:hover{background:rgba(204,80,80,.08);border-color:var(--danger);}
 
-  /* DATA MANAGEMENT */
-  .data-mgmt-section{margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
-  .data-mgmt-title{font-family:'Share Tech Mono',monospace;font-size:.56rem;color:var(--muted);letter-spacing:.08em;margin-bottom:10px;}
-  .data-btn-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:7px;}
-  .data-btn{background:var(--s2);border:1px solid var(--border);border-radius:5px;padding:8px 6px;font-family:'Share Tech Mono',monospace;font-size:.56rem;color:var(--muted);cursor:pointer;transition:all .15s;letter-spacing:.05em;text-align:center;}
-  .data-btn:hover{border-color:var(--gold);color:var(--gold);}
-  .data-btn.full{grid-column:1/-1;}
-  .storage-status{font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--muted);text-align:center;margin-top:8px;padding:5px;background:var(--s1);border-radius:4px;border:1px solid var(--border);}
-  .storage-status .dot{width:5px;height:5px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:4px;vertical-align:middle;}
-  .storage-status.synced .dot{background:var(--end);}
-  .storage-status.error .dot{background:var(--danger);}
+  /* MODE TOGGLE */
+  .mode-bar{display:flex;align-items:center;justify-content:space-between;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:9px 14px;margin-bottom:14px;gap:10px;}
+  .mode-bar-label{font-family:'Share Tech Mono',monospace;font-size:.58rem;letter-spacing:.07em;}
+  .mode-bar-label.manual{color:var(--gold);}
+  .mode-bar-label.api{color:#4bcc9a;}
+  .mode-bar-label.dim{color:var(--muted);}
+  .tog{position:relative;width:42px;height:22px;flex-shrink:0;cursor:pointer;}
+  .tog input{opacity:0;width:0;height:0;position:absolute;}
+  .tog-track{position:absolute;inset:0;background:rgba(200,168,75,.15);border:1px solid var(--gold);border-radius:11px;transition:all .2s;}
+  .tog input:checked+.tog-track{background:rgba(75,204,154,.15);border-color:#4bcc9a;}
+  .tog-knob{position:absolute;top:3px;left:3px;width:14px;height:14px;background:var(--gold);border-radius:50%;transition:transform .2s,background .2s;pointer-events:none;}
+  .tog input:checked~.tog-knob{transform:translateX(20px);background:#4bcc9a;}
+
+  /* STARTING STATS DISPLAY */
+  .starts-box{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:10px 13px;margin-bottom:14px;}
+  .starts-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .starts-title{font-family:'Share Tech Mono',monospace;font-size:.56rem;color:var(--muted);letter-spacing:.08em;}
+  .starts-edit-btn{background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);font-family:'Share Tech Mono',monospace;font-size:.52rem;padding:2px 8px;cursor:pointer;transition:all .15s;}
+  .starts-edit-btn:hover{border-color:var(--gold);color:var(--gold);}
+  .starts-vals{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
+  .sv{text-align:center;}
+  .sv-lbl{font-family:'Share Tech Mono',monospace;font-size:.48rem;letter-spacing:.08em;margin-bottom:2px;}
+  .sv-lbl.man{color:var(--man);} .sv-lbl.int{color:var(--int);} .sv-lbl.end{color:var(--end);}
+  .sv-val{font-family:'Orbitron',monospace;font-size:.72rem;font-weight:700;}
+  .sv-val.man{color:var(--man);} .sv-val.int{color:var(--int);} .sv-val.end{color:var(--end);}
+  .sv-delta{font-family:'Share Tech Mono',monospace;font-size:.48rem;color:var(--muted);margin-top:1px;}
+  .sv-delta.pos{color:var(--end);}
+  .starts-edit-form{display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+  .starts-edit-form.show{display:block;}
+  .starts-edit-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:8px;}
+  .starts-edit-grid input{background:var(--s1);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.68rem;padding:6px 8px;outline:none;width:100%;text-align:center;}
+  .starts-edit-grid input:focus{border-color:var(--gold);}
+  .starts-save-btn{width:100%;background:var(--gold);color:#000;border:none;border-radius:4px;padding:7px;font-family:'Orbitron',monospace;font-size:.58rem;font-weight:700;cursor:pointer;letter-spacing:.08em;}
+  .starts-save-btn:hover{background:var(--gold2);}
+  .starts-date-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .starts-date-row label{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);flex:1;}
+  .starts-date-row input[type=date]{background:var(--s1);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.62rem;padding:5px 8px;outline:none;transition:border-color .15s;}
+  .starts-date-row input[type=date]:focus{border-color:var(--gold);}
+
+  /* API SYNC PANEL */
+  .api-sync-box{background:var(--s2);border:1px solid rgba(75,204,154,.25);border-radius:8px;padding:13px;margin-top:14px;}
+  .api-sync-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .api-sync-title{font-family:'Orbitron',monospace;font-size:.65rem;font-weight:700;color:#4bcc9a;letter-spacing:.1em;}
+  .api-key-row{display:flex;gap:6px;margin-bottom:8px;}
+  .api-key-input{flex:1;background:var(--s1);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.66rem;padding:7px 10px;outline:none;transition:border-color .15s;}
+  .api-key-input:focus{border-color:#4bcc9a;}
+  .api-sync-btn{background:#4bcc9a;color:#000;border:none;border-radius:5px;padding:7px 12px;font-family:'Orbitron',monospace;font-size:.58rem;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .15s;}
+  .api-sync-btn:hover{opacity:.85;}
+  .api-sync-btn:disabled{opacity:.35;cursor:not-allowed;}
+  .api-get-key{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);text-decoration:none;display:block;margin-bottom:8px;}
+  .api-get-key:hover{color:#4bcc9a;}
+  .api-info{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);line-height:1.6;margin-bottom:8px;}
+  .api-status{font-family:'Share Tech Mono',monospace;font-size:.54rem;padding:6px 10px;border-radius:4px;background:var(--s1);border:1px solid var(--border);display:none;}
+  .api-status.show{display:block;}
+  .api-status.ok{color:#4bcc9a;border-color:rgba(75,204,154,.3);}
+  .api-status.err{color:var(--danger);border-color:rgba(204,80,80,.3);}
+  .api-status.loading{color:var(--gold);border-color:rgba(200,168,75,.3);}
+  .api-date-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .api-date-row label{font-family:'Share Tech Mono',monospace;font-size:.52rem;color:var(--muted);flex:1;}
+  .api-date-row input[type=date]{background:var(--s1);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.62rem;padding:5px 8px;outline:none;transition:border-color .15s;}
+  .api-date-row input[type=date]:focus{border-color:#4bcc9a;}
+  .api-results-list{margin-top:8px;}
+  .api-member{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:5px;border:1px solid var(--border);background:var(--s1);margin-bottom:5px;gap:8px;}
+  .api-member-name{font-family:'Rajdhani',sans-serif;font-weight:700;font-size:.8rem;color:var(--text);min-width:0;flex:1;}
+  .api-member-stats{font-family:'Share Tech Mono',monospace;font-size:.48rem;color:var(--muted);line-height:1.5;}
+  .api-member-trains{font-family:'Orbitron',monospace;font-size:.7rem;font-weight:700;color:var(--gold2);text-align:right;min-width:28px;}
+  .api-apply-btn{background:transparent;border:1px solid #4bcc9a;border-radius:4px;color:#4bcc9a;font-family:'Share Tech Mono',monospace;font-size:.52rem;padding:3px 8px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+  .api-apply-btn:hover{background:rgba(75,204,154,.1);}
+  .api-apply-btn.applied{border-color:var(--muted);color:var(--muted);cursor:default;}
+  .api-cache-note{font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--muted);margin-top:6px;line-height:1.5;}
 
   /* TOAST */
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--s3);border:1px solid var(--gold);border-radius:6px;padding:8px 18px;font-family:'Share Tech Mono',monospace;font-size:.62rem;color:var(--gold2);z-index:9999;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(50px);background:var(--s3);border:1px solid var(--gold);border-radius:6px;padding:8px 18px;font-family:'Share Tech Mono',monospace;font-size:.62rem;color:var(--gold2);z-index:9999;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
-  .toast.error{border-color:var(--danger);color:var(--danger);}
+  .toast.err{border-color:var(--danger);color:var(--danger);}
 
-  /* API MODAL */
-  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .2s;}
-  .modal-overlay.open{opacity:1;pointer-events:all;}
-  .modal{background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;width:100%;max-width:400px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;}
-  .modal-hdr{padding:14px 16px 10px;border-bottom:1px solid var(--border);background:var(--s2);display:flex;justify-content:space-between;align-items:center;}
-  .modal-title{font-family:'Orbitron',monospace;font-size:.75rem;font-weight:700;color:var(--gold2);letter-spacing:.1em;}
-  .modal-close{background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:2px 6px;border-radius:4px;}
-  .modal-close:hover{color:var(--text);}
-  .modal-body{flex:1;overflow-y:auto;padding:16px;}
-  .modal-sub{font-family:'Share Tech Mono',monospace;font-size:.57rem;color:var(--muted);line-height:1.7;margin-bottom:12px;}
-  .api-input-row{margin-bottom:10px;}
-  .api-input-row label{display:block;font-family:'Share Tech Mono',monospace;font-size:.54rem;color:var(--muted);letter-spacing:.06em;margin-bottom:3px;}
-  .api-input-row input{width:100%;background:var(--s1);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.7rem;padding:7px 10px;outline:none;transition:border-color .15s;}
-  .api-input-row input:focus{border-color:var(--gold);}
-  .api-fetch-btn{width:100%;background:var(--gold);color:#000;border:none;border-radius:5px;padding:10px;font-family:'Orbitron',monospace;font-size:.62rem;font-weight:700;letter-spacing:.1em;cursor:pointer;margin-bottom:10px;transition:background .15s;}
-  .api-fetch-btn:hover{background:var(--gold2);}
-  .api-fetch-btn:disabled{opacity:.4;cursor:not-allowed;}
-  .api-results{display:none;}
-  .api-results.show{display:block;}
-  .api-member-item{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--s2);margin-bottom:6px;gap:8px;}
-  .api-member-name{font-family:'Rajdhani',sans-serif;font-weight:700;font-size:.82rem;color:var(--text);min-width:0;flex:1;}
-  .api-member-stats{font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--muted);line-height:1.6;}
-  .api-member-actions{display:flex;gap:5px;flex-shrink:0;}
-  .api-apply-btn{background:transparent;border:1px solid var(--gold);border-radius:4px;color:var(--gold);font-family:'Share Tech Mono',monospace;font-size:.56rem;padding:3px 8px;cursor:pointer;transition:all .15s;}
-  .api-apply-btn:hover{background:rgba(200,168,75,.15);}
-  .api-apply-btn.applied{border-color:var(--end);color:var(--end);}
-  .api-error{background:rgba(204,80,80,.08);border:1px solid rgba(204,80,80,.3);border-radius:6px;padding:10px;font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--danger);margin-bottom:10px;display:none;}
-  .api-error.show{display:block;}
-  .api-spinner{text-align:center;padding:20px;font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--muted);display:none;}
-  .api-spinner.show{display:block;}
-  .verify-btn{width:100%;background:transparent;border:1px solid rgba(200,168,75,.35);border-radius:5px;padding:9px;font-family:'Share Tech Mono',monospace;font-size:.58rem;color:var(--gold);cursor:pointer;letter-spacing:.07em;transition:all .15s;margin-bottom:10px;}
-  .verify-btn:hover{border-color:var(--gold);background:rgba(200,168,75,.07);}
+  /* DATA BUTTONS */
+  .data-row{display:flex;gap:6px;margin-top:10px;}
+  .data-btn{flex:1;background:transparent;border:1px solid var(--border);border-radius:5px;padding:8px 6px;font-family:'Share Tech Mono',monospace;font-size:.54rem;color:var(--muted);cursor:pointer;transition:all .15s;text-align:center;letter-spacing:.04em;}
+  .data-btn:hover{border-color:var(--gold);color:var(--gold);}
 </style>
 </head>
 <body>
-
-<!-- TOAST -->
-<div class="toast" id="toast"></div>
-
-<!-- API VERIFY MODAL -->
-<div class="modal-overlay" id="apiModal">
-  <div class="modal">
-    <div class="modal-hdr">
-      <span class="modal-title">⚡ VERIFY VIA API</span>
-      <button class="modal-close" onclick="closeApiModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="modal-sub">
-        Enter your Torn API key to fetch company members and their current work stats. Stats can then be applied to any employee tracker. Your key is never stored.
-      </div>
-      <div class="api-input-row">
-        <label>TORN API KEY (read-only key recommended)</label>
-        <input type="password" id="apiKeyInput" placeholder="e.g. abc123XYZ..." autocomplete="off"/>
-      </div>
-      <button class="api-fetch-btn" id="apiFetchBtn" onclick="fetchApiData()">FETCH COMPANY DATA</button>
-      <div class="api-error" id="apiError"></div>
-      <div class="api-spinner" id="apiSpinner">⟳ FETCHING FROM TORN API…</div>
-      <div class="api-results" id="apiResults">
-        <div style="font-family:'Share Tech Mono',monospace;font-size:.56rem;color:var(--muted);margin-bottom:8px;letter-spacing:.06em;">COMPANY MEMBERS — click APPLY to update a tracker</div>
-        <div id="apiMemberList"></div>
-      </div>
-    </div>
-  </div>
-</div>
 
 <div class="panel-overlay" id="overlay" onclick="closePanel()"></div>
 <div class="panel" id="panel">
@@ -340,20 +342,6 @@
         Trains/day is saved per-employee. Change it here to update the active employee's tracker.
         New employees inherit the current value.
       </div>
-
-      <!-- DATA MANAGEMENT -->
-      <div class="data-mgmt-section">
-        <div class="data-mgmt-title">DATA MANAGEMENT</div>
-        <div class="data-btn-row">
-          <button class="data-btn" onclick="exportData()">⬇ EXPORT JSON</button>
-          <button class="data-btn" onclick="document.getElementById('importFileInput').click()">⬆ IMPORT JSON</button>
-        </div>
-        <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importData(event)"/>
-        <button class="verify-btn" onclick="openApiModal()">⚡ VERIFY VIA API</button>
-        <div class="storage-status" id="storageStatus">
-          <span class="dot"></span><span id="storageStatusText">CHECKING STORAGE…</span>
-        </div>
-      </div>
     </div>
   </div>
 </div>
@@ -375,6 +363,43 @@
 <div class="complete-banner" id="completeBanner">
   <h2>🕯️ ALL GOALS REACHED</h2>
   <p>Employee has hit all target work stats. Training complete.</p>
+</div>
+
+<!-- MODE TOGGLE -->
+<div class="mode-bar">
+  <span class="mode-bar-label manual" id="modeLabelManual">MANUAL MODE</span>
+  <label class="tog">
+    <input type="checkbox" id="modeToggle" onchange="onModeToggle()">
+    <div class="tog-track"></div>
+    <div class="tog-knob"></div>
+  </label>
+  <span class="mode-bar-label api dim" id="modeLabelApi">API SYNC</span>
+</div>
+
+<!-- STARTING STATS BOX -->
+<div class="starts-box" id="startsBox">
+  <div class="starts-hdr">
+    <span class="starts-title">SESSION STARTING STATS</span>
+    <button class="starts-edit-btn" onclick="toggleStartsEdit()">EDIT</button>
+  </div>
+  <div class="starts-vals">
+    <div class="sv"><div class="sv-lbl man">MANUAL</div><div class="sv-val man" id="sStartMan">—</div><div class="sv-delta" id="sGainMan"></div></div>
+    <div class="sv"><div class="sv-lbl int">INTEL</div><div class="sv-val int" id="sStartInt">—</div><div class="sv-delta" id="sGainInt"></div></div>
+    <div class="sv"><div class="sv-lbl end">ENDURANCE</div><div class="sv-val end" id="sStartEnd">—</div><div class="sv-delta" id="sGainEnd"></div></div>
+  </div>
+  <div class="starts-edit-form" id="startsEditForm">
+    <div class="starts-date-row">
+      <label>SESSION START DATE</label>
+      <input type="date" id="sStartDate" onchange="saveStartDate()"/>
+    </div>
+    <div style="font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--muted);margin-bottom:7px;">Update starting stats to verify actual progress vs. estimate:</div>
+    <div class="starts-edit-grid">
+      <input type="number" id="sEditMan" placeholder="MAN" min="0"/>
+      <input type="number" id="sEditInt" placeholder="INT" min="0"/>
+      <input type="number" id="sEditEnd" placeholder="END" min="0"/>
+    </div>
+    <button class="starts-save-btn" onclick="saveStartingStats()">SAVE STARTING STATS</button>
+  </div>
 </div>
 
 <div class="stats-grid">
@@ -418,23 +443,56 @@
 
 <button class="reset-btn" onclick="confirmReset()">⚠ RESET PROGRESS FOR CURRENT EMPLOYEE</button>
 
+<!-- EXPORT / IMPORT -->
+<div class="data-row">
+  <button class="data-btn" onclick="exportData()">⬇ EXPORT JSON</button>
+  <button class="data-btn" onclick="document.getElementById('importFile').click()">⬆ IMPORT JSON</button>
+  <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)"/>
+</div>
+
+<!-- API SYNC (shown in API mode) -->
+<div class="api-sync-box" id="apiSyncBox" style="display:none">
+  <div class="api-sync-hdr">
+    <span class="api-sync-title">⚡ API SYNC</span>
+  </div>
+  <div class="api-info">
+    Fetches company news to count actual trains since your start date. Caches locally — only new entries fetched each sync. Requires <strong style="color:var(--gold)">Limited Access</strong> key or higher.
+  </div>
+  <a class="api-get-key" href="https://www.torn.com/preferences.php#tab=api" target="_blank">→ Get / manage your API key on torn.com</a>
+  <div class="api-key-row">
+    <input type="password" class="api-key-input" id="apiKeyInput" placeholder="Paste API key (Limited+ access)…" autocomplete="off"/>
+    <button class="api-sync-btn" id="apiSyncBtn" onclick="runApiSync()">SYNC</button>
+  </div>
+  <div class="api-date-row">
+    <label>COUNT TRAINS FROM DATE</label>
+    <input type="date" id="apiStartDate" onchange="saveApiStartDate()"/>
+  </div>
+  <div class="api-status" id="apiStatus"></div>
+  <div class="api-results-list" id="apiResultsList"></div>
+  <div class="api-cache-note" id="apiCacheNote"></div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
 <script>
 // ═══════════════════════════════════════════════════════════════════
 // COMPANY DATABASE
-// Each company defines:
-//   positions: array of { name, pri, priReq, sec, secReq, passiveMax: {man,int,end} }
-//   The passiveMax values are the MAXIMUM passive gains at effectiveness >= 90
+// train gains per slot: primary +50, secondary +25 (always correct)
+// passiveMax = max passive daily gain at effectiveness >= 90
+// Source: Torn wiki / in-game job positions table
 // ═══════════════════════════════════════════════════════════════════
 const COMPANIES = {
   candle_shop: {
     name: 'Candle Shop',
     positions: [
-      { name:'Salesperson',        pri:'end', priReq:1500,  sec:'int', secReq:750,   passiveMax:{man:0, int:17, end:34} },
-      { name:'Chandler',           pri:'man', priReq:4500,  sec:'int', secReq:2250,  passiveMax:{man:0, int:0,  end:0}  },
-      { name:'Cleaner',            pri:'man', priReq:1000,  sec:'end', secReq:500,   passiveMax:{man:0, int:0,  end:0}  },
-      { name:'Quality Controller', pri:'end', priReq:3000,  sec:'int', secReq:1500,  passiveMax:{man:0, int:0,  end:0}  },
-      { name:'Bookkeeper',         pri:'end', priReq:2500,  sec:'int', secReq:1250,  passiveMax:{man:0, int:0,  end:0}  },
-      { name:'Trainer',            pri:'int', priReq:4500,  sec:'end', secReq:2250,  passiveMax:{man:0, int:0,  end:0}  },
+      // pri stat, priReq, sec stat, secReq, passiveMax {man,int,end}
+      { name:'Salesperson',        pri:'end', priReq:1500,  sec:'int', secReq:750,   passiveMax:{man:0,  int:17, end:34} },
+      { name:'Chandler',           pri:'man', priReq:4500,  sec:'int', secReq:2250,  passiveMax:{man:42, int:21, end:0}  },
+      { name:'Cleaner',            pri:'man', priReq:1000,  sec:'end', secReq:500,   passiveMax:{man:30, int:0,  end:15} },
+      { name:'Quality Controller', pri:'end', priReq:3000,  sec:'int', secReq:1500,  passiveMax:{man:0,  int:20, end:39} },
+      { name:'Bookkeeper',         pri:'end', priReq:2500,  sec:'int', secReq:1250,  passiveMax:{man:0,  int:19, end:38} },
+      { name:'Trainer',            pri:'int', priReq:4500,  sec:'end', secReq:2250,  passiveMax:{man:0,  int:42, end:21} },
     ]
   },
   adult_novelties: {
@@ -452,16 +510,16 @@ const COMPANIES = {
   amusement_park: {
     name: 'Amusement Park',
     positions: [
-      { name:'Inspector',          pri:'int', priReq:135000, sec:'end', secReq:67500, passiveMax:{man:0,  int:70, end:35} },
-      { name:'Manager',            pri:'end', priReq:90000,  sec:'int', secReq:45000, passiveMax:{man:0,  int:33, end:66} },
-      { name:'Marketer',           pri:'int', priReq:90000,  sec:'end', secReq:45000, passiveMax:{man:0,  int:66, end:33} },
-      { name:'Security Guard',     pri:'man', priReq:79000,  sec:'end', secReq:39500, passiveMax:{man:65, int:0,  end:33} },
-      { name:'Mechanic',           pri:'man', priReq:67500,  sec:'int', secReq:33750, passiveMax:{man:64, int:32, end:0}  },
-      { name:'Accountant',         pri:'end', priReq:67500,  sec:'int', secReq:33750, passiveMax:{man:0,  int:32, end:64} },
-      { name:'Ride Attendant',     pri:'end', priReq:45000,  sec:'int', secReq:22500, passiveMax:{man:0,  int:31, end:61} },
-      { name:'Entertainer',        pri:'man', priReq:34000,  sec:'end', secReq:17000, passiveMax:{man:58, int:0,  end:29} },
-      { name:'Ticket Agent',       pri:'end', priReq:22500,  sec:'int', secReq:11250, passiveMax:{man:0,  int:28, end:55} },
-      { name:'Janitor',            pri:'man', priReq:22500,  sec:'end', secReq:11250, passiveMax:{man:55, int:0,  end:28} },
+      { name:'Inspector',      pri:'int', priReq:135000, sec:'end', secReq:67500, passiveMax:{man:0,  int:70, end:35} },
+      { name:'Manager',        pri:'end', priReq:90000,  sec:'int', secReq:45000, passiveMax:{man:0,  int:33, end:66} },
+      { name:'Marketer',       pri:'int', priReq:90000,  sec:'end', secReq:45000, passiveMax:{man:0,  int:66, end:33} },
+      { name:'Security Guard', pri:'man', priReq:79000,  sec:'end', secReq:39500, passiveMax:{man:65, int:0,  end:33} },
+      { name:'Mechanic',       pri:'man', priReq:67500,  sec:'int', secReq:33750, passiveMax:{man:64, int:32, end:0}  },
+      { name:'Accountant',     pri:'end', priReq:67500,  sec:'int', secReq:33750, passiveMax:{man:0,  int:32, end:64} },
+      { name:'Ride Attendant', pri:'end', priReq:45000,  sec:'int', secReq:22500, passiveMax:{man:0,  int:31, end:61} },
+      { name:'Entertainer',    pri:'man', priReq:34000,  sec:'end', secReq:17000, passiveMax:{man:58, int:0,  end:29} },
+      { name:'Ticket Agent',   pri:'end', priReq:22500,  sec:'int', secReq:11250, passiveMax:{man:0,  int:28, end:55} },
+      { name:'Janitor',        pri:'man', priReq:22500,  sec:'end', secReq:11250, passiveMax:{man:55, int:0,  end:28} },
     ]
   }
 };
@@ -469,7 +527,7 @@ const COMPANIES = {
 const PASSIVE_EFF_CAP = 90;
 
 // ═══════════════════════════════════════════════════════════════════
-// EFFECTIVENESS & PASSIVE
+// EFFECTIVENESS & PASSIVE CALC
 // ═══════════════════════════════════════════════════════════════════
 function effComp(stat, req) {
   if (req<=0||stat<=0) return 0;
@@ -489,7 +547,7 @@ function calcPassive(s, pos) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// TRAIN POSITION HELPERS
+// TRAIN POSITIONS — gains are always 50 primary / 25 secondary
 // ═══════════════════════════════════════════════════════════════════
 function buildTrainPositions(companyKey) {
   const co = COMPANIES[companyKey];
@@ -505,89 +563,54 @@ function buildTrainPositions(companyKey) {
   return result;
 }
 
-// Passive for simulation — uses active employee's passive role
-let _simPassivePos = null;
-
 // ═══════════════════════════════════════════════════════════════════
 // DAILY TRAIN ALLOCATOR
-// Goal: reach all goals as fast as possible.
-// Every day use all maxTrains UNLESS a train would overshoot ALL
-// remaining goals (i.e. it provides zero useful progress).
-// Each train is assigned to the position making the most progress
-// toward the largest remaining gap.
 // ═══════════════════════════════════════════════════════════════════
 function allocateTrains(s, goals, companyKey, maxTrains, passivePos) {
   const trainPositions = buildTrainPositions(companyKey);
   const pass = passivePos ? calcPassive(s, passivePos) : {man:0,int:0,end:0};
-
-  // Running totals of what trains have committed so far this day
   const committed = { man:0, int:0, end:0 };
   const assignments = [];
 
   for (let t = 0; t < maxTrains; t++) {
-    // Current projected stats after passive + committed trains so far
     const proj = {
       man: s.man + pass.man + committed.man,
       int: s.int + pass.int + committed.int,
       end: s.end + pass.end + committed.end,
     };
-
-    // Remaining gaps
     const gaps = {
       man: goals.man > 0 ? Math.max(0, goals.man - proj.man) : 0,
       int: goals.int > 0 ? Math.max(0, goals.int - proj.int) : 0,
       end: goals.end > 0 ? Math.max(0, goals.end - proj.end) : 0,
     };
+    if (!gaps.man && !gaps.int && !gaps.end) { assignments.push(null); continue; }
 
-    const anyGapRemains = gaps.man > 0 || gaps.int > 0 || gaps.end > 0;
-
-    if (!anyGapRemains) {
-      // All goals met — skip remaining trains
-      assignments.push(null);
-      continue;
-    }
-
-    // Score each position: how much useful progress does this train contribute?
-    // Useful = min(train gain, remaining gap) — capped so we don't score overshoot
     let bestPos = null, bestScore = -1;
     for (const pos of trainPositions) {
-      const priUseful = Math.min(pos.priAmt, gaps[pos.pri]);
-      const secUseful = Math.min(pos.secAmt, gaps[pos.sec]);
-      // Weight primary 2× since it's 2× the gain amount
-      const score = priUseful * 2 + secUseful;
+      const score = Math.min(pos.priAmt, gaps[pos.pri]) * 2 + Math.min(pos.secAmt, gaps[pos.sec]);
       if (score > bestScore) { bestScore = score; bestPos = pos; }
     }
-
-    // If best score is 0, this train provides no useful progress to any goal
-    // (all gaps already filled by earlier trains + passive) — skip it
-    if (bestScore <= 0) {
-      assignments.push(null);
-      continue;
-    }
+    if (bestScore <= 0) { assignments.push(null); continue; }
 
     assignments.push(bestPos);
     committed[bestPos.pri] += bestPos.priAmt;
     committed[bestPos.sec] += bestPos.secAmt;
   }
 
-  const totalGains = {
-    man: pass.man + committed.man,
-    int: pass.int + committed.int,
-    end: pass.end + committed.end,
+  return {
+    assignments,
+    totalGains: { man: pass.man+committed.man, int: pass.int+committed.int, end: pass.end+committed.end },
+    passive: pass,
+    trainGains: committed
   };
-
-  return { assignments, totalGains, passive: pass, trainGains: committed };
 }
 
-// ── SIMULATION FOR PROJECTION ──────────────────────────────────────
-// Runs the allocator day by day and returns total days to all goals
 function simDaysRemaining(s, goals, companyKey, maxTrains, passivePos) {
   let sim = { ...s };
   let days = 0;
-  const allDone = () => ['man','int','end'].every(k => goals[k]===0 || sim[k] >= goals[k]);
-  while (!allDone() && days < 3000) {
+  const done = () => ['man','int','end'].every(k => goals[k]===0 || sim[k] >= goals[k]);
+  while (!done() && days < 3000) {
     const { totalGains } = allocateTrains(sim, goals, companyKey, maxTrains, passivePos);
-    // If no gains at all, break to avoid infinite loop
     if (!totalGains.man && !totalGains.int && !totalGains.end) break;
     sim.man = Math.min(sim.man + totalGains.man, 999999);
     sim.int = Math.min(sim.int + totalGains.int, 999999);
@@ -597,9 +620,6 @@ function simDaysRemaining(s, goals, companyKey, maxTrains, passivePos) {
   return days;
 }
 
-// ── TODAY'S SCHEDULE DESCRIPTION ─────────────────────────────────
-// Summarise today's assignments as a human-readable schedule
-// e.g. "3× Trainer, 2× Chandler" or "2× Trainer, skip 3"
 function describeTodaySchedule(assignments) {
   const counts = {};
   let skipped = 0;
@@ -613,256 +633,345 @@ function describeTodaySchedule(assignments) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// STORAGE — uses window.storage (artifact persistent storage) with
-// localStorage as fallback for standalone HTML usage
+// STORAGE — artifact persistent storage with localStorage fallback
 // ═══════════════════════════════════════════════════════════════════
-const STORE_KEY = 'tornTracker_v2_data';
-let _storageMode = 'unknown'; // 'artifact', 'local', 'memory'
+const STORE_KEY = 'tornTracker_v3';
+const NEWS_CACHE_KEY = 'tornTracker_v3_newsCache';
 
 function defaultStore() {
   return {
     companyKey: 'candle_shop',
     activeId: 'emp_default',
+    apiMode: false,
     employees: {
       emp_default: {
         id:'emp_default', name:'Employee',
         companyKey:'candle_shop',
         passiveRoleIdx:0,
         trainsPerDay:5,
-        starts:{man:3164,int:708,end:1859},
-        goals:{man:6000,int:10000,end:6000},
-        progress:{man:3164,int:708,end:1859,day:0,totalTrains:0,checks:Array(5).fill(false)}
+        starts:{man:0,int:0,end:0},
+        startDate: '',
+        goals:{man:0,int:0,end:0},
+        progress:{man:0,int:0,end:0,day:0,totalTrains:0,checks:Array(5).fill(false)}
       }
     }
   };
 }
 
 async function loadStore() {
-  // Try artifact persistent storage first
   if (window.storage) {
     try {
-      const result = await window.storage.get(STORE_KEY);
-      if (result && result.value) {
-        _storageMode = 'artifact';
-        return JSON.parse(result.value);
-      }
+      const r = await window.storage.get(STORE_KEY);
+      if (r?.value) return JSON.parse(r.value);
     } catch(e) {}
   }
-  // Fallback: localStorage
-  try {
-    const r = localStorage.getItem('tornTracker_v8') || localStorage.getItem(STORE_KEY);
-    if (r) {
-      _storageMode = 'local';
-      return JSON.parse(r);
-    }
-  } catch(e) {}
-  _storageMode = window.storage ? 'artifact' : 'local';
+  // Try all legacy keys
+  for (const k of ['tornTracker_v3', 'tornTracker_v8']) {
+    try { const r = localStorage.getItem(k); if (r) return JSON.parse(r); } catch(e) {}
+  }
   return defaultStore();
 }
 
 async function saveStore() {
-  // Always save to localStorage as backup
   try { localStorage.setItem(STORE_KEY, JSON.stringify(STORE)); } catch(e) {}
-  // Also save to artifact storage if available
   if (window.storage) {
-    try {
-      await window.storage.set(STORE_KEY, JSON.stringify(STORE));
-      _storageMode = 'artifact';
-      updateStorageStatus(true);
-      return;
-    } catch(e) {}
+    try { await window.storage.set(STORE_KEY, JSON.stringify(STORE)); } catch(e) {}
   }
-  _storageMode = 'local';
-  updateStorageStatus(true);
 }
 
-function updateStorageStatus(synced) {
-  const el = document.getElementById('storageStatus');
-  const txt = document.getElementById('storageStatusText');
-  if (!el) return;
-  if (synced) {
-    el.className = 'storage-status synced';
-    txt.textContent = _storageMode === 'artifact'
-      ? 'SYNCED — cloud storage active (cross-browser)'
-      : 'SAVED — local storage (export JSON for backup)';
-  } else {
-    el.className = 'storage-status error';
-    txt.textContent = 'STORAGE ERROR — use Export JSON to backup';
+// News cache: { companyId, lastTimestamp, entries: [{timestamp, log}] }
+function loadNewsCache() {
+  try { const r = localStorage.getItem(NEWS_CACHE_KEY); if (r) return JSON.parse(r); } catch(e) {}
+  return null;
+}
+function saveNewsCache(cache) {
+  try { localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify(cache)); } catch(e) {}
+  if (window.storage) {
+    window.storage.set(NEWS_CACHE_KEY, JSON.stringify(cache)).catch(()=>{});
   }
 }
 
 let STORE = defaultStore();
-const ae  = () => STORE.employees[STORE.activeId];
-const ap  = () => ae().progress;
-const ag  = () => ae().goals;
-const ack = () => ae().companyKey || STORE.companyKey;
-const apos= () => {
+const ae   = () => STORE.employees[STORE.activeId];
+const ap   = () => ae().progress;
+const ag   = () => ae().goals;
+const ack  = () => ae().companyKey || STORE.companyKey;
+const apos = () => {
   const co = COMPANIES[ack()];
   const idx = ae().passiveRoleIdx || 0;
   return co.positions[Math.min(idx, co.positions.length-1)];
 };
 
-// Init: load from storage then render
-(async () => {
-  STORE = await loadStore();
-  initCompanySelectors();
-  render();
-  updateStorageStatus(true);
-})();
+// ═══════════════════════════════════════════════════════════════════
+// FORMAT HELPERS
+// ═══════════════════════════════════════════════════════════════════
+const fmt   = n => Math.floor(n).toLocaleString();
+const capId = s => s.charAt(0).toUpperCase()+s.slice(1);
 
-// ── EXPORT / IMPORT ────────────────────────────────────────────────
-function exportData() {
-  const blob = new Blob([JSON.stringify(STORE, null, 2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `torn_tracker_backup_${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast('✓ DATA EXPORTED');
-}
-
-function importData(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      const data = JSON.parse(e.target.result);
-      if (!data.employees || !data.activeId) throw new Error('Invalid format');
-      STORE = data;
-      await saveStore();
-      initCompanySelectors();
-      syncCompanyTab();
-      renderUserList();
-      render();
-      showToast('✓ DATA IMPORTED');
-    } catch(err) {
-      showToast('✗ IMPORT FAILED — INVALID FILE', true);
-    }
-  };
-  reader.readAsText(file);
-  event.target.value = '';
-}
-
-// ── TOAST ──────────────────────────────────────────────────────────
-let _toastTimer = null;
-function showToast(msg, isError=false) {
+// ═══════════════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════════════
+let _toastT = null;
+function showToast(msg, isErr=false) {
   const el = document.getElementById('toast');
   if (!el) return;
   el.textContent = msg;
-  el.className = 'toast' + (isError?' error':'') + ' show';
-  if (_toastTimer) clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+  el.className = 'toast' + (isErr?' err':'') + ' show';
+  clearTimeout(_toastT);
+  _toastT = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
-// ── API VERIFY ─────────────────────────────────────────────────────
-function openApiModal() {
-  closePanel();
-  document.getElementById('apiModal').classList.add('open');
-  document.getElementById('apiResults').classList.remove('show');
-  document.getElementById('apiError').classList.remove('show');
-  document.getElementById('apiSpinner').classList.remove('show');
+// ═══════════════════════════════════════════════════════════════════
+// MODE TOGGLE
+// ═══════════════════════════════════════════════════════════════════
+function onModeToggle() {
+  const apiMode = document.getElementById('modeToggle').checked;
+  STORE.apiMode = apiMode;
+  document.getElementById('modeLabelManual').className = 'mode-bar-label manual' + (apiMode?'':' active').replace('manual active','manual');
+  document.getElementById('modeLabelManual').style.opacity = apiMode ? '.45' : '1';
+  document.getElementById('modeLabelApi').style.opacity = apiMode ? '1' : '.45';
+  document.getElementById('modeLabelApi').style.color = apiMode ? '#4bcc9a' : '';
+  document.getElementById('apiSyncBox').style.display = apiMode ? 'block' : 'none';
+  saveStore();
 }
-function closeApiModal() {
-  document.getElementById('apiModal').classList.remove('open');
-}
 
-async function fetchApiData() {
-  const key = document.getElementById('apiKeyInput').value.trim();
-  if (!key) { showApiError('Please enter an API key.'); return; }
-
-  const btn = document.getElementById('apiFetchBtn');
-  btn.disabled = true;
-  document.getElementById('apiError').classList.remove('show');
-  document.getElementById('apiResults').classList.remove('show');
-  document.getElementById('apiSpinner').classList.add('show');
-
-  try {
-    // Step 1: Get user's company ID
-    const selfResp = await fetch(`https://api.torn.com/user/?selections=basic,workstats&key=${key}`);
-    const selfData = await selfResp.json();
-    if (selfData.error) throw new Error(`API Error ${selfData.error.code}: ${selfData.error.error}`);
-
-    const companyId = selfData.job?.company_id;
-    if (!companyId) throw new Error('You are not currently employed at a company.');
-
-    // Step 2: Get company employees
-    const compResp = await fetch(`https://api.torn.com/company/${companyId}?selections=employees&key=${key}`);
-    const compData = await compResp.json();
-    if (compData.error) throw new Error(`API Error ${compData.error.code}: ${compData.error.error}`);
-
-    const employees = compData.company_employees;
-    if (!employees || Object.keys(employees).length === 0) throw new Error('No employees found.');
-
-    renderApiMembers(employees);
-    document.getElementById('apiResults').classList.add('show');
-  } catch(err) {
-    showApiError(err.message || 'Unknown error. Check your API key and permissions.');
-  } finally {
-    document.getElementById('apiSpinner').classList.remove('show');
-    btn.disabled = false;
+function syncModeUI() {
+  const apiMode = !!STORE.apiMode;
+  document.getElementById('modeToggle').checked = apiMode;
+  document.getElementById('modeLabelManual').style.opacity = apiMode ? '.45' : '1';
+  document.getElementById('modeLabelApi').style.opacity = apiMode ? '1' : '.45';
+  document.getElementById('modeLabelApi').style.color = apiMode ? '#4bcc9a' : '';
+  document.getElementById('apiSyncBox').style.display = apiMode ? 'block' : 'none';
+  // Restore API start date
+  const emp = ae();
+  if (emp.apiStartDate) document.getElementById('apiStartDate').value = emp.apiStartDate;
+  else {
+    // default to employee's start date or today
+    document.getElementById('apiStartDate').value = emp.startDate || new Date().toISOString().slice(0,10);
   }
 }
 
-function showApiError(msg) {
-  const el = document.getElementById('apiError');
-  el.textContent = '✗ ' + msg;
-  el.classList.add('show');
+function saveApiStartDate() {
+  ae().apiStartDate = document.getElementById('apiStartDate').value;
+  saveStore();
 }
 
-function renderApiMembers(employees) {
-  const list = document.getElementById('apiMemberList');
-  list.innerHTML = '';
-  for (const [id, emp] of Object.entries(employees)) {
-    const ws = emp.work_stats || {};
-    const man = ws.manual_labor || 0;
-    const int_ = ws.intelligence || 0;
-    const end = ws.endurance || 0;
+// ═══════════════════════════════════════════════════════════════════
+// STARTING STATS BOX
+// ═══════════════════════════════════════════════════════════════════
+function renderStartsBox() {
+  const emp = ae();
+  const s = ap();
+  const st = emp.starts;
+  document.getElementById('sStartMan').textContent = fmt(st.man);
+  document.getElementById('sStartInt').textContent = fmt(st.int);
+  document.getElementById('sStartEnd').textContent = fmt(st.end);
+  const deltas = {
+    man: s.man - st.man,
+    int: s.int - st.int,
+    end: s.end - st.end
+  };
+  for (const k of ['man','int','end']) {
+    const el = document.getElementById('sGain'+k.charAt(0).toUpperCase()+k.slice(1));
+    const d = deltas[k];
+    if (d > 0) { el.textContent = `+${fmt(d)} gained`; el.className = 'sv-delta pos'; }
+    else { el.textContent = ''; el.className = 'sv-delta'; }
+  }
+  // Populate edit form
+  document.getElementById('sEditMan').value = st.man || '';
+  document.getElementById('sEditInt').value = st.int || '';
+  document.getElementById('sEditEnd').value = st.end || '';
+  if (emp.startDate) document.getElementById('sStartDate').value = emp.startDate;
+}
 
+function toggleStartsEdit() {
+  const form = document.getElementById('startsEditForm');
+  form.classList.toggle('show');
+}
+
+function saveStartDate() {
+  ae().startDate = document.getElementById('sStartDate').value;
+  saveStore();
+}
+
+function saveStartingStats() {
+  const emp = ae();
+  const man = parseInt(document.getElementById('sEditMan').value) || 0;
+  const int_= parseInt(document.getElementById('sEditInt').value) || 0;
+  const end = parseInt(document.getElementById('sEditEnd').value) || 0;
+  emp.starts = { man, int:int_, end };
+  // Don't let progress go below new starts
+  const p = emp.progress;
+  p.man = Math.max(p.man, man);
+  p.int = Math.max(p.int, int_);
+  p.end = Math.max(p.end, end);
+  document.getElementById('startsEditForm').classList.remove('show');
+  saveStore();
+  render();
+  showToast('✓ STARTING STATS SAVED');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// API SYNC — uses company/news to count trains, caches locally
+// ═══════════════════════════════════════════════════════════════════
+async function runApiSync() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) { setApiStatus('Enter an API key first.', 'err'); return; }
+
+  const startDateStr = document.getElementById('apiStartDate').value;
+  if (!startDateStr) { setApiStatus('Set a start date to filter trains from.', 'err'); return; }
+  const startTs = Math.floor(new Date(startDateStr).getTime() / 1000);
+
+  const btn = document.getElementById('apiSyncBtn');
+  btn.disabled = true;
+  setApiStatus('⟳ Fetching company data…', 'loading');
+  document.getElementById('apiResultsList').innerHTML = '';
+
+  try {
+    // Step 1: get user's company ID
+    const selfResp = await fetch(`https://api.torn.com/user/?selections=basic&key=${key}`);
+    const selfData = await selfResp.json();
+    if (selfData.error) throw new Error(`Error ${selfData.error.code}: ${selfData.error.error}`);
+    const companyId = selfData.job?.company_id;
+    if (!companyId) throw new Error('You are not employed at a company.');
+
+    // Step 2: check cache and decide from-timestamp
+    let cache = loadNewsCache();
+    if (!cache || cache.companyId !== companyId) {
+      cache = { companyId, lastTimestamp: 0, entries: [] };
+    }
+
+    // Fetch new news since last cached timestamp
+    const fromTs = Math.max(cache.lastTimestamp, startTs - 86400); // small overlap
+    setApiStatus(`⟳ Loading news (company #${companyId})…`, 'loading');
+
+    // Torn company/news returns up to 100 entries; paginate with `from` param
+    let allNew = [];
+    let fetchFrom = fromTs;
+    let page = 0;
+    while (page < 20) { // max 20 pages = 2000 entries
+      const url = `https://api.torn.com/company/${companyId}?selections=news&key=${key}&from=${fetchFrom}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data.error) throw new Error(`Error ${data.error.code}: ${data.error.error}`);
+      const newsObj = data.news || {};
+      const entries = Object.values(newsObj).sort((a,b) => a.timestamp - b.timestamp);
+      if (!entries.length) break;
+      allNew = allNew.concat(entries);
+      const lastTs = entries[entries.length-1].timestamp;
+      if (lastTs <= fetchFrom) break; // no new data
+      fetchFrom = lastTs;
+      // If fewer than ~100 entries returned, we've got everything
+      if (entries.length < 90) break;
+      page++;
+    }
+
+    // Merge into cache, deduplicate by timestamp+log
+    const existingKeys = new Set(cache.entries.map(e => `${e.timestamp}|${e.log}`));
+    for (const e of allNew) {
+      const k = `${e.timestamp}|${e.log||''}`;
+      if (!existingKeys.has(k)) {
+        cache.entries.push({ timestamp: e.timestamp, log: e.log || '' });
+        existingKeys.add(k);
+      }
+    }
+    if (allNew.length) {
+      cache.lastTimestamp = Math.max(...allNew.map(e=>e.timestamp));
+    }
+    saveNewsCache(cache);
+
+    // Step 3: parse train events on/after startTs, group by player name
+    // News entries look like: "PlayerName trained with position at Company."
+    const trainCounts = {}; // name -> count
+    const trainPattern = /^(.+?)\s+trained\b/i;
+    for (const entry of cache.entries) {
+      if (entry.timestamp < startTs) continue;
+      const m = entry.log.match(trainPattern);
+      if (m) {
+        const name = m[1].trim();
+        trainCounts[name] = (trainCounts[name] || 0) + 1;
+      }
+    }
+
+    const totalFiltered = cache.entries.filter(e => e.timestamp >= startTs).length;
+    const cachedTotal = cache.entries.length;
+    const lastSync = new Date(cache.lastTimestamp * 1000).toLocaleString();
+    document.getElementById('apiCacheNote').textContent =
+      `Cache: ${cachedTotal} entries total · Last synced: ${lastSync} · ${totalFiltered} entries since start date`;
+
+    if (!Object.keys(trainCounts).length) {
+      setApiStatus('No training events found since start date. Check the date or try again after trains occur.', 'err');
+      btn.disabled = false;
+      return;
+    }
+
+    // Render results
+    renderApiResults(trainCounts);
+    setApiStatus(`✓ Sync complete — found ${Object.keys(trainCounts).length} employee(s) with trains since ${startDateStr}`, 'ok');
+
+  } catch(err) {
+    setApiStatus('✗ ' + (err.message || 'Unknown error'), 'err');
+  }
+  btn.disabled = false;
+}
+
+function setApiStatus(msg, type) {
+  const el = document.getElementById('apiStatus');
+  el.textContent = msg;
+  el.className = `api-status show ${type}`;
+}
+
+function renderApiResults(trainCounts) {
+  const list = document.getElementById('apiResultsList');
+  list.innerHTML = '';
+  const sorted = Object.entries(trainCounts).sort((a,b) => b[1]-a[1]);
+  for (const [name, count] of sorted) {
+    // Find matching tracker
+    const matchId = Object.keys(STORE.employees).find(
+      id => STORE.employees[id].name.toLowerCase() === name.toLowerCase()
+    );
     const item = document.createElement('div');
-    item.className = 'api-member-item';
-    item.id = `api-member-${id}`;
+    item.className = 'api-member';
+    item.id = `apim-${name.replace(/\W/g,'_')}`;
+    const hasTracker = !!matchId;
     item.innerHTML =
       `<div style="min-width:0;flex:1">
-        <div class="api-member-name">${emp.name}</div>
-        <div class="api-member-stats">
-          <span class="c-man">MAN ${fmt(man)}</span> ·
-          <span class="c-int">INT ${fmt(int_)}</span> ·
-          <span class="c-end">END ${fmt(end)}</span>
-          <br>Position: ${emp.position||'—'} · Days: ${emp.days_in_company||0}
-        </div>
+        <div class="api-member-name">${name}</div>
+        <div class="api-member-stats">${hasTracker ? 'tracker found' : 'no tracker yet'}</div>
       </div>
-      <div class="api-member-actions">
-        <button class="api-apply-btn" onclick="applyApiMember('${id}','${emp.name}',${man},${int_},${end})">APPLY</button>
-      </div>`;
+      <div class="api-member-trains">${count}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:.46rem;color:var(--muted);margin-right:4px">trains</div>
+      <button class="api-apply-btn" onclick="applyApiTrains('${name}',${count},'${item.id}')">
+        ${hasTracker ? 'UPDATE' : 'CREATE'}
+      </button>`;
     list.appendChild(item);
   }
 }
 
-function applyApiMember(apiId, name, man, int_, end) {
-  // Find existing tracker for this name or create new
-  let targetId = null;
-  for (const [id, emp] of Object.entries(STORE.employees)) {
-    if (emp.name.toLowerCase() === name.toLowerCase()) { targetId = id; break; }
-  }
+function applyApiTrains(name, trainCount, itemId) {
+  // Find or create employee tracker
+  let targetId = Object.keys(STORE.employees).find(
+    id => STORE.employees[id].name.toLowerCase() === name.toLowerCase()
+  );
 
   if (targetId) {
-    // Update existing tracker's current stats
     const emp = STORE.employees[targetId];
-    const p = emp.progress;
-    p.man = Math.max(man, p.man);
-    p.int = Math.max(int_, p.int);
-    p.end = Math.max(end, p.end);
-    // Also update starts if the new values are higher
-    emp.starts.man = Math.min(emp.starts.man, man);
-    emp.starts.int = Math.min(emp.starts.int, int_);
-    emp.starts.end = Math.min(emp.starts.end, end);
+    const tpd = emp.trainsPerDay || 5;
+    // Recalculate progress from starts using trainCount
+    const st = emp.starts;
+    const pos = COMPANIES[emp.companyKey || STORE.companyKey]
+      .positions[Math.min(emp.passiveRoleIdx||0, COMPANIES[emp.companyKey||STORE.companyKey].positions.length-1)];
+    // Each train: +50 pri, +25 sec — use the most common position (first trainPosition)
+    const tp = buildTrainPositions(emp.companyKey || STORE.companyKey)[0];
+    // Rough stat estimate: trains contribute 50/25 per train to primary/secondary
+    // This is an estimate — actual allocation depends on goals
+    const estimatedDay = Math.floor(trainCount / tpd);
+    emp.progress.totalTrains = trainCount;
+    emp.progress.day = estimatedDay;
     STORE.activeId = targetId;
     saveStore(); render();
-    showToast(`✓ UPDATED ${name.toUpperCase()}`);
+    showToast(`✓ UPDATED ${name.toUpperCase()} — ${trainCount} trains`);
   } else {
-    // No existing tracker — create a minimal one
     const id = 'emp_' + Date.now();
     const tpd = ae().trainsPerDay || 5;
     STORE.employees[id] = {
@@ -870,38 +979,58 @@ function applyApiMember(apiId, name, man, int_, end) {
       companyKey: STORE.companyKey,
       passiveRoleIdx: 0,
       trainsPerDay: tpd,
-      starts: {man, int:int_, end},
-      goals: {man:0, int:0, end:0},
-      progress: {man, int:int_, end, day:0, totalTrains:0, checks:Array(tpd).fill(false)}
+      starts:{man:0,int:0,end:0},
+      startDate: document.getElementById('apiStartDate').value,
+      goals:{man:0,int:0,end:0},
+      progress:{man:0,int:0,end:0, day:Math.floor(trainCount/tpd), totalTrains:trainCount, checks:Array(tpd).fill(false)}
     };
     STORE.activeId = id;
     saveStore(); renderUserList(); render();
     showToast(`✓ CREATED TRACKER FOR ${name.toUpperCase()}`);
   }
-
-  // Mark the button as applied
-  const btn = document.querySelector(`#api-member-${apiId} .api-apply-btn`);
-  if (btn) { btn.textContent = '✓ APPLIED'; btn.classList.add('applied'); btn.disabled = true; }
+  const btn = document.querySelector(`#${itemId} .api-apply-btn`);
+  if (btn) { btn.textContent='✓ DONE'; btn.classList.add('applied'); btn.disabled=true; }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// FORMAT
+// EXPORT / IMPORT
 // ═══════════════════════════════════════════════════════════════════
-const fmt   = n => Math.floor(n).toLocaleString();
-const capId = s => s.charAt(0).toUpperCase()+s.slice(1);
+function exportData() {
+  const blob = new Blob([JSON.stringify(STORE, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `torn_tracker_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  showToast('✓ EXPORTED');
+}
+function importData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!data.employees || !data.activeId) throw new Error('invalid');
+      STORE = data;
+      await saveStore();
+      initCompanySelectors(); syncCompanyTab(); syncModeUI(); renderUserList(); render();
+      showToast('✓ IMPORTED');
+    } catch { showToast('✗ INVALID FILE', true); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════════════════════════
 function render() {
-  const emp  = ae();
-  const s    = ap();
-  const goals= ag();
-  const co   = COMPANIES[ack()];
-  const pos  = apos();
-  const tpd  = emp.trainsPerDay || 5;
-
-  _simPassivePos = pos;
+  const emp   = ae();
+  const s     = ap();
+  const goals = ag();
+  const co    = COMPANIES[ack()];
+  const pos   = apos();
+  const tpd   = emp.trainsPerDay || 5;
 
   const allDone = ['man','int','end'].every(k => goals[k]===0 || s[k]>=goals[k]);
   const { assignments, totalGains, passive, trainGains } = allocateTrains(s, goals, ack(), tpd, pos);
@@ -914,17 +1043,20 @@ function render() {
   document.getElementById('dayPill').textContent = `DAY ${s.day}`;
   document.getElementById('completeBanner').classList.toggle('show', allDone);
 
+  // Starting stats box
+  renderStartsBox();
+
   // Stat cards
   for (const k of ['man','int','end']) {
     const cur=s[k], goal=goals[k], hit=goal>0&&cur>=goal;
     document.getElementById('g'+capId(k)).textContent = goal>0?`GOAL: ${fmt(goal)}`:'NO GOAL';
-    const el=document.getElementById('v'+capId(k));
+    const el = document.getElementById('v'+capId(k));
     el.textContent=fmt(cur); el.classList.toggle('goal-hit',hit);
     document.getElementById('b'+capId(k)).style.width=goal>0?Math.min(100,(cur/goal)*100)+'%':'100%';
     document.getElementById('r'+capId(k)).textContent=goal===0?'—':hit?'✓ GOAL REACHED':`${fmt(goal-cur)} remaining`;
   }
 
-  // Effectiveness & passive
+  // Effectiveness & passive strip
   const eff     = calcEff(s, pos);
   const pctFull = Math.min(PASSIVE_EFF_CAP,eff)/PASSIVE_EFF_CAP*100;
   const isFull  = eff>=PASSIVE_EFF_CAP;
@@ -942,7 +1074,7 @@ function render() {
   if(passive.man) passiveSubParts.push('MAN');
   document.getElementById('ePassiveSub').textContent=passiveSubParts.join('+');
 
-  // Passive note
+  // Passive note box
   const maxParts=[];
   if(pos.passiveMax.end) maxParts.push(`<span class="c-end">+${pos.passiveMax.end} END</span>`);
   if(pos.passiveMax.int) maxParts.push(`<span class="c-int">+${pos.passiveMax.int} INT</span>`);
@@ -955,19 +1087,15 @@ function render() {
     `<strong>${pos.name.toUpperCase()} PASSIVE</strong> (daily · 18:00 TCT)<br>`+
     `Req: <span class="c-${pos.pri}">${fmt(pos.priReq)} ${pos.pri.toUpperCase()}</span> primary · `+
     `<span class="c-${pos.sec}">${fmt(pos.secReq)} ${pos.sec.toUpperCase()}</span> secondary<br>`+
-    `Max at eff ≥ <strong style="color:var(--gold2)">90</strong>: ${maxParts.join(' / ')}<br>`+
+    `Max at eff ≥ <strong style="color:var(--gold2)">90</strong>: ${maxParts.join(' / ')||'<span style="color:var(--muted)">none for this position</span>'}<br>`+
     `Effectiveness: <strong style="color:var(--gold2)">${eff}</strong> → <strong style="color:var(--gold2)">${pctFull.toFixed(0)}%</strong> of max<br>`+
     `Today's passive: ${todayPassiveParts.join(' · ')||'—'}`+
     (isFull?`  <span style="color:var(--end)">✓ SATURATED</span>`:`  <span style="color:var(--muted)">(grows as stats increase)</span>`);
 
-  // Phase tag — now shows today's schedule summary
-  document.getElementById('phaseTag').textContent = allDone
-    ? 'COMPLETE'
-    : trainsNeeded < tpd
-      ? `TODAY: ${schedule}`
-      : `TODAY: ${schedule}`;
+  // Phase tag
+  document.getElementById('phaseTag').textContent = allDone ? 'COMPLETE' : `TODAY: ${schedule}`;
 
-  // Train slots — each shows its specific assigned position
+  // Train slots
   const slotsEl=document.getElementById('trainSlots');
   slotsEl.innerHTML='';
   while(s.checks.length<tpd) s.checks.push(false);
@@ -978,50 +1106,48 @@ function render() {
 
   for(let i=0;i<tpd;i++){
     const slot=document.createElement('div');
-    const assign = assignments[i];
-    const isSkip = assign === null;
+    const assign=assignments[i];
+    const isSkip=assign===null;
     slot.className='t-slot'+(s.checks[i]?' done':'')+(isSkip?' skip':'');
-    slot.style.opacity = isSkip ? '0.35' : '1';
+    slot.style.opacity=isSkip?'0.35':'1';
     slot.onclick=()=>{ if(!isSkip) toggleTrain(i); };
-    let posName = isSkip ? 'SKIP' : assign.name;
-    let gainsHtml = '';
+    let gainsHtml='';
     if(!isSkip){
       gainsHtml=`<span class="c-${assign.pri}">+${assign.priAmt}</span> `+
                 `<span style="font-size:.45rem;color:var(--muted)">${assign.pri.toUpperCase()}</span><br>`+
                 `<span class="c-${assign.sec}">+${assign.secAmt}</span> `+
                 `<span style="font-size:.45rem;color:var(--muted)">${assign.sec.toUpperCase()}</span>`;
     } else {
-      gainsHtml = `<span style="font-size:.5rem;color:var(--muted)">not needed</span>`;
+      gainsHtml=`<span style="font-size:.5rem;color:var(--muted)">not needed</span>`;
     }
-    slot.innerHTML=`<div class="t-num">#${i+1}</div><div class="t-pos" style="font-size:.58rem">${posName}</div><div class="t-gains">${gainsHtml}</div>`;
+    slot.innerHTML=`<div class="t-num">#${i+1}</div><div class="t-pos" style="font-size:.58rem">${isSkip?'SKIP':assign.name}</div><div class="t-gains">${gainsHtml}</div>`;
     slotsEl.appendChild(slot);
   }
 
-  document.getElementById('progFill').style.width=trainsNeeded===0?'100%':(markedCount/trainsNeeded*100)+'%';
-  document.getElementById('trainCount').textContent=
-    trainsNeeded===0
-      ? 'no trains needed today'
-      : `${markedCount} / ${trainsNeeded} trains marked (${tpd-trainsNeeded} skipped)`;
+  document.getElementById('progFill').style.width=trainsNeeded===0?'100%':(markedCount/Math.max(trainsNeeded,1)*100)+'%';
+  document.getElementById('trainCount').textContent=trainsNeeded===0
+    ?'no trains needed today'
+    :`${markedCount} / ${trainsNeeded} trains marked (${tpd-trainsNeeded} skipped)`;
 
-  // Train preview for marked trains
+  // Train preview
   if(!allDone && trainsNeeded>0){
-    const countedGains={man:0,int:0,end:0};
+    const cg={man:0,int:0,end:0};
     for(let i=0;i<tpd;i++){
-      if(s.checks[i] && assignments[i]){
-        countedGains[assignments[i].pri]+=assignments[i].priAmt;
-        countedGains[assignments[i].sec]+=assignments[i].secAmt;
+      if(s.checks[i]&&assignments[i]){
+        cg[assignments[i].pri]+=assignments[i].priAmt;
+        cg[assignments[i].sec]+=assignments[i].secAmt;
       }
     }
-    const parts=[];
-    if(countedGains.man) parts.push(`<span class="c-man">+${countedGains.man} MAN</span>`);
-    if(countedGains.int) parts.push(`<span class="c-int">+${countedGains.int} INT</span>`);
-    if(countedGains.end) parts.push(`<span class="c-end">+${countedGains.end} END</span>`);
-    document.getElementById('trainPreview').innerHTML=parts.join(' ');
+    const pp=[];
+    if(cg.man) pp.push(`<span class="c-man">+${cg.man} MAN</span>`);
+    if(cg.int) pp.push(`<span class="c-int">+${cg.int} INT</span>`);
+    if(cg.end) pp.push(`<span class="c-end">+${cg.end} END</span>`);
+    document.getElementById('trainPreview').innerHTML=pp.join(' ');
   } else {
     document.getElementById('trainPreview').innerHTML='';
   }
 
-  // Daily total breakdown
+  // Daily total
   const dtEl=document.getElementById('dailyTotal');
   if(!allDone){
     const trainLine=[
@@ -1035,14 +1161,11 @@ function render() {
       totalGains.int?`<span class="c-int">+${totalGains.int} INT</span>`:null,
       totalGains.end?`<span class="c-end">+${totalGains.end} END</span>`:null
     ].filter(Boolean).join(' ')||'—';
-
-    // Project end stats
     const projLine=[
       `<span class="c-man">${fmt(s.man+totalGains.man)} MAN</span>`,
       `<span class="c-int">${fmt(s.int+totalGains.int)} INT</span>`,
       `<span class="c-end">${fmt(s.end+totalGains.end)} END</span>`,
     ].join(' ');
-
     dtEl.innerHTML=
       `<div class="dt-row"><span class="dt-label">TRAINS (${trainsNeeded}×, ${tpd-trainsNeeded} skipped)</span><span>${trainLine}</span></div>`+
       `<div class="dt-row"><span class="dt-label">PASSIVE (${pos.name})</span><span>${passLine}</span></div>`+
@@ -1057,63 +1180,48 @@ function render() {
   btn.disabled=allDone;
   btn.textContent=allDone?'ALL GOALS COMPLETE':`APPLY ${trainsNeeded} TRAINS + PASSIVE & ADVANCE DAY`;
 
-  // Phase table → now a projection table
   renderProjectionTable(s, goals, ack(), tpd, pos);
 
   document.getElementById('pDays').textContent=s.day;
   document.getElementById('pTrains').textContent=s.totalTrains;
-  const remDays = allDone ? 0 : simDaysRemaining(s,goals,ack(),tpd,pos);
+  const remDays=allDone?0:simDaysRemaining(s,goals,ack(),tpd,pos);
   document.getElementById('pRem').textContent=allDone?'✓ DONE':remDays+'d';
-
-  // Current bottleneck stat
-  const gaps = ['man','int','end']
-    .filter(k=>goals[k]>0&&s[k]<goals[k])
-    .map(k=>({k,gap:goals[k]-s[k]}))
-    .sort((a,b)=>b.gap-a.gap);
+  const gaps=['man','int','end'].filter(k=>goals[k]>0&&s[k]<goals[k]).map(k=>({k,gap:goals[k]-s[k]})).sort((a,b)=>b.gap-a.gap);
   document.getElementById('pPhase').textContent=allDone?'✓':(gaps[0]?gaps[0].k.toUpperCase():'—');
-  document.getElementById('pPhaseSub').textContent=allDone?'All goals reached!':
-    (gaps[0]?`${fmt(gaps[0].gap)} remaining`:'');
+  document.getElementById('pPhaseSub').textContent=allDone?'All goals reached!':(gaps[0]?`${fmt(gaps[0].gap)} remaining`:'');
 }
 
 function renderProjectionTable(s, goals, companyKey, tpd, passivePos) {
-  const table = document.getElementById('phaseTable');
-  while (table.children.length > 1) table.removeChild(table.lastChild);
-
-  // Show next 7 days of assignments as a preview
-  let sim = { ...s };
-  const allDone = () => ['man','int','end'].every(k => goals[k]===0 || sim[k]>=goals[k]);
-
-  if (allDone()) {
-    const row = document.createElement('div');
-    row.className = 'pt-row';
-    row.style.gridTemplateColumns = '1fr';
-    row.innerHTML = `<span style="color:var(--end);font-family:'Share Tech Mono',monospace;font-size:.62rem">All goals reached — no further training needed.</span>`;
-    table.appendChild(row);
-    return;
+  const table=document.getElementById('phaseTable');
+  while(table.children.length>1) table.removeChild(table.lastChild);
+  let sim={...s};
+  const done=()=>['man','int','end'].every(k=>goals[k]===0||sim[k]>=goals[k]);
+  if(done()){
+    const row=document.createElement('div');
+    row.className='pt-row'; row.style.gridTemplateColumns='1fr';
+    row.innerHTML=`<span style="color:var(--end);font-family:'Share Tech Mono',monospace;font-size:.62rem">All goals reached — no further training needed.</span>`;
+    table.appendChild(row); return;
   }
-
-  for (let d = 0; d < 7 && !allDone(); d++) {
-    const { assignments, totalGains } = allocateTrains(sim, goals, companyKey, tpd, passivePos);
-    const sched = describeTodaySchedule(assignments);
-    const trainsUsed = assignments.filter(a=>a!==null).length;
-
-    const row = document.createElement('div');
-    row.className = 'pt-row' + (d===0?' pt-active':'');
-    const gainParts = [
+  for(let d=0;d<7&&!done();d++){
+    const {assignments,totalGains}=allocateTrains(sim,goals,companyKey,tpd,passivePos);
+    const sched=describeTodaySchedule(assignments);
+    const used=assignments.filter(a=>a!==null).length;
+    const row=document.createElement('div');
+    row.className='pt-row'+(d===0?' pt-active':'');
+    const gainParts=[
       totalGains.man?`<span class="c-man">+${totalGains.man}</span>`:null,
       totalGains.int?`<span class="c-int">+${totalGains.int}</span>`:null,
       totalGains.end?`<span class="c-end">+${totalGains.end}</span>`:null,
     ].filter(Boolean).join(' ');
-    row.innerHTML =
+    row.innerHTML=
       `<span class="pt-num">${d===0?'TODAY':`+${d}d`}</span>`+
-      `<span class="pt-desc">${sched}<small>${trainsUsed} train${trainsUsed!==1?'s':''} used</small></span>`+
+      `<span class="pt-desc">${sched}<small>${used} train${used!==1?'s':''} used</small></span>`+
       `<span class="pt-days" style="font-size:.55rem">${gainParts}</span>`+
       `<span class="pt-status"><span style="color:var(--muted);font-size:.52rem">${fmt(sim.man+totalGains.man)}/${fmt(sim.int+totalGains.int)}/${fmt(sim.end+totalGains.end)}</span></span>`;
     table.appendChild(row);
-
-    sim.man = Math.min(sim.man + totalGains.man, 999999);
-    sim.int = Math.min(sim.int + totalGains.int, 999999);
-    sim.end = Math.min(sim.end + totalGains.end, 999999);
+    sim.man=Math.min(sim.man+totalGains.man,999999);
+    sim.int=Math.min(sim.int+totalGains.int,999999);
+    sim.end=Math.min(sim.end+totalGains.end,999999);
   }
 }
 
@@ -1122,26 +1230,22 @@ function renderProjectionTable(s, goals, companyKey, tpd, passivePos) {
 // ═══════════════════════════════════════════════════════════════════
 function toggleTrain(i){
   const s=ap(), goals=ag();
-  const allDone=['man','int','end'].every(k=>goals[k]===0||s[k]>=goals[k]);
-  if(allDone) return;
+  if(['man','int','end'].every(k=>goals[k]===0||s[k]>=goals[k])) return;
   s.checks[i]=!s.checks[i];
-  saveStore();render();
+  saveStore(); render();
 }
 
 function applyDay(){
-  const emp=ae(),s=ap(),goals=ag(),tpd=emp.trainsPerDay||5;
-  const pos=apos();
-  const allDone=['man','int','end'].every(k=>goals[k]===0||s[k]>=goals[k]);
-  if(allDone) return;
-  const { totalGains, assignments } = allocateTrains(s, goals, ack(), tpd, pos);
-  const trainsUsed = assignments.filter(a=>a!==null).length;
+  const emp=ae(),s=ap(),goals=ag(),tpd=emp.trainsPerDay||5,pos=apos();
+  if(['man','int','end'].every(k=>goals[k]===0||s[k]>=goals[k])) return;
+  const {totalGains,assignments}=allocateTrains(s,goals,ack(),tpd,pos);
+  const used=assignments.filter(a=>a!==null).length;
   s.man=Math.min(s.man+totalGains.man,999999);
   s.int=Math.min(s.int+totalGains.int,999999);
   s.end=Math.min(s.end+totalGains.end,999999);
-  s.day++;
-  s.totalTrains+=trainsUsed;
+  s.day++; s.totalTrains+=used;
   s.checks=Array(tpd).fill(false);
-  saveStore();render();
+  saveStore(); render();
 }
 
 function confirmReset(){
@@ -1149,7 +1253,7 @@ function confirmReset(){
   if(!confirm(`Reset all progress for ${emp.name}?`)) return;
   const st=emp.starts;
   emp.progress={man:st.man,int:st.int,end:st.end,day:0,totalTrains:0,checks:Array(emp.trainsPerDay||5).fill(false)};
-  saveStore();render();
+  saveStore(); render();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1159,9 +1263,7 @@ let editingId=null;
 let activeTab='employees';
 
 function openPanel(){
-  populateCompanySelect();
-  syncCompanyTab();
-  renderUserList();
+  populateCompanySelect(); syncCompanyTab(); renderUserList();
   document.getElementById('panel').classList.add('open');
   document.getElementById('overlay').classList.add('open');
   cancelEdit();
@@ -1198,10 +1300,8 @@ function syncCompanyTab(){
 
 function onCompanyChange(){
   const key=document.getElementById('companySelect').value;
-  ae().companyKey=key;
-  STORE.companyKey=key;
-  syncCompanyTab();
-  saveStore();render();
+  ae().companyKey=key; STORE.companyKey=key;
+  syncCompanyTab(); saveStore(); render();
 }
 
 function onTrainsChange(){
@@ -1209,7 +1309,7 @@ function onTrainsChange(){
   document.getElementById('trainsPerDay').value=val;
   ae().trainsPerDay=val;
   ap().checks=Array(val).fill(false);
-  saveStore();render();
+  saveStore(); render();
 }
 
 function renderUserList(){
@@ -1242,7 +1342,7 @@ function renderUserList(){
 
 function switchEmployee(id){
   STORE.activeId=id;
-  saveStore();renderUserList();syncCompanyTab();render();
+  saveStore(); renderUserList(); syncCompanyTab(); syncModeUI(); render();
 }
 
 function deleteEmployee(id){
@@ -1250,14 +1350,13 @@ function deleteEmployee(id){
   if(!confirm(`Delete tracker for ${emp.name}?`)) return;
   delete STORE.employees[id];
   if(STORE.activeId===id) STORE.activeId=Object.keys(STORE.employees)[0];
-  saveStore();renderUserList();render();
+  saveStore(); renderUserList(); render();
 }
 
 function populatePassiveRoleSelect(companyKey, selectedIdx){
   const sel=document.getElementById('fPassiveRole');
   sel.innerHTML='';
-  const co=COMPANIES[companyKey];
-  co.positions.forEach((pos,i)=>{
+  COMPANIES[companyKey].positions.forEach((pos,i)=>{
     const opt=document.createElement('option');
     opt.value=i;
     opt.textContent=`${pos.name} (${pos.pri.toUpperCase()} primary)`;
@@ -1300,7 +1399,6 @@ function saveEmployee(){
   const passiveRoleIdx=parseInt(document.getElementById('fPassiveRole').value)||0;
   const companyKey=ack();
   const tpd=ae().trainsPerDay||5;
-
   if(editingId&&STORE.employees[editingId]){
     const emp=STORE.employees[editingId];
     emp.name=name; emp.starts={man,int:int_,end}; emp.goals={man:gMan,int:gInt,end:gEnd};
@@ -1312,15 +1410,15 @@ function saveEmployee(){
     const id='emp_'+Date.now();
     STORE.employees[id]={
       id,name,companyKey,passiveRoleIdx,trainsPerDay:tpd,
-      starts:{man,int:int_,end},goals:{man:gMan,int:gInt,end:gEnd},
+      starts:{man,int:int_,end},startDate:'',
+      goals:{man:gMan,int:gInt,end:gEnd},
       progress:{man,int:int_,end,day:0,totalTrains:0,checks:Array(tpd).fill(false)}
     };
     STORE.activeId=id;
   }
-  saveStore();cancelEdit();renderUserList();render();
+  saveStore(); cancelEdit(); renderUserList(); render();
 }
 
-// Init company selector
 function initCompanySelectors(){
   const sel=document.getElementById('companySelect');
   sel.innerHTML='';
@@ -1332,7 +1430,13 @@ function initCompanySelectors(){
   }
 }
 
-// (Init handled by async IIFE above)
+// ── BOOT ──────────────────────────────────────────────────────────
+(async()=>{
+  STORE = await loadStore();
+  initCompanySelectors();
+  syncModeUI();
+  render();
+})();
 </script>
 </body>
 </html>
