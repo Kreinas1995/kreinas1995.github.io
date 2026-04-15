@@ -9,6 +9,12 @@ on:
 jobs:
   move-old-files:
     runs-on: ubuntu-latest
+    # ─── TOGGLE ───────────────────────────────────────────────────────────────
+    # Set the Actions variable WORKFLOW_ENABLED to 'true' to enable this job.
+    # Set it to anything else (or leave it unset) to disable it.
+    # Go to: Settings → Secrets and variables → Actions → Variables tab
+    if: vars.WORKFLOW_ENABLED == 'true'
+    # ──────────────────────────────────────────────────────────────────────────
     permissions:
       contents: write
 
@@ -79,7 +85,8 @@ jobs:
             echo "  Updated: $current_dir/$latest_name <- Old/$latest_name"
 
           done < <(
-            find . -type d \( -name 'Old' -o -name 'current' \) \
+            find . -type d \(
+              -name 'Old' -o -name 'current' \)
               -not -path './.git/*' \
               | sed -E 's,/(Old|current)(/.*)?$,,' | sort -u
           )
@@ -122,9 +129,9 @@ jobs:
               m = re.search(r'v(\d+)_(\d+)_(\d+)', filename, re.I)
               return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else (0, 0, 0)
 
-          for root, dirs, files in os.walk('.'):
+          for root, dirs, files in os.walk('.'): 
               # Skip hidden directories (e.g. .git)
-              dirs[:] = [d for d in dirs if not d.startswith('.')]
+              dirs[:] = [d for d in dirs if not d.startswith('.')] 
               if os.path.basename(root) != 'current':
                   continue
               old_dir = os.path.join(os.path.dirname(root), 'Old')
@@ -138,15 +145,15 @@ jobs:
               counts = Counter(all_files)
               duplicates = [f for f, c in counts.items() if c > 1]
               if duplicates:
-                  print(f'WARNING [{root}]: Duplicate entries detected and removed: {duplicates}')
+                  print(f'WARNING [{root}]: Duplicate entries detected and removed: {duplicates}') 
               # Use dict to deduplicate while preserving insertion order, then sort
               all_files = list(dict.fromkeys(all_files))
 
-              all_files.sort(key=parse_version)
+              all_files.sort(key=parse_version) 
               if not all_files:
                   continue
-              manifest = {'latest': all_files[-1], 'all': all_files}
-              out_path = os.path.join(root, 'manifest.json')
+              manifest = {'latest': all_files[-1], 'all': all_files} 
+              out_path = os.path.join(root, 'manifest.json') 
               with open(out_path, 'w') as fh:
                   json.dump(manifest, fh, indent=2)
                   fh.write('\n')
