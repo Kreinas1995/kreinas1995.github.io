@@ -2266,7 +2266,7 @@ async function paginatedFetch(section, sel, maxPg=25, fromTs=0){
     let retries=0;
     while(retries<3){
       try{
-        const url=`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}${extra}`;
+        const url=`https://api.torn.com/v2/${section}?selections=${sel}&key=${S.key}${extra}`;
         trackApiCall();
         const r=await fetch(url); const d=await r.json();
         if(d.error){
@@ -2412,7 +2412,7 @@ async function runInitialize(){
       let retries=0;
       while(retries<3){
         try{
-          const url=`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}${extra}`;
+          const url=`https://api.torn.com/v2/${section}?selections=${sel}&key=${S.key}${extra}`;
           iconsole(`GET ${section}/${sel}${extra?` to=${toTs}`:''}  [call ${calls+1}]`,'info');
           trackApiCall(); calls++;
           const r=await fetch(url); const d=await r.json();
@@ -2668,7 +2668,7 @@ async function adminDeepFetch(){
       let pg=0; const maxPg=50; let curToTs=toTs;
       while(pg<maxPg){
         await rateSleep();
-        const url=`https://api.torn.com/${src.section}/?selections=${src.sel}&key=${S.key}${curToTs>0?`&to=${curToTs}`:''}`;
+        const url=`https://api.torn.com/v2/${src.section}?selections=${src.sel}&key=${S.key}${curToTs>0?`&to=${curToTs}`:''}`;
         trackApiCall();
         let d;
         try{ const r=await fetch(url); d=await r.json(); }catch(fe){ log(`${src.id}: fetch error — ${fe.message}`); break; }
@@ -2796,7 +2796,7 @@ async function adminRunFullDiagnostic(){
     await rateSleep();
     const tCall=Date.now();
     try{
-      const url=`https://api.torn.com/${sec}/?selections=${sel}&key=${S.key}`;
+      const url=`https://api.torn.com/v2/${sec}?selections=${sel}&key=${S.key}`;
       trackApiCall();
       const r=await fetch(url); const d=await r.json();
       const ms=Date.now()-tCall;
@@ -2883,7 +2883,7 @@ function logError(code, context, message){
 }
 
 async function tGet(section, sel, extra=''){
-  const url=`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}${extra}`;
+  const url=`https://api.torn.com/v2/${section}?selections=${sel}&key=${S.key}${extra}`;
   trackApiCall();
   const r=await fetch(url);
   if(!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -3189,7 +3189,7 @@ async function fetchOutgoingLog(){
   const lastTs = (S.outgoing||[]).filter(r=>r.src==='log').reduce((mx,r)=>Math.max(mx,r.ts),0);
   const fromParam = lastTs>0 ? `&from=${lastTs+1}` : '';
   try{
-    const url=`https://api.torn.com/user/?selections=log${fromParam}&key=${S.key}`;
+    const url=`https://api.torn.com/v2/user/log?key=${S.key}${fromParam}`;
     trackApiCall();
     const r=await fetch(url); const d=await r.json();
     if(d.error){
@@ -3200,8 +3200,8 @@ async function fetchOutgoingLog(){
       }
       return;
     }
-    const log=d.log||{};
-    const entries=Object.values(log);
+    const log=Array.isArray(d.log)?d.log:Object.values(d.log||{});
+    const entries=log;
     if(!entries.length){ clog('user/log: no new entries','info'); return; }
 
     // On first fetch: log all unique titles to console for regex tuning
@@ -5944,7 +5944,7 @@ async function dbgTest(section, sel, key){
   document.getElementById('dbgStatus').textContent=`Fetching ${section}/${sel}…`;
   const out = document.getElementById('dbgOut');
   try{
-    const url=`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}`;
+    const url=`https://api.torn.com/v2/${section}?selections=${sel}&key=${S.key}`;
     const r=await fetch(url);
     const d=await r.json();
     if(d.error){ out.textContent=`ERROR [${d.error.code}]: ${d.error.error}`; dbgResults[key]={error:d.error}; return; }
@@ -5994,7 +5994,7 @@ async function dbgRunAll(){
   for(const [section,sel,key] of tests){
     status.textContent=`Testing ${section}/${sel}…`;
     try{
-      const r=await fetch(`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}`);
+      const r=await fetch(`https://api.torn.com/v2/${section}?selections=${sel}&key=${S.key}`);
       const d=await r.json();
       if(d.error){
         report+=`[FAIL] ${section}/${sel}: [${d.error.code}] ${d.error.error}\n`;
@@ -7146,7 +7146,7 @@ async function verifyAndGrantAccess(){
 
   try{
     // Step 1: Get visitor's player ID and name
-    const basicUrl = `https://api.torn.com/user/?selections=basic&key=${keyVal}`;
+    const basicUrl = `https://api.torn.com/v2/user/basic?key=${keyVal}`;
     trackApiCall();
     const br = await fetch(basicUrl); const bd = await br.json();
     if(bd.error) throw new Error(`[${bd.error.code}] ${bd.error.error}`);
@@ -7157,11 +7157,11 @@ async function verifyAndGrantAccess(){
     // Step 2: Check if player is in HighVibes faction (ID 50825)
     // Use their own key to fetch faction/basic — works with any AA key or public data
     await rateSleep();
-    const facUrl = `https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${keyVal}`;
+    const facUrl = `https://api.torn.com/v2/faction/${FACTION_ID}/basic?key=${keyVal}`;
     trackApiCall();
     const fr = await fetch(facUrl); const fd2 = await fr.json();
 
-    if(!fd2.error && fd2.members && fd2.members[playerId]){
+    if(!fd2.error && fd2.members && (fd2.members[playerId]||Object.values(fd2.members||{}).some(m=>String(m.id||m.player_id)===playerId))){
       // Player IS a faction member — grant permanent access (re-verified on each load)
       const record = { grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true };
       setAccessRecord(record);
@@ -7184,11 +7184,11 @@ async function verifyAndGrantAccess(){
     const maxPg = 50; // up to 5000 entries — years of history
     while(pgN < maxPg){
       await rateSleep();
-      const url = `https://api.torn.com/user/?selections=log&key=${keyVal}&limit=${limit}&offset=${offset}`;
+      const url = `https://api.torn.com/v2/user/log?key=${keyVal}&limit=${limit}&offset=${offset}`;
       trackApiCall();
       const r = await fetch(url); const d = await r.json();
       if(d.error){ clog(`Log scan [${d.error.code}]: ${d.error.error}`,'warn'); break; }
-      const entries = Object.values(d.log||{});
+      const entries = Array.isArray(d.log)?d.log:Object.values(d.log||{});
       if(!entries.length) break;
       allEntries.push(...entries);
       status.textContent = `Scanned ${allEntries.length} log entries…`;
@@ -7300,16 +7300,16 @@ function showAccessGate(show){
 async function autoVerifyStoredKey(keyVal){
   try{
     trackApiCall();
-    const br = await fetch(`https://api.torn.com/user/?selections=basic&key=${keyVal}`);
+    const br = await fetch(`https://api.torn.com/v2/user/basic?key=${keyVal}`);
     const bd = await br.json();
     if(bd.error){ showAccessGate(true); return; }
     const playerId = String(bd.player_id);
     const playerName = bd.name || 'Unknown';
     await rateSleep();
     trackApiCall();
-    const fr = await fetch(`https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${keyVal}`);
+    const fr = await fetch(`https://api.torn.com/v2/faction/${FACTION_ID}/basic?key=${keyVal}`);
     const fd = await fr.json();
-    if(!fd.error && fd.members && fd.members[playerId]){
+    if(!fd.error && fd.members && (fd.members[playerId]||Object.values(fd.members||{}).some(m=>String(m.id||m.player_id)===playerId))){
       // Confirmed faction member — grant access and proceed
       setAccessRecord({ grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true });
       showAccessGate(false);
@@ -7377,16 +7377,16 @@ async function silentFactionRecheck(r){
   // Re-verify faction membership silently — revoke if member was kicked
   if(!S.key) return;
   try{
-    const url = `https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${S.key}`;
+    const url = `https://api.torn.com/v2/faction/${FACTION_ID}/basic?key=${S.key}`;
     trackApiCall();
     const res = await fetch(url); const d = await res.json();
     if(d.error) return; // API error — keep access, don't punish for network issues
-    if(d.members && !d.members[r.playerId]){
+    if(d.members && !d.members[r.playerId] && !Object.values(d.members||{}).some(m=>String(m.id||m.player_id)===r.playerId)){
       // No longer in faction
       clog(`${r.from} no longer in faction — access revoked`,'warn');
       localStorage.removeItem(ACCESS_KEY);
       showAccessGate(true);
-    } else if(d.members && d.members[r.playerId]){
+    } else if(d.members && (d.members[r.playerId]||Object.values(d.members||{}).some(m=>String(m.id||m.player_id)===r.playerId))){
       // Still in faction — refresh timestamp
       setAccessRecord({...r, grantedAt: Date.now()});
     }
@@ -7399,7 +7399,7 @@ async function dbgLogCategories(){
   if(!S.key){el.textContent='No key connected.';return;}
   el.textContent='Fetching torn/logcategories…\n';
   try{
-    const url=`https://api.torn.com/torn/?selections=logcategories&key=${S.key}`;
+    const url=`https://api.torn.com/v2/torn/logcategories?key=${S.key}`;
     trackApiCall();
     const r=await fetch(url); const d=await r.json();
     if(d.error){el.textContent+=`ERROR [${d.error.code}]: ${d.error.error}`;return;}
@@ -7417,12 +7417,12 @@ async function dbgUserLog(){
   if(!S.key){el.textContent='No key connected.';return;}
   el.textContent='Fetching user/log…\n';
   try{
-    const url=`https://api.torn.com/user/?selections=log&key=${S.key}`;
+    const url=`https://api.torn.com/v2/user/log?key=${S.key}`;
     trackApiCall();
     const r=await fetch(url); const d=await r.json();
     if(d.error){el.textContent+=`ERROR [${d.error.code}]: ${d.error.error}\n`;return;}
-    const log=d.log||d;
-    const entries=Object.values(log);
+    const log=Array.isArray(d.log)?d.log:Object.values(d.log||d||{});
+    const entries=log;
     el.textContent+=`Top-level keys: ${Object.keys(d).join(', ')}\n`;
     el.textContent+=`Total entries: ${entries.length}\n\n`;
 
