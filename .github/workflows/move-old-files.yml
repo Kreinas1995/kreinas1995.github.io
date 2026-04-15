@@ -49,8 +49,20 @@ jobs:
               -name '*v[0-9]*_[0-9]*.html' -exec basename {} \; \
               2>/dev/null >> "$tmpfile" || true
 
-            # Deduplicate and find latest by version sort
-            latest_name=$(sort -Vu "$tmpfile" | tail -n 1 || true)
+            # Deduplicate and find latest by numeric version sort
+            # Parses vMAJOR_MINOR_PATCH and optional _modifier suffix for correct ordering
+            latest_name=$(awk '
+              {
+                f = $0
+                if (match(f, /v([0-9]+)_([0-9]+)_([0-9]+)(_[a-zA-Z][a-zA-Z0-9]*)?\.html$/, a)) {
+                  maj = a[1]+0; min = a[2]+0; pat = a[3]+0
+                  mod = (a[4] != "") ? 1 : 0
+                  printf "%09d %09d %09d %d %s\n", maj, min, pat, mod, f
+                } else {
+                  printf "%09d %09d %09d %d %s\n", 0, 0, 0, 0, f
+                }
+              }
+            ' "$tmpfile" | sort -k1,1n -k2,2n -k3,3n -k4,4n | tail -n1 | awk '{print $NF}' || true)
             rm -f "$tmpfile"
 
             if [ -z "$latest_name" ]; then
@@ -126,8 +138,11 @@ jobs:
           from collections import Counter
 
           def parse_version(filename):
-              m = re.search(r'v(\d+)_(\d+)_(\d+)', filename, re.I)
-              return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else (0, 0, 0)
+              m = re.search(r'v(\d+)_(\d+)_(\d+)(_[a-zA-Z][a-zA-Z0-9]*)?', filename, re.I)
+              if not m:
+                  return (0, 0, 0, 0)
+              has_mod = 1 if m.group(4) else 0
+              return (int(m.group(1)), int(m.group(2)), int(m.group(3)), has_mod)
 
           for root, dirs, files in os.walk('.'): 
               # Skip hidden directories (e.g. .git)
