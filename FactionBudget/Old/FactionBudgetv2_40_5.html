@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.4</title>
+<title>Faction Budget v2.40.5</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -893,7 +893,10 @@
     <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:8px;font-family:'Space Mono',monospace;">🔬 FULL API DIAGNOSTIC</div>
       <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.8;">Tests every API selection including <span style="color:var(--accent3)">faction/currency ★</span> (vault). Diagnose why vault shows ---. Rate-limited to 75 calls/min.</div>
-      <button class="btn-primary" id="btnAdminDiag" onclick="adminRunFullDiagnostic()" style="margin-bottom:12px;">▶ RUN FULL DIAGNOSTIC</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="btn-primary" id="btnAdminDiag" onclick="adminRunFullDiagnostic()">▶ RUN FULL DIAGNOSTIC</button>
+        <button id="btnDiagCopy" onclick="adminCopyDiagnostic()" style="display:none;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:9px 14px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--accent2)';" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)';">📋 COPY REPORT</button>
+      </div>
       <div id="adminDiagWrap" style="display:none;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <span id="adminDiagPct" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">0%</span>
@@ -903,6 +906,7 @@
           <div id="adminDiagBar" style="height:100%;width:0%;background:var(--accent3);transition:width 0.3s;"></div>
         </div>
         <pre id="adminDiagOut" style="display:none;background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:9px;color:var(--text);max-height:320px;overflow-y:auto;white-space:pre-wrap;line-height:1.6;margin:0;"></pre>
+        <div id="adminDiagCopyStatus" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2);margin-top:6px;min-height:14px;"></div>
       </div>
     </div>
 
@@ -1055,7 +1059,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.4';
+const APP_VERSION = '2.40.5';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1120,6 +1124,16 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.5', date:'2026-04-14', notes:[
+    '[*] BUG-OC-MEMBERS: memberBadge() and member count now correctly display all members regardless of crime size (was capped at 2 via selection-entry regex — only extracted first two names). Count badge shows actual stored member list length.',
+    '[*] BUG-TOOLTIP: Member tooltip (.mem-tip) now closes when a DIFFERENT tooltip is opened — previously tapping a second member count would open the new tooltip while leaving the previous one visible. Document click handler now closes all OTHER open tooltips when one is opened.',
+    '[*] BUG-OC-DEFAULT: When no API data provides member names for a completed OC, members column shows — (no members) by default. Selection-entry auto-match only fills members if a strict match is found; no speculative fallback.',
+    '[*] OC-UX: Member edit panel now shows required participant count per crime type (e.g. "required: 3" for Bomb Threat). Count badge (X/N) tracks live selection progress.',
+    '[*] OC-UX: Once the required member count is reached in the member edit panel, all unchecked members grey out and are unselectable. Deselecting a member re-enables the rest.',
+    '[*] OC-VALIDATION: SAVE MEMBERS now validates selected count against crime type requirement. If count does not match (and is non-zero), save is rejected with inline error "Please select all N participants (X/N selected)". Saving zero members is allowed (clears assignment).',
+    '[*] ADMIN-DIAG: Full API Diagnostic report now includes run timestamp, key prefix, per-call latency (ms), and a SUMMARY section at the end listing pass/fail counts and any failed endpoints.',
+    '[+] ADMIN-DIAG: "📋 COPY REPORT" button appears after diagnostic completes — copies full report text to clipboard with confirmation flash. Falls back to text selection if clipboard API unavailable.',
+  ]},
   { v:'2.40.4', date:'2026-04-14', notes:[
     '[*] BUG-DEEP-FETCH: hv_v1_crime_log cap raised from 500 → 2000 entries in all 3 save paths (runInitialize, fetchAll, deep fetch source def) — deep-fetched older entries were being silently discarded by slice(0,500) after sort.',
     '[*] STATUS: All LIVE status labels renamed to CONNECTED — "LIVE" was misleading (data is cached/polled, not a live socket).',
@@ -2740,10 +2754,14 @@ async function adminRunFullDiagnostic(){
   const eta=document.getElementById('adminDiagETA');
   const pctEl=document.getElementById('adminDiagPct');
   const btn=document.getElementById('btnAdminDiag');
+  const copyBtn=document.getElementById('btnDiagCopy');
+  const copyStatus=document.getElementById('adminDiagCopyStatus');
   if(!S.key){ alert('Connect API key first.'); return; }
 
   btn.disabled=true;
   btn.innerHTML='<div class="spin" style="display:inline-block;width:12px;height:12px;border:2px solid rgba(0,0,0,0.2);border-top-color:var(--bg);border-radius:50%;animation:rot 0.6s linear infinite;vertical-align:middle;margin-right:6px;"></div>RUNNING…';
+  if(copyBtn) copyBtn.style.display='none';
+  if(copyStatus) copyStatus.textContent='';
   document.getElementById('adminDiagWrap').style.display='block';
   out.style.display='block'; out.textContent='';
 
@@ -2762,8 +2780,10 @@ async function adminRunFullDiagnostic(){
     // torn/calendar is API v2 only — would need different URL format
   ];
 
-  let report='=== HIGHVIBES FULL API DIAGNOSTIC ===\n\n';
+  const now=new Date();
+  let report=`=== HIGHVIBES FULL API DIAGNOSTIC ===\nRun: ${now.toISOString()}\nKey: ${S.key?S.key.slice(0,4)+'••••••••••••':'-'}\n\n`;
   const t0=Date.now();
+  const results=[];
 
   for(let i=0;i<tests.length;i++){
     const [sec,sel,label]=tests[i];
@@ -2774,12 +2794,16 @@ async function adminRunFullDiagnostic(){
     eta.textContent=rem>0?(rem<60000?`ETA ~${Math.ceil(rem/1000)}s`:`ETA ~${Math.ceil(rem/60000)}m`):'…';
 
     await rateSleep();
+    const tCall=Date.now();
     try{
       const url=`https://api.torn.com/${sec}/?selections=${sel}&key=${S.key}`;
       trackApiCall();
       const r=await fetch(url); const d=await r.json();
+      const ms=Date.now()-tCall;
       if(d.error){
-        report+=`[FAIL] ${label}\n       Error [${d.error.code}]: ${d.error.error}\n\n`;
+        const line=`[FAIL] ${label}\n       Error [${d.error.code}]: ${d.error.error}\n`;
+        report+=line+'\n';
+        results.push({label,status:'FAIL',detail:`[${d.error.code}] ${d.error.error}`});
       } else {
         const mk=Object.keys(d).find(k=>k!=='_metadata'&&typeof d[k]==='object'&&d[k]!==null);
         const mv=mk?d[mk]:null;
@@ -2787,9 +2811,10 @@ async function adminRunFullDiagnostic(){
         if(sel==='currency'||sel==='money'){
           const vault=d.money||d.money_faction||0;
           const pts=d.points||0;
-          report+=`[OK]   ${label}\n       money = ${vault>0?'$'+Number(vault).toLocaleString():'0 or KEY NOT IN RESPONSE'}\n       points = ${pts}\n       All keys: ${Object.keys(d).join(', ')}\n\n`;
+          report+=`[OK]   ${label}  (${ms}ms)\n       money = ${vault>0?'$'+Number(vault).toLocaleString():'0 or KEY NOT IN RESPONSE'}\n       points = ${pts}\n       keys: ${Object.keys(d).join(', ')}\n\n`;
+          results.push({label,status:'OK',detail:`vault=$${Number(vault).toLocaleString()} pts=${pts}`});
         } else {
-          report+=`[OK]   ${label}\n       "${mk}": ${cnt} entries | keys: ${Object.keys(d).slice(0,6).join(', ')}\n`;
+          report+=`[OK]   ${label}  (${ms}ms)\n       "${mk}": ${cnt} entries | keys: ${Object.keys(d).slice(0,6).join(', ')}\n`;
           if(mv&&(sel.includes('news')||sel==='events')){
             Object.values(mv).slice(0,25).forEach((e,idx)=>{
               const txt=(e.event||e.news||JSON.stringify(e)).slice(0,120);
@@ -2797,18 +2822,47 @@ async function adminRunFullDiagnostic(){
             });
           }
           report+='\n';
+          results.push({label,status:'OK',detail:`${cnt} entries`});
         }
       }
-    }catch(e){ report+=`[ERR]  ${label}: ${e.message}\n\n`; }
+    }catch(e){
+      report+=`[ERR]  ${label}: ${e.message}\n\n`;
+      results.push({label,status:'ERR',detail:e.message});
+    }
     out.textContent=report; out.scrollTop=out.scrollHeight;
   }
 
   bar.style.width='100%'; pctEl.textContent='100%';
   const secs=Math.round((Date.now()-t0)/1000);
   eta.textContent=`Done in ${secs}s`;
-  report+=`=== COMPLETE in ${secs}s ===`;
+
+  // Summary
+  const ok=results.filter(r=>r.status==='OK').length;
+  const fail=results.filter(r=>r.status!=='OK').length;
+  report+=`\n${'─'.repeat(48)}\nSUMMARY: ${ok}/${tests.length} passed, ${fail} failed  (${secs}s)\n`;
+  if(fail>0){
+    report+=`FAILED:\n`;
+    results.filter(r=>r.status!=='OK').forEach(r=>{ report+=`  • ${r.label}: ${r.detail}\n`; });
+  }
+  report+=`=== END ===\n`;
   out.textContent=report;
+
   btn.disabled=false; btn.innerHTML='▶ RUN FULL DIAGNOSTIC';
+  if(copyBtn) copyBtn.style.display='';
+}
+
+function adminCopyDiagnostic(){
+  const out=document.getElementById('adminDiagOut');
+  const status=document.getElementById('adminDiagCopyStatus');
+  if(!out||!out.textContent) return;
+  navigator.clipboard.writeText(out.textContent).then(()=>{
+    if(status){status.textContent='✓ Report copied to clipboard';setTimeout(()=>{if(status)status.textContent='';},2500);}
+  }).catch(()=>{
+    // Fallback: select text
+    const range=document.createRange(); range.selectNode(out);
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+    if(status) status.textContent='⚠ Auto-copy failed — text selected, press Ctrl+C';
+  });
 }
 
 // ════════════════════════════════════════════
@@ -4947,9 +5001,26 @@ function ocDebugClearOverrides(){
 }
 
 // Save manually-set members for a crimenews completed OC entry (stored in ocOverrides)
-function cnSaveMembers(ts){
+function cnSaveMembers(ts, crimeType){
   const key=`cn_members_${ts}`;
+  const required=OC_CRIME_MEMBERS[crimeType]||0;
   const members=[...document.querySelectorAll(`.cnMemChk_${ts}:checked`)].map(el=>el.value);
+  if(members.length===0){
+    // Allow saving zero — means unknown/unset
+    if(!S.ocOverrides) S.ocOverrides={};
+    S.ocOverrides[key]={members};
+    try{localStorage.setItem('hv_v1_oc_overrides',JSON.stringify(S.ocOverrides));}catch(e){}
+    clog(`OC members cleared via save [ts=${ts}]`,'ok');
+    renderOC();
+    return;
+  }
+  if(required>0 && members.length!==required){
+    // Show inline error
+    const errEl=document.getElementById(`cnMemErr_${ts}`);
+    if(errEl){errEl.textContent=`Please select all ${required} participants (${members.length}/${required} selected).`;errEl.style.display='block';}
+    clog(`OC save rejected: need ${required} members, got ${members.length}`,'warn');
+    return;
+  }
   if(!S.ocOverrides) S.ocOverrides={};
   S.ocOverrides[key]={members};
   try{localStorage.setItem('hv_v1_oc_overrides',JSON.stringify(S.ocOverrides));}catch(e){}
@@ -4978,6 +5049,26 @@ function ocFilterMembers(query, gridId){
     const name=(lbl.textContent||'').toLowerCase();
     lbl.style.display=(!q||name.includes(q))?'':'none';
   });
+}
+
+function ocUpdateMemberCheckboxes(ts, required){
+  // Grey out unselected checkboxes once limit reached; un-grey if under limit
+  if(!required||required<=0) return;
+  const checked=[...document.querySelectorAll(`.cnMemChk_${ts}:checked`)];
+  const all=[...document.querySelectorAll(`.cnMemChk_${ts}`)];
+  const atLimit=checked.length>=required;
+  all.forEach(chk=>{
+    const lbl=chk.closest('label');
+    if(!chk.checked){
+      chk.disabled=atLimit;
+      if(lbl) lbl.style.opacity=atLimit?'0.35':'1';
+    } else {
+      chk.disabled=false;
+      if(lbl) lbl.style.opacity='1';
+    }
+  });
+  const badge=document.getElementById(`cnMemCount_${ts}`);
+  if(badge) badge.textContent=`${checked.length}/${required}`;
 }
 
 function updateOcBanner(ocIncome, warIncome, period){
@@ -5155,7 +5246,7 @@ function renderOC(){
         }
         const allMemberChks=(Object.values(S.faction?.members||{}).map(m=>m.name||'').filter(Boolean).sort()).map(n=>`
           <label style="display:flex;align-items:center;gap:4px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);cursor:pointer;">
-            <input type="checkbox" class="cnMemChk_${e.timestamp}" value="${n}" ${parsedMembers.includes(n)?'checked':''} style="accent-color:var(--accent3);">
+            <input type="checkbox" class="cnMemChk_${e.timestamp}" value="${n}" ${parsedMembers.includes(n)?'checked':''} style="accent-color:var(--accent3);" onchange="ocUpdateMemberCheckboxes(${e.timestamp},${OC_CRIME_MEMBERS[type]||0})">
             ${n}
           </label>`).join('');
         const resultCol=success
@@ -5201,18 +5292,24 @@ function renderOC(){
           </td>
         </tr>`;
         // Inline member edit row — available on ALL completed entries
+        const reqCnt=OC_CRIME_MEMBERS[type]||0;
         h+=`<tr id="${memEditId}" style="display:none;background:rgba(126,184,255,0.04);">
           <td colspan="8" style="padding:10px 12px;">
-            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px;">MEMBERS FOR THIS OC</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;">
+              <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;">MEMBERS FOR THIS OC${reqCnt?` (required: ${reqCnt})`:''}</div>
+              ${reqCnt?`<span id="cnMemCount_${e.timestamp}" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent5);padding:1px 6px;border:1px solid rgba(126,184,255,0.3);background:rgba(126,184,255,0.07);">${parsedMembers.length}/${reqCnt}</span>`:''}
+            </div>
             <input type="text" placeholder="Search members…" oninput="ocFilterMembers(this.value,'cnMemGrid_${e.timestamp}')"
               style="width:100%;max-width:300px;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:3px 8px;font-size:10px;font-family:'Space Mono',monospace;box-sizing:border-box;margin-bottom:6px;">
             <div id="cnMemGrid_${e.timestamp}" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:2px 6px;max-height:100px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);padding:6px;margin-bottom:8px;">
               ${allMemberChks||'<span style="font-size:9px;color:var(--muted2);font-family:\'Space Mono\',monospace;">No faction members loaded</span>'}
             </div>
-            <button onclick="cnSaveMembers(${e.timestamp})"
+            <div id="cnMemErr_${e.timestamp}" style="display:none;font-family:'Space Mono',monospace;font-size:9px;color:var(--accent4);margin-bottom:6px;"></div>
+            <button onclick="document.getElementById('cnMemErr_${e.timestamp}').style.display='none';cnSaveMembers(${e.timestamp},'${type}')"
               style="background:var(--accent5);color:#000;border:none;padding:5px 14px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;">SAVE MEMBERS</button>
             ${parsedMembers.length?`<button onclick="cnClearMembers(${e.timestamp})"
               style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:5px 10px;font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;margin-left:6px;">CLEAR</button>`:''}
+            ${reqCnt?`<script>setTimeout(()=>ocUpdateMemberCheckboxes(${e.timestamp},${reqCnt}),0);<\/script>`:''}
           </td>
         </tr>`;
       });
@@ -7355,11 +7452,14 @@ async function dbgUserLog(){
   }catch(e){el.textContent+=`Error: ${e.message}`;}
 }
 
-// Close member tooltips when tapping outside
+// Close member tooltips when tapping outside OR when opening a different one
 document.addEventListener('click', function(ev){
-  if(!ev.target.closest('.mem-tip')){
-    document.querySelectorAll('.mem-tip.tip-open').forEach(el=>el.classList.remove('tip-open'));
-  }
+  const tgt=ev.target.closest('.mem-tip');
+  document.querySelectorAll('.mem-tip.tip-open').forEach(el=>{
+    // If the click was on a DIFFERENT mem-tip cell, close all others
+    // If the click was outside entirely, close all
+    if(el!==tgt) el.classList.remove('tip-open');
+  });
 });
 </script>
 
