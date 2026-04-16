@@ -681,63 +681,13 @@
     </div>
     <!-- OC Debug Panel -->
     <div id="ocDebugPanel" style="display:none;background:var(--bg);border:1px solid var(--accent3);padding:10px 12px;margin-bottom:12px;font-family:'Space Mono',monospace;font-size:9px;line-height:1.8;">
-      <div style="color:var(--accent3);font-size:8px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">🔬 OC DEBUGGER</div>
-
-      <!-- Tab bar -->
-      <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;" id="ocDbgTabs">
-        <button onclick="ocDbgTab('income')" id="ocDbgTab-income"
-          style="background:var(--accent3);color:#000;border:none;padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">INCOME</button>
-        <button onclick="ocDbgTab('raw')" id="ocDbgTab-raw"
-          style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">RAW DATA</button>
-        <button onclick="ocDbgTab('match')" id="ocDbgTab-match"
-          style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">MEMBER MATCHING</button>
-        <button onclick="ocDbgTab('copy')" id="ocDbgTab-copy"
-          style="background:var(--surface2);border:1px solid var(--accent5);color:var(--accent5);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;margin-left:auto;">📋 COPY ALL</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+        <span style="color:var(--accent3);font-size:8px;letter-spacing:2px;text-transform:uppercase;">🔬 OC DIAGNOSTIC LOG</span>
+        <button onclick="ocDbgRun()" style="background:var(--accent3);color:#000;border:none;padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">▶ REFRESH</button>
+        <button onclick="ocDbgCopy()" id="ocDbgCopyBtn" style="background:var(--surface2);border:1px solid var(--accent5);color:var(--accent5);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">📋 COPY LOG</button>
+        <button onclick="ocDebugClearOverrides()" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">✕ CLEAR OVERRIDES</button>
       </div>
-
-      <!-- Income tab -->
-      <div id="ocDbgPane-income">
-        <div id="ocDebugOut" style="color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:320px;overflow-y:auto;"></div>
-        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-          <button onclick="ocDebugRun()" style="background:var(--accent3);color:#000;border:none;padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">▶ RUN</button>
-          <button onclick="ocDebugClearOverrides()" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">✕ CLEAR OC OVERRIDES</button>
-        </div>
-      </div>
-
-      <!-- Raw Data tab -->
-      <div id="ocDbgPane-raw" style="display:none;">
-        <div style="color:var(--muted);font-size:8px;margin-bottom:6px;">
-          All raw crimenews entries from S._crimeLog. Each entry has a timestamp and the raw HTML news string as returned by the Torn API. This is the source data for all OC logic.
-        </div>
-        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
-          <select id="ocDbgRawFilter" onchange="ocDbgRenderRaw()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:8px;padding:3px 6px;">
-            <option value="all">All entries</option>
-            <option value="selection">Selections only (have been selected)</option>
-            <option value="result">Results only (success/fail)</option>
-            <option value="other">Other entries</option>
-          </select>
-          <span id="ocDbgRawCount" style="color:var(--muted2);font-size:8px;"></span>
-        </div>
-        <div id="ocDbgRawOut" style="max-height:400px;overflow-y:auto;border:1px solid var(--border);background:var(--surface2);padding:6px;"></div>
-      </div>
-
-      <!-- Member Matching tab -->
-      <div id="ocDbgPane-match" style="display:none;">
-        <div style="color:var(--muted);font-size:8px;margin-bottom:8px;line-height:1.8;">
-          Shows how each completed OC result is matched to a selection entry to determine member names.
-          <br>⚠ Key insight: OCs can be <strong style="color:var(--accent3)">initiated in any order</strong> after their timer expires — so initiation order ≠ selection order. A Kidnapping selected on Apr 10 may complete <em>after</em> one selected Apr 12 if the Apr 10 pair was initiated later.
-          <br>The current logic takes the <em>first unmatched selection</em> of the same type within 7 days before the result. This breaks if multiple same-type OCs overlap.
-        </div>
-        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
-          <button onclick="ocDbgRenderMatch()" style="background:var(--accent3);color:#000;border:none;padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">▶ RUN MATCH TRACE</button>
-          <select id="ocDbgMatchFilter" onchange="ocDbgRenderMatch()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:8px;padding:3px 6px;">
-            <option value="all">All results</option>
-            <option value="conflict">Conflicts only (ambiguous matches)</option>
-            <option value="unmatched">Unmatched only</option>
-          </select>
-        </div>
-        <div id="ocDbgMatchOut" style="max-height:500px;overflow-y:auto;border:1px solid var(--border);background:var(--surface2);padding:6px;"></div>
-      </div>
+      <div id="ocDbgLog" style="white-space:pre-wrap;word-break:break-all;max-height:520px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);padding:8px;color:var(--text);font-size:9px;line-height:1.7;">Diagnostic not yet run.</div>
     </div>
     <div id="ocRawOut" style="display:none;"></div>
     <div id="ocIncomeBanner" style="display:none;background:var(--surface2);border:1px solid var(--border);padding:10px 14px;margin-bottom:12px;gap:16px;flex-wrap:wrap;align-items:center;"></div>
@@ -1110,7 +1060,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.11';
+const APP_VERSION = '2.40.12';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1175,6 +1125,9 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.12', date:'2026-04-15', notes:[
+    '[*] REFACTOR-OC-DEBUG: Replaced tabbed OC debug panel (Income / Raw Data / Member Matching tabs) with a single unified diagnostic log. No tab state to break — clicking the DEBUG button auto-runs and populates the full log. Log includes: state summary, all S.ocOverrides keys, most recent 50 S._crimeLog entries with parsed type + tag, full greedy match trace replay for most recent 40 results, and parseCrimeType() spot-check against all known crime types. COPY LOG button dumps entire log to clipboard.',
+  ]},
   { v:'2.40.11', date:'2026-04-15', notes:[
     '[*] BUG-TOOLTIP-OVERFLOW: Removed .tw class from #ocTbl container div and added #ocTbl{overflow:visible} CSS rule. Browser overflow-x:auto on .tw was implicitly clipping .mem-tip-box (absolutely positioned tooltip) via overflow-y:hidden — tooltip now escapes container correctly on mobile. Table content still gets .tw wrapper injected by renderOC() at innerHTML assignment time.',
     '[*] BUG-CRIMETYPE: parseCrimeType() now correctly identifies "Hijack a Plane", "Take Over a Cruise Liner", "Political Assassination", and "Rob a Money Train". Specific patterns (money train, cruise liner, hijack/plane, assassination) now checked before generic /rob/ to prevent false Robbery matches. Return values match OC_CRIME_TYPES exactly.',
@@ -5009,337 +4962,217 @@ function parseOCId(news){
 }
 
 // ── OC DEBUGGER — tab state
-let _ocDbgActiveTab='income';
+// ── OC DIAGNOSTIC LOG (single unified debug output) ───────────────────────
+let _ocDbgLogText = '';
 
 function ocDebugToggle(){
   const p=document.getElementById('ocDebugPanel');
   if(!p) return;
-  const open=p.style.display!=='none';
-  p.style.display=open?'none':'block';
-  if(!open){ ocDbgTab(_ocDbgActiveTab); }
+  const opening = p.style.display==='none';
+  p.style.display = opening ? 'block' : 'none';
+  if(opening) ocDbgRun();
 }
 
-function ocDbgTab(tab){
-  if(tab==='copy'){ ocDbgCopyAll(); return; } // copy never changes active tab
-  _ocDbgActiveTab=tab;
-  ['income','raw','match'].forEach(t=>{
-    const pane=document.getElementById(`ocDbgPane-${t}`);
-    const btn=document.getElementById(`ocDbgTab-${t}`);
-    if(pane) pane.style.display=t===tab?'block':'none';
-    if(btn){
-      btn.style.background=t===tab?'var(--accent3)':'var(--surface2)';
-      btn.style.color=t===tab?'#000':'var(--muted)';
-      btn.style.border=t===tab?'none':'1px solid var(--border)';
-    }
-  });
-  try{
-    if(tab==='income') ocDebugRun();
-    if(tab==='raw')    ocDbgRenderRaw();
-    if(tab==='match')  ocDbgRenderMatch(); // auto-runs match trace on tab click
-  }catch(err){ clog('ocDbgTab render error: '+err.message,'err'); }
-}
+function ocDbgRun(){
+  const el=document.getElementById('ocDbgLog');
+  if(!el) return;
+  const lines=[];
+  const L=(s)=>lines.push(s===undefined?'':s);
+  const now=Math.floor(Date.now()/1000);
 
-// ── INCOME TAB
-function ocDebugRun(){
-  const out=document.getElementById('ocDebugOut');
-  if(!out) return;
-  const ocPeriod=S.cardPeriods?.oc||'30d';
-  const ocFrom=periodToSeconds(ocPeriod);
-  const overrides=S.ocOverrides||{};
-  const rewardKeys=Object.keys(overrides).filter(k=>/^oc_\d+$/.test(k));
-  const inPeriod=rewardKeys.filter(k=>parseInt(k.slice(3))>ocFrom);
-  const total=inPeriod.reduce((s,k)=>s+Number(overrides[k]?.reward||0),0);
-  let lines=[];
-  lines.push(`APP_VERSION  : ${APP_VERSION}`);
-  lines.push(`Period       : ${ocPeriod}  (ocFrom=${ocFrom})`);
-  lines.push(`Now (unix)   : ${Math.floor(Date.now()/1000)}`);
-  lines.push('');
-  lines.push(`── S.ocOverrides reward keys (oc_<ts>) ──`);
-  lines.push(`Total keys   : ${rewardKeys.length}`);
-  lines.push(`In period    : ${inPeriod.length}`);
-  lines.push(`Override total: ${total} = ${fmt$(total)}`);
-  lines.push('');
-  if(rewardKeys.length===0){
-    lines.push('ℹ No oc_<ts> reward overrides set — income shows $0 until rewards are entered via ✎ edit on crimenews rows');
-  } else {
-    lines.push('Reward overrides (most recent first):');
-    rewardKeys.slice().sort((a,b)=>parseInt(b.slice(3))-parseInt(a.slice(3))).slice(0,15).forEach((k,i)=>{
-      const ts=parseInt(k.slice(3));
-      lines.push(`  [${i}] ${k}  reward=${overrides[k]?.reward||0}  inPeriod=${ts>ocFrom}`);
-    });
-    if(rewardKeys.length>15) lines.push(`  … and ${rewardKeys.length-15} more`);
-  }
-  const memKeys=Object.keys(overrides).filter(k=>/^cn_members_/.test(k));
-  lines.push('');
-  lines.push(`── cn_members_<ts> stored overrides: ${memKeys.length} ──`);
-  memKeys.slice().sort((a,b)=>parseInt(b.replace('cn_members_',''))-parseInt(a.replace('cn_members_',''))).slice(0,10).forEach((k,i)=>{
-    const ts=parseInt(k.replace('cn_members_',''));
-    const members=(overrides[k]?.members||[]).join(', ')||'(empty)';
-    lines.push(`  [${i}] ts=${ts}  ${ft(ts)}  →  ${members}`);
-  });
-  if(memKeys.length>10) lines.push(`  … and ${memKeys.length-10} more`);
-  const zeroRewards=inPeriod.filter(k=>Number(overrides[k]?.reward||0)===0);
-  if(zeroRewards.length) lines.push(`\n⚠ ${zeroRewards.length} in-period keys have reward=0`);
-  const outsidePeriod=rewardKeys.filter(k=>parseInt(k.slice(3))<=ocFrom);
-  if(outsidePeriod.length&&ocPeriod!=='all') lines.push(`ℹ ${outsidePeriod.length} override keys outside period — switch to ALL to see them`);
-  const ocFromMs=ocFrom*1000;
-  const warInc=(S.wars||[]).filter(w=>{const d=w.date?new Date(w.date).getTime():0;return d>=ocFromMs;}).reduce((s,w)=>s+warFactionCut(w),0);
-  lines.push('');
-  lines.push(`War income   : ${fmt$(warInc)} (${(S.wars||[]).length} wars total)`);
-  lines.push(`Banner total : OC ${fmt$(total)} + WAR ${fmt$(warInc)} = ${fmt$(total+warInc)}`);
-  out.textContent=lines.join('\n');
-}
+  // ── HEADER
+  L('════════════════════════════════════════════════════════════');
+  L('  OC DIAGNOSTIC LOG  —  ' + new Date().toISOString());
+  L('  APP_VERSION: ' + (typeof APP_VERSION!=='undefined'?APP_VERSION:'?'));
+  L('════════════════════════════════════════════════════════════');
+  L();
 
-// ── RAW DATA TAB
-function ocDbgRenderRaw(){
-  const out=document.getElementById('ocDbgRawOut');
-  const countEl=document.getElementById('ocDbgRawCount');
-  if(!out) return;
-  const filter=document.getElementById('ocDbgRawFilter')?.value||'all';
-  const all=(S._crimeLog||[]);
-  let entries=all;
-  if(filter==='selection') entries=all.filter(e=>/have been selected/i.test(e.news||''));
-  else if(filter==='result') entries=all.filter(e=>/successfully|tried to|but failed/i.test(e.news||''));
-  else if(filter==='other') entries=all.filter(e=>!/have been selected|successfully|tried to|but failed/i.test(e.news||''));
-  if(countEl) countEl.textContent=`${entries.length} of ${all.length} entries`;
-  if(!entries.length){ out.innerHTML='<div style="color:var(--muted);padding:8px;font-size:9px;">No entries match filter.</div>'; return; }
+  // ── SECTION 1: STATE SUMMARY
+  L('── 1. STATE SUMMARY ──────────────────────────────────────');
+  try {
+    const ocPeriod = (S.cardPeriods&&S.cardPeriods.oc)||'30d';
+    const ocFrom = (typeof periodToSeconds==='function') ? periodToSeconds(ocPeriod) : 0;
+    L('  S exists              : ' + (typeof S!=='undefined'));
+    L('  cardPeriods.oc        : ' + ocPeriod);
+    L('  periodToSeconds()     : ' + ocFrom + '  (unix cutoff)');
+    L('  now (unix)            : ' + now);
+    L('  S._crimeLog length    : ' + ((S._crimeLog||[]).length));
+    L('  S._ocCrimes length    : ' + ((S._ocCrimes||[]).length));
+    L('  S.ocOverrides keys    : ' + Object.keys(S.ocOverrides||{}).length);
+    L('  S.wars length         : ' + ((S.wars||[]).length));
+    L('  S._ocPage             : ' + (S._ocPage||0));
+    L('  S._ocMode             : ' + (S._ocMode||'(unset)'));
+    const rewardKeys = Object.keys(S.ocOverrides||{}).filter(k=>/^oc_\d+$/.test(k));
+    const memKeys    = Object.keys(S.ocOverrides||{}).filter(k=>/^cn_members_/.test(k));
+    L('  oc_<ts> reward keys   : ' + rewardKeys.length);
+    L('  cn_members_<ts> keys  : ' + memKeys.length);
+    const inPeriod = rewardKeys.filter(k=>parseInt(k.slice(3))>ocFrom);
+    const total    = inPeriod.reduce((s,k)=>s+Number((S.ocOverrides||{})[k]?.reward||0),0);
+    L('  in-period reward keys : ' + inPeriod.length);
+    L('  in-period reward total: ' + (typeof fmt$==='function'?fmt$(total):total));
+  } catch(e){ L('  ERROR in state summary: ' + e.message); }
+  L();
 
-  // Render as a structured table
-  let h='<table style="width:100%;border-collapse:collapse;font-size:9px;">';
-  h+='<thead><tr style="background:var(--bg);">'
-    +'<th style="padding:3px 6px;text-align:left;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--border);">UNIX TS</th>'
-    +'<th style="padding:3px 6px;text-align:left;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--border);">DATE/TIME</th>'
-    +'<th style="padding:3px 6px;text-align:left;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--border);">TYPE</th>'
-    +'<th style="padding:3px 6px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">PARSED CLEAN TEXT</th>'
-    +'<th style="padding:3px 6px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">RAW HTML (news field)</th>'
-    +'</tr></thead><tbody>';
-
-  entries.slice(0,200).forEach((e,i)=>{
-    const isSelection=/have been selected/i.test(e.news||'');
-    const isSuccess=/successfully/i.test(e.news||'');
-    const isFail=/tried to|but failed/i.test(e.news||'');
-    const typeLabel=isSelection?'<span style="color:var(--accent5);">SELECTION</span>'
-      :isSuccess?'<span style="color:var(--accent2);">RESULT ✓</span>'
-      :isFail?'<span style="color:var(--accent4);">RESULT ✗</span>'
-      :'<span style="color:var(--muted2);">other</span>';
-    const clean=stripHtml(e.news||'');
-    const rowBg=i%2===0?'background:rgba(255,255,255,0.01)':'';
-    h+=`<tr style="${rowBg}">`;
-    h+=`<td style="padding:3px 6px;color:var(--muted2);white-space:nowrap;vertical-align:top;">${e.timestamp}</td>`;
-    h+=`<td style="padding:3px 6px;color:var(--muted);white-space:nowrap;vertical-align:top;">${ft(e.timestamp)}</td>`;
-    h+=`<td style="padding:3px 6px;white-space:nowrap;vertical-align:top;">${typeLabel}</td>`;
-    h+=`<td style="padding:3px 6px;color:var(--text);vertical-align:top;word-break:break-word;max-width:220px;">${clean.slice(0,180)}</td>`;
-    h+=`<td style="padding:3px 6px;color:var(--muted2);vertical-align:top;word-break:break-all;max-width:280px;font-size:8px;">${(e.news||'').slice(0,300)}</td>`;
-    h+='</tr>';
-  });
-  if(entries.length>200) h+=`<tr><td colspan="5" style="padding:6px;color:var(--muted2);font-size:8px;">… ${entries.length-200} more entries not shown</td></tr>`;
-  h+='</tbody></table>';
-  out.innerHTML=h;
-}
-
-// ── MEMBER MATCHING TAB
-function ocDbgRenderMatch(){
-  const out=document.getElementById('ocDbgMatchOut');
-  if(!out) return;
-  const filterMode=document.getElementById('ocDbgMatchFilter')?.value||'all';
-  const all=(S._crimeLog||[]);
-  if(!all.length){ out.innerHTML='<div style="color:var(--muted);padding:8px;font-size:9px;">No S._crimeLog data. Run Initialize or Sync first.</div>'; return; }
-
-  // Reproduce the full matching logic from renderOC so we can trace every decision
-  const selectionEntries=all.filter(e=>/have been selected/i.test(e.news||'')).slice().sort((a,b)=>a.timestamp-b.timestamp);
-  const resultEntries=all.filter(e=>/successfully|tried to|but failed/i.test(e.news||'')).slice().sort((a,b)=>b.timestamp-a.timestamp);
-
-  // Parse each selection entry once
-  const parsedSelections=selectionEntries.map(e=>{
-    const clean=stripHtml(e.news||'');
-    const m=clean.match(/^(.+?)\s+and\s+(.+?)\s+have been selected by\s+(.+?)\s+to\s+(.+?)\s+in\s+(.+?)$/i);
-    return {
-      ts: e.ts||e.timestamp,
-      raw: e.news||'',
-      clean,
-      p1: m?m[1].trim():'?',
-      p2: m?m[2].trim():'?',
-      crimeType: m?parseCrimeType(m[4]):parseCrimeType(clean),
-      window: m?m[5]:'?',
-      claimed: false,
-    };
-  });
-
-  // Run matching — same greedy algorithm as renderOC
-  const claimedTs=new Set();
-  const matchResults=resultEntries.map(e=>{
-    const compTs=e.ts||e.timestamp;
-    const type=parseCrimeType(e.news||'');
-    const isSuccess=/successfully/i.test(e.news||'');
-    const storedKey=`cn_members_${compTs}`;
-    const storedMembers=(S.ocOverrides?.[storedKey]?.members)||null;
-
-    // Find all candidates (before filtering)
-    const candidates=parsedSelections.filter(sel=>{
-      const selTs=sel.ts;
-      if(selTs>=compTs) return false;
-      if(compTs-selTs>7*86400) return false;
-      return sel.crimeType===type;
-    });
-    // Find first unclaimed (greedy match, same as renderOC)
-    const matchedSel=candidates.find(sel=>!claimedTs.has(sel.ts));
-    let matchStatus, matchedMembers, warning='';
-
-    if(storedMembers){
-      matchStatus='override';
-      matchedMembers=storedMembers;
-    } else if(matchedSel){
-      claimedTs.add(matchedSel.ts);
-      matchStatus='auto';
-      matchedMembers=[matchedSel.p1, matchedSel.p2];
-    } else if(candidates.length>0){
-      // Candidates exist but all claimed — likely conflict
-      matchStatus='conflict';
-      matchedMembers=[];
-      warning=`${candidates.length} candidate(s) found but all already claimed by earlier results`;
-    } else {
-      matchStatus='unmatched';
-      matchedMembers=[];
-      warning='No selection entry found within 7 days before this result';
-    }
-
-    const ambiguous=candidates.filter(c=>!claimedTs.has(c.ts)||c===matchedSel).length>1;
-    if(ambiguous&&matchStatus==='auto') warning=`⚠ ${candidates.length} candidates of same type — greedy took earliest unclaimed`;
-
-    return {compTs, type, isSuccess, matchStatus, matchedMembers, warning, candidates, matchedSel, storedMembers};
-  });
-
-  // Apply filter
-  let display=matchResults;
-  if(filterMode==='conflict') display=matchResults.filter(r=>r.matchStatus==='conflict'||r.warning.startsWith('⚠'));
-  if(filterMode==='unmatched') display=matchResults.filter(r=>r.matchStatus==='unmatched'||r.matchStatus==='conflict');
-
-  if(!display.length){ out.innerHTML=`<div style="color:var(--muted2);padding:8px;font-size:9px;">No entries match filter "${filterMode}".</div>`; return; }
-
-  let h='';
-  // Summary counts
-  const counts={override:0,auto:0,conflict:0,unmatched:0};
-  matchResults.forEach(r=>counts[r.matchStatus]=(counts[r.matchStatus]||0)+1);
-  h+=`<div style="display:flex;gap:12px;margin-bottom:10px;font-size:9px;flex-wrap:wrap;">`;
-  h+=`<span style="color:var(--accent5);">▣ ${counts.override||0} manual override</span>`;
-  h+=`<span style="color:var(--accent2);">✓ ${counts.auto||0} auto-matched</span>`;
-  h+=`<span style="color:var(--accent3);">⚠ ${counts.conflict||0} conflict</span>`;
-  h+=`<span style="color:var(--accent4);">✗ ${counts.unmatched||0} unmatched</span>`;
-  h+=`<span style="color:var(--muted);">${matchResults.length} total results</span>`;
-  h+=`</div>`;
-
-  display.forEach(r=>{
-    const statusColor=r.matchStatus==='override'?'var(--accent5)':r.matchStatus==='auto'?'var(--accent2)':r.matchStatus==='conflict'?'var(--accent3)':'var(--accent4)';
-    const statusIcon=r.matchStatus==='override'?'▣':r.matchStatus==='auto'?'✓':r.matchStatus==='conflict'?'⚠':'✗';
-    h+=`<div style="border:1px solid var(--border);margin-bottom:8px;background:var(--bg);">`;
-    // Result row header
-    h+=`<div style="background:var(--surface2);padding:5px 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">`;
-    h+=`<span style="color:${statusColor};font-size:10px;">${statusIcon}</span>`;
-    h+=`<span style="color:var(--muted);white-space:nowrap;">${ft(r.compTs)}</span>`;
-    h+=`<span style="color:var(--accent3);">${r.type}</span>`;
-    h+=`<span style="${r.isSuccess?'color:var(--accent2)':'color:var(--accent4)'};">${r.isSuccess?'SUCCESS':'FAIL'}</span>`;
-    h+=`<span style="color:var(--muted2);font-size:8px;">ts=${r.compTs}</span>`;
-    h+=`</div>`;
-    // Match result
-    h+=`<div style="padding:5px 8px;font-size:9px;">`;
-    h+=`<div style="color:var(--muted2);margin-bottom:2px;">MATCH STATUS: <span style="color:${statusColor};">${r.matchStatus.toUpperCase()}</span></div>`;
-    if(r.matchedMembers.length){
-      h+=`<div style="color:var(--text);">MEMBERS: <span style="color:var(--accent5);">${r.matchedMembers.join(' &amp; ')}</span>${r.matchStatus==='override'?' <span style="color:var(--accent5);font-size:8px;">(manually set)</span>':''}</div>`;
-    } else {
-      h+=`<div style="color:var(--muted2);">MEMBERS: (none resolved)</div>`;
-    }
-    if(r.warning){
-      h+=`<div style="color:var(--accent3);margin-top:2px;">${r.warning}</div>`;
-    }
-    // Candidates section
-    if(r.candidates.length){
-      h+=`<div style="margin-top:5px;border-top:1px solid var(--border);padding-top:4px;">`;
-      h+=`<div style="color:var(--muted2);font-size:8px;margin-bottom:3px;">ALL CANDIDATES (${r.candidates.length}) — same type, within 7d before this result:</div>`;
-      r.candidates.forEach((c,ci)=>{
-        const isTaken=claimedTs.has(c.ts)&&c!==r.matchedSel;
-        const isChosen=c===r.matchedSel;
-        const cColor=isChosen?'var(--accent2)':isTaken?'var(--accent4)':'var(--muted)';
-        const cLabel=isChosen?'→ CHOSEN':'  (claimed by other)';
-        h+=`<div style="color:${cColor};font-size:8px;padding:1px 0;">${cLabel}  ts=${c.ts}  ${ft(c.ts)}  ${c.p1} &amp; ${c.p2}  (${Math.round((r.compTs-c.ts)/3600)}h before result)</div>`;
+  // ── SECTION 2: OC OVERRIDES DUMP
+  L('── 2. OC OVERRIDES (all keys) ────────────────────────────');
+  try {
+    const ov = S.ocOverrides||{};
+    const allKeys = Object.keys(ov).sort();
+    if(!allKeys.length){ L('  (none)'); }
+    else {
+      allKeys.slice(0,60).forEach(k=>{
+        const v = ov[k];
+        if(/^oc_\d+$/.test(k)){
+          const ts=parseInt(k.slice(3));
+          L('  '+k+'  ts='+ts+'  date='+(typeof ft==='function'?ft(ts):'?')+'  reward='+(v?.reward||0));
+        } else if(/^cn_members_/.test(k)){
+          const ts=parseInt(k.replace('cn_members_',''));
+          L('  '+k+'  date='+(typeof ft==='function'?ft(ts):'?')+'  members='+(v?.members||[]).join(', '));
+        } else {
+          L('  '+k+'  =  '+JSON.stringify(v).slice(0,80));
+        }
       });
-      h+=`</div>`;
-    } else if(r.matchStatus!=='override'){
-      h+=`<div style="color:var(--muted2);font-size:8px;margin-top:3px;">NO candidates — no selection entry of type "${r.type}" found within 7d before ts=${r.compTs}</div>`;
+      if(allKeys.length>60) L('  … '+( allKeys.length-60)+' more keys not shown');
     }
-    // Result raw news
-    const resultEntry=resultEntries.find(e=>(e.ts||e.timestamp)===r.compTs);
-    if(resultEntry){
-      h+=`<div style="margin-top:5px;border-top:1px solid var(--border);padding-top:4px;">`;
-      h+=`<div style="color:var(--muted2);font-size:8px;">RESULT RAW NEWS:</div>`;
-      h+=`<div style="color:var(--muted);font-size:8px;word-break:break-all;margin-top:2px;">${(resultEntry.news||'').slice(0,400)}</div>`;
-      h+=`</div>`;
-    }
-    h+=`</div></div>`;
-  });
+  } catch(e){ L('  ERROR: '+e.message); }
+  L();
 
-  // Unmatched selections (selections with no corresponding result)
-  const unmatchedSelections=parsedSelections.filter(s=>!claimedTs.has(s.ts));
-  if(unmatchedSelections.length&&filterMode!=='conflict'){
-    h+=`<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:8px;">`;
-    h+=`<div style="color:var(--accent3);font-size:9px;margin-bottom:6px;">SELECTIONS WITH NO MATCHING RESULT (${unmatchedSelections.length}) — may be still active or result is missing from log:</div>`;
-    unmatchedSelections.slice(0,20).forEach(s=>{
-      h+=`<div style="font-size:9px;padding:3px 0;color:var(--muted);">ts=${s.ts}  ${ft(s.ts)}  <span style="color:var(--accent3);">${s.crimeType}</span>  <span style="color:var(--accent5);">${s.p1} &amp; ${s.p2}</span>  window=${s.window}</div>`;
-    });
-    if(unmatchedSelections.length>20) h+=`<div style="color:var(--muted2);font-size:8px;">… ${unmatchedSelections.length-20} more</div>`;
-    h+=`</div>`;
-  }
-  out.innerHTML=h;
+  // ── SECTION 3: S._crimeLog RAW DUMP (most recent 50)
+  L('── 3. S._crimeLog — RAW ENTRIES (most recent 50) ────────');
+  try {
+    const log=(S._crimeLog||[]).slice().sort((a,b)=>b.timestamp-a.timestamp);
+    if(!log.length){ L('  (empty — no crime log data)'); }
+    else {
+      L('  Total entries: '+log.length);
+      L();
+      log.slice(0,50).forEach((e,i)=>{
+        const ts=e.timestamp||e.ts||0;
+        const clean=(typeof stripHtml==='function')?stripHtml(e.news||''):(e.news||'').replace(/<[^>]+>/g,'');
+        const crimeType=(typeof parseCrimeType==='function')?parseCrimeType(e.news||''):'?';
+        const isSel=/have been selected/i.test(e.news||'');
+        const isSucc=/successfully/i.test(e.news||'');
+        const isFail=/tried to|but failed/i.test(e.news||'');
+        const tag=isSel?'[SEL]':isSucc?'[RES✓]':isFail?'[RES✗]':'[----]';
+        L('  ['+String(i).padStart(2,'0')+'] '+tag+' ts='+ts+'  parsedType='+crimeType);
+        L('       date : '+(typeof ft==='function'?ft(ts):new Date(ts*1000).toISOString()));
+        L('       clean: '+clean.slice(0,160));
+        L('       raw  : '+(e.news||'').slice(0,160));
+        L();
+      });
+      if(log.length>50) L('  … '+(log.length-50)+' older entries not shown');
+    }
+  } catch(e){ L('  ERROR: '+e.message+'\n  '+e.stack); }
+  L();
+
+  // ── SECTION 4: MATCH TRACE
+  L('── 4. MATCH TRACE (greedy algorithm replay) ──────────────');
+  try {
+    const all=(S._crimeLog||[]);
+    const selEntries=all.filter(e=>/have been selected/i.test(e.news||'')).slice().sort((a,b)=>a.timestamp-b.timestamp);
+    const resEntries=all.filter(e=>/successfully|tried to|but failed/i.test(e.news||'')).slice().sort((a,b)=>b.timestamp-a.timestamp);
+    L('  Selection entries : '+selEntries.length);
+    L('  Result entries    : '+resEntries.length);
+    L();
+    if(!all.length){ L('  (no data)'); }
+    else {
+      const claimed=new Set();
+      resEntries.slice(0,40).forEach((e,i)=>{
+        const compTs=e.timestamp||e.ts;
+        const type=(typeof parseCrimeType==='function')?parseCrimeType(e.news||''):'?';
+        const isSucc=/successfully/i.test(e.news||'');
+        const storedKey='cn_members_'+compTs;
+        const storedMem=(S.ocOverrides?.[storedKey]?.members)||null;
+        const candidates=selEntries.filter(s=>{
+          const sTs=s.timestamp||s.ts;
+          return sTs<compTs && compTs-sTs<=7*86400 && (typeof parseCrimeType==='function'?parseCrimeType(s.news||''):'')=== type;
+        });
+        const matchSel=candidates.find(s=>!claimed.has(s.timestamp||s.ts));
+        let status, members, warn='';
+        if(storedMem){ status='OVERRIDE'; members=storedMem.join(', '); }
+        else if(matchSel){
+          claimed.add(matchSel.timestamp||matchSel.ts);
+          status='AUTO   ';
+          const clean=(typeof stripHtml==='function')?stripHtml(matchSel.news||''):matchSel.news||'';
+          const m=clean.match(/^(.+?)\s+and\s+(.+?)\s+have been selected/i);
+          members=m?(m[1].trim()+' & '+m[2].trim()):'(parse failed)';
+        } else if(candidates.length){
+          status='CONFLICT';
+          members='(all '+candidates.length+' candidates already claimed)';
+          warn='⚠ same-type OC overlap';
+        } else {
+          status='UNMATCHED';
+          members='(no selection found within 7d)';
+        }
+        if(candidates.length>1&&status==='AUTO   ') warn='⚠ '+candidates.length+' candidates — took earliest unclaimed';
+        L('  ['+String(i).padStart(2,'0')+'] '+(isSucc?'SUCCESS':'FAIL  ')+'  type='+type+'  ts='+compTs);
+        L('       date      : '+(typeof ft==='function'?ft(compTs):'?'));
+        L('       status    : '+status);
+        L('       members   : '+members);
+        L('       candidates: '+candidates.length+(warn?' — '+warn:''));
+        L();
+      });
+      if(resEntries.length>40) L('  … '+(resEntries.length-40)+' older results not shown');
+    }
+  } catch(e){ L('  ERROR: '+e.message+'\n  '+e.stack); }
+  L();
+
+  // ── SECTION 5: parseCrimeType SPOT CHECK
+  L('── 5. parseCrimeType() SPOT CHECK ────────────────────────');
+  try {
+    if(typeof parseCrimeType!=='function'){ L('  parseCrimeType is NOT defined'); }
+    else {
+      const cases=[
+        ['Kidnapping','members have been selected to kidnap'],
+        ['Bomb Threat','members have been selected to bomb'],
+        ['Blackmailing','members have been selected to blackmail'],
+        ['Murder','members have been selected to murder'],
+        ['Rob a Money Train','members have been selected to rob a money train'],
+        ['Take Over a Cruise Liner','members have been selected to take over a cruise liner'],
+        ['Hijack a Plane','members have been selected to hijack a plane'],
+        ['Political Assassination','members have been selected for a political assassination'],
+        ['Planned Robbery','members have been selected for a planned robbery'],
+        ['Robbery','members have been selected to rob'],
+        ['Fraud','members have been selected to commit fraud'],
+        ['Theft','members have been selected to steal'],
+        ['Arson','members have been selected to commit arson'],
+        ['Other','members have been selected to do something unknown'],
+      ];
+      cases.forEach(([expected,input])=>{
+        const got=parseCrimeType(input);
+        const ok=got===expected;
+        L('  '+(ok?'✓':'✗')+' expected='+expected.padEnd(26)+' got='+got+(ok?'':' ← MISMATCH'));
+      });
+    }
+  } catch(e){ L('  ERROR: '+e.message); }
+  L();
+
+  // ── FOOTER
+  L('════════════════════════════════════════════════════════════');
+  L('  END OF DIAGNOSTIC LOG');
+  L('════════════════════════════════════════════════════════════');
+
+  _ocDbgLogText = lines.join('\n');
+  el.textContent = _ocDbgLogText;
 }
 
-// ── COPY ALL — dumps everything to clipboard as plain text
-function ocDbgCopyAll(){
-  const all=(S._crimeLog||[]);
-  const overrides=S.ocOverrides||{};
-  let text=`=== OC DEBUG DUMP — ${new Date().toISOString()} ===\n`;
-  text+=`APP_VERSION: ${APP_VERSION}\n`;
-  text+=`S._crimeLog entries: ${all.length}\n\n`;
-
-  text+=`=== ALL CRIMENEWS ENTRIES ===\n`;
-  all.forEach((e,i)=>{
-    const clean=stripHtml(e.news||'');
-    text+=`[${i}] ts=${e.timestamp}  ${ft(e.timestamp)}\n`;
-    text+=`    CLEAN: ${clean}\n`;
-    text+=`    RAW:   ${(e.news||'').slice(0,300)}\n\n`;
-  });
-
-  text+=`\n=== cn_members OVERRIDES ===\n`;
-  Object.keys(overrides).filter(k=>/^cn_members_/.test(k)).forEach(k=>{
-    const ts=parseInt(k.replace('cn_members_',''));
-    text+=`${k}  (${ft(ts)})  →  ${(overrides[k]?.members||[]).join(', ')}\n`;
-  });
-
-  text+=`\n=== oc_<ts> REWARD OVERRIDES ===\n`;
-  Object.keys(overrides).filter(k=>/^oc_\d+$/.test(k)).forEach(k=>{
-    text+=`${k}  reward=${overrides[k]?.reward||0}\n`;
-  });
-
-  const btn=document.getElementById('ocDbgTab-copy');
-  const orig=btn?btn.textContent:'📋 COPY ALL';
-  _copyText(text,
-    ()=>{ if(btn){ btn.textContent='✓ COPIED'; setTimeout(()=>btn.textContent=orig,2000); } },
-    ()=>{
-      // Fallback — open in new window so user can Ctrl+A / Ctrl+C
-      const w=window.open('','_blank');
-      if(w){ w.document.write('<pre style="font-size:11px;line-height:1.6;">'+text.replace(/</g,'&lt;')+'</pre>'); w.document.close(); }
-      if(btn){ btn.textContent='↗ OPENED'; setTimeout(()=>btn.textContent=orig,3000); }
-    }
-  );
+function ocDbgCopy(){
+  const btn=document.getElementById('ocDbgCopyBtn');
+  const orig=btn?btn.textContent:'📋 COPY LOG';
+  const text=_ocDbgLogText||'(no log — click REFRESH first)';
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>{
+      if(btn){btn.textContent='✓ COPIED';setTimeout(()=>btn.textContent=orig,2000);}
+    }).catch(()=>ocDbgCopyFallback(text,btn,orig));
+  } else { ocDbgCopyFallback(text,btn,orig); }
 }
 
-function ocDebugClearOverrides(){
-  if(!confirm('Clear all oc_<ts> reward overrides? Member overrides (cn_members_*) will be preserved.')) return;
-  const overrides=S.ocOverrides||{};
-  Object.keys(overrides).filter(k=>/^oc_\d+$/.test(k)).forEach(k=>delete overrides[k]);
-  S.ocOverrides=overrides;
-  saveOcOverrides();
-  ocDebugRun();
-  renderOC(); renderCards();
-  clog('OC reward overrides cleared via debug panel','warn');
+function ocDbgCopyFallback(text,btn,orig){
+  const ta=document.createElement('textarea');
+  ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand('copy'); if(btn){btn.textContent='✓ COPIED';setTimeout(()=>btn.textContent=orig,2000);} }
+  catch(e){ if(btn){btn.textContent='✗ FAILED';setTimeout(()=>btn.textContent=orig,2000);} }
+  document.body.removeChild(ta);
 }
 
 // Save manually-set members for a crimenews completed OC entry (stored in ocOverrides)
