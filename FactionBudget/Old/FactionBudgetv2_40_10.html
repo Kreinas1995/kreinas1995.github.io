@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.9</title>
+<title>Faction Budget v2.40.10</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1109,7 +1109,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.9';
+const APP_VERSION = '2.40.10';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1174,6 +1174,10 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.10', date:'2026-04-16', notes:[
+    '[*] BUG-TOOLTIP: Member tooltip (.mem-tip-box) now correctly receives tap/click events on mobile. Changed pointer-events from none to auto — with none, taps on the open tooltip box passed through to the parent .mem-tip element and immediately re-toggled the tooltip closed, making it appear to never open.',
+    '[*] BUG-TOOLTIP: Document click handler now calls stopPropagation() when a .mem-tip is tapped, preventing the event from bubbling to other handlers. Refactored to use classList.toggle() with a close-all-except pattern for cleaner open/close behavior.',
+  ]},
   { v:'2.40.9', date:'2026-04-15', notes:[
     '[*] BUG-TOOLTIP: Tooltips now dismiss correctly and no longer persist through tab changes. Root cause: <td class="mem-tip"> had an inline onclick="this.classList.toggle(\'tip-open\')" that double-fired with the document-level click handler — the inline toggle opened the tip, then the outer handler immediately closed it (or vice versa), making tips erratic and impossible to dismiss. Removed inline onclick; document click handler at bottom of file already manages all tooltip open/close/toggle logic correctly.',
     '[*] BUG-CACHE-LIMIT: Removed all .slice(0,2000) caps on eventLog and _crimeLog localStorage saves. Previously, deep-fetched older entries were being silently discarded — the sort puts oldest entries first after merge, and slice(0,2000) would cut them off. All five slice caps removed (runInitialize crime save, fetchAll event/crime deep-fetch sources, fetchAll merge save, mergeEventLog cap). Data is now stored without an entry limit.',
