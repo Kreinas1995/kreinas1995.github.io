@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.9</title>
+<title>Faction Budget v2.40.10</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -124,7 +124,7 @@
     display:none;position:absolute;z-index:999;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
     background:var(--surface2);border:1px solid var(--border);color:var(--text);
     font-family:'Space Mono',monospace;font-size:10px;padding:6px 10px;white-space:nowrap;
-    box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:none;line-height:1.7;
+    box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:auto;line-height:1.7;
   }
   .mem-tip .mem-tip-box::after{
     content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
@@ -1109,7 +1109,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.9';
+const APP_VERSION = '2.40.10';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1174,6 +1174,10 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.10', date:'2026-04-16', notes:[
+    '[*] BUG-TOOLTIP: Member tooltip (.mem-tip-box) now correctly receives tap/click events on mobile. Changed pointer-events from none to auto — with none, taps on the open tooltip box passed through to the parent .mem-tip element and immediately re-toggled the tooltip closed, making it appear to never open.',
+    '[*] BUG-TOOLTIP: Document click handler now calls stopPropagation() when a .mem-tip is tapped, preventing the event from bubbling to other handlers. Refactored to use classList.toggle() with a close-all-except pattern for cleaner open/close behavior.',
+  ]},
   { v:'2.40.9', date:'2026-04-15', notes:[
     '[*] BUG-TOOLTIP: Tooltips now dismiss correctly and no longer persist through tab changes. Root cause: <td class="mem-tip"> had an inline onclick="this.classList.toggle(\'tip-open\')" that double-fired with the document-level click handler — the inline toggle opened the tip, then the outer handler immediately closed it (or vice versa), making tips erratic and impossible to dismiss. Removed inline onclick; document click handler at bottom of file already manages all tooltip open/close/toggle logic correctly.',
     '[*] BUG-CACHE-LIMIT: Removed all .slice(0,2000) caps on eventLog and _crimeLog localStorage saves. Previously, deep-fetched older entries were being silently discarded — the sort puts oldest entries first after merge, and slice(0,2000) would cut them off. All five slice caps removed (runInitialize crime save, fetchAll event/crime deep-fetch sources, fetchAll merge save, mergeEventLog cap). Data is now stored without an entry limit.',
@@ -7887,12 +7891,15 @@ function _closeTipsExcept(tgt){
 }
 
 // Click: toggle tapped tip, close all others; close if clicking outside
-document.addEventListener('click',function(ev){
-  const tgt=ev.target.closest('.mem-tip');
-  if(!tgt){ _closeAllTips(); return; }
-  const isOpen=tgt.classList.contains('tip-open');
-  _closeAllTips();
-  if(!isOpen) tgt.classList.add('tip-open');
+document.addEventListener('click',function(e){
+  const tip=e.target.closest('.mem-tip');
+  document.querySelectorAll('.mem-tip.tip-open').forEach(el=>{
+    if(el!==tip) el.classList.remove('tip-open');
+  });
+  if(tip){
+    e.stopPropagation();
+    tip.classList.toggle('tip-open');
+  }
 });
 </script>
 
