@@ -683,12 +683,13 @@
     <div id="ocDebugPanel" style="display:none;background:var(--bg);border:1px solid var(--accent3);padding:10px 12px;margin-bottom:12px;font-family:'Space Mono',monospace;font-size:9px;line-height:1.8;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
         <span style="color:var(--accent3);font-size:8px;letter-spacing:2px;text-transform:uppercase;">🔬 OC DIAGNOSTIC LOG</span>
-        <button onclick="ocDbgRun()" style="background:var(--accent3);color:#000;border:none;padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">▶ REFRESH</button>
-        <button onclick="ocDbgCopy()" id="ocDbgCopyBtn" style="background:var(--surface2);border:1px solid var(--accent5);color:var(--accent5);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">📋 COPY LOG</button>
-        <button onclick="ocDebugClearOverrides()" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">✕ CLEAR OVERRIDES</button>
+        <button onclick="ocDbgRun()" style="background:var(--accent3);color:#000;border:none;padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">&#9658; REFRESH</button>
+        <button onclick="ocDbgCopy()" id="ocDbgCopyBtn" style="background:var(--surface2);border:1px solid var(--accent5);color:var(--accent5);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">&#128203; COPY LOG</button>
+        <button onclick="ocDebugClearOverrides()" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:3px 10px;font-family:'Space Mono',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;">&#10005; CLEAR OVERRIDES</button>
       </div>
-      <div id="ocDbgLog" style="white-space:pre-wrap;word-break:break-all;max-height:520px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);padding:8px;color:var(--text);font-size:9px;line-height:1.7;">Diagnostic not yet run.</div>
+      <div id="ocDbgLog" style="white-space:pre-wrap;word-break:break-all;max-height:520px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);padding:8px;color:var(--text);font-size:9px;line-height:1.7;">Diagnostic not yet run — tap REFRESH.</div>
     </div>
+    <div id="ocRawOut"
     <div id="ocRawOut" style="display:none;"></div>
     <div id="ocIncomeBanner" style="display:none;background:var(--surface2);border:1px solid var(--border);padding:10px 14px;margin-bottom:12px;gap:16px;flex-wrap:wrap;align-items:center;"></div>
     <div id="ocTbl"><div class="empty">No OC data yet.</div></div>
@@ -1060,7 +1061,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.12';
+const APP_VERSION = '2.40.13';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1125,8 +1126,8 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
-  { v:'2.40.12', date:'2026-04-15', notes:[
-    '[*] REFACTOR-OC-DEBUG: Replaced tabbed OC debug panel (Income / Raw Data / Member Matching tabs) with a single unified diagnostic log. No tab state to break — clicking the DEBUG button auto-runs and populates the full log. Log includes: state summary, all S.ocOverrides keys, most recent 50 S._crimeLog entries with parsed type + tag, full greedy match trace replay for most recent 40 results, and parseCrimeType() spot-check against all known crime types. COPY LOG button dumps entire log to clipboard.',
+  { v:'2.40.13', date:'2026-04-16', notes:[
+    '[*] REFACTOR-OC-DEBUG: Replaced tabbed OC debug panel (Income / Raw Data / Member Matching tabs) with a single unified diagnostic log. REFRESH auto-runs on panel open; no tab state to break. ocDbgRun() wrapped in outer try/catch so any error is shown in-log rather than silently swallowed. Sections: state summary, all ocOverrides keys, last 50 crimeLog entries tagged SEL/RES, greedy match trace for last 40 results, parseCrimeType() spot-check against all known crime types. COPY LOG copies full plain-text log to clipboard; falls back to new-window dump if clipboard API unavailable. Uses var declarations throughout to avoid TDZ errors in strict-mode environments.',
   ]},
   { v:'2.40.11', date:'2026-04-15', notes:[
     '[*] BUG-TOOLTIP-OVERFLOW: Removed .tw class from #ocTbl container div and added #ocTbl{overflow:visible} CSS rule. Browser overflow-x:auto on .tw was implicitly clipping .mem-tip-box (absolutely positioned tooltip) via overflow-y:hidden — tooltip now escapes container correctly on mobile. Table content still gets .tw wrapper injected by renderOC() at innerHTML assignment time.',
@@ -4962,217 +4963,213 @@ function parseOCId(news){
 }
 
 // ── OC DEBUGGER — tab state
-// ── OC DIAGNOSTIC LOG (single unified debug output) ───────────────────────
-let _ocDbgLogText = '';
+// ── OC DIAGNOSTIC LOG ──────────────────────────────────────────────────────
+var _ocDbgLogText = '';
 
 function ocDebugToggle(){
-  const p=document.getElementById('ocDebugPanel');
+  var p = document.getElementById('ocDebugPanel');
   if(!p) return;
-  const opening = p.style.display==='none';
+  var opening = p.style.display === 'none';
   p.style.display = opening ? 'block' : 'none';
   if(opening) ocDbgRun();
 }
 
 function ocDbgRun(){
-  const el=document.getElementById('ocDbgLog');
-  if(!el) return;
-  const lines=[];
-  const L=(s)=>lines.push(s===undefined?'':s);
-  const now=Math.floor(Date.now()/1000);
+  var el = document.getElementById('ocDbgLog');
+  if(!el){ alert('ocDbgLog element not found'); return; }
+  el.textContent = 'Running…';
+  var lines = [];
+  function L(s){ lines.push(s === undefined ? '' : String(s)); }
 
-  // ── HEADER
-  L('════════════════════════════════════════════════════════════');
-  L('  OC DIAGNOSTIC LOG  —  ' + new Date().toISOString());
-  L('  APP_VERSION: ' + (typeof APP_VERSION!=='undefined'?APP_VERSION:'?'));
-  L('════════════════════════════════════════════════════════════');
-  L();
-
-  // ── SECTION 1: STATE SUMMARY
-  L('── 1. STATE SUMMARY ──────────────────────────────────────');
   try {
-    const ocPeriod = (S.cardPeriods&&S.cardPeriods.oc)||'30d';
-    const ocFrom = (typeof periodToSeconds==='function') ? periodToSeconds(ocPeriod) : 0;
-    L('  S exists              : ' + (typeof S!=='undefined'));
-    L('  cardPeriods.oc        : ' + ocPeriod);
-    L('  periodToSeconds()     : ' + ocFrom + '  (unix cutoff)');
-    L('  now (unix)            : ' + now);
-    L('  S._crimeLog length    : ' + ((S._crimeLog||[]).length));
-    L('  S._ocCrimes length    : ' + ((S._ocCrimes||[]).length));
-    L('  S.ocOverrides keys    : ' + Object.keys(S.ocOverrides||{}).length);
-    L('  S.wars length         : ' + ((S.wars||[]).length));
-    L('  S._ocPage             : ' + (S._ocPage||0));
-    L('  S._ocMode             : ' + (S._ocMode||'(unset)'));
-    const rewardKeys = Object.keys(S.ocOverrides||{}).filter(k=>/^oc_\d+$/.test(k));
-    const memKeys    = Object.keys(S.ocOverrides||{}).filter(k=>/^cn_members_/.test(k));
-    L('  oc_<ts> reward keys   : ' + rewardKeys.length);
-    L('  cn_members_<ts> keys  : ' + memKeys.length);
-    const inPeriod = rewardKeys.filter(k=>parseInt(k.slice(3))>ocFrom);
-    const total    = inPeriod.reduce((s,k)=>s+Number((S.ocOverrides||{})[k]?.reward||0),0);
-    L('  in-period reward keys : ' + inPeriod.length);
-    L('  in-period reward total: ' + (typeof fmt$==='function'?fmt$(total):total));
-  } catch(e){ L('  ERROR in state summary: ' + e.message); }
-  L();
+    var now = Math.floor(Date.now()/1000);
 
-  // ── SECTION 2: OC OVERRIDES DUMP
-  L('── 2. OC OVERRIDES (all keys) ────────────────────────────');
-  try {
-    const ov = S.ocOverrides||{};
-    const allKeys = Object.keys(ov).sort();
-    if(!allKeys.length){ L('  (none)'); }
-    else {
-      allKeys.slice(0,60).forEach(k=>{
-        const v = ov[k];
-        if(/^oc_\d+$/.test(k)){
-          const ts=parseInt(k.slice(3));
-          L('  '+k+'  ts='+ts+'  date='+(typeof ft==='function'?ft(ts):'?')+'  reward='+(v?.reward||0));
-        } else if(/^cn_members_/.test(k)){
-          const ts=parseInt(k.replace('cn_members_',''));
-          L('  '+k+'  date='+(typeof ft==='function'?ft(ts):'?')+'  members='+(v?.members||[]).join(', '));
-        } else {
-          L('  '+k+'  =  '+JSON.stringify(v).slice(0,80));
-        }
-      });
-      if(allKeys.length>60) L('  … '+( allKeys.length-60)+' more keys not shown');
+    // ── 1. STATE SUMMARY
+    L('═══════════════════════════════════════════════════════════');
+    L('  OC DIAGNOSTIC LOG  —  ' + new Date().toISOString());
+    L('  APP_VERSION: ' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '(undefined)'));
+    L('═══════════════════════════════════════════════════════════');
+    L();
+    L('── 1. STATE SUMMARY ──────────────────────────────────────');
+    var sExists = typeof S !== 'undefined';
+    L('  S defined             : ' + sExists);
+    if(sExists){
+      var ocPeriod = (S.cardPeriods && S.cardPeriods.oc) ? S.cardPeriods.oc : '30d';
+      var ocFrom   = (typeof periodToSeconds === 'function') ? periodToSeconds(ocPeriod) : 0;
+      L('  cardPeriods.oc        : ' + ocPeriod);
+      L('  periodToSeconds()     : ' + ocFrom);
+      L('  now (unix)            : ' + now);
+      L('  S._crimeLog length    : ' + ((S._crimeLog||[]).length));
+      L('  S._ocCrimes length    : ' + ((S._ocCrimes||[]).length));
+      L('  S.ocOverrides keys    : ' + Object.keys(S.ocOverrides||{}).length);
+      L('  S.wars length         : ' + ((S.wars||[]).length));
+      L('  S._ocPage             : ' + (S._ocPage !== undefined ? S._ocPage : '(unset)'));
+      L('  S._ocMode             : ' + (S._ocMode  !== undefined ? S._ocMode  : '(unset)'));
+      var rewardKeys = Object.keys(S.ocOverrides||{}).filter(function(k){ return /^oc_\d+$/.test(k); });
+      var memKeys    = Object.keys(S.ocOverrides||{}).filter(function(k){ return /^cn_members_/.test(k); });
+      var inPeriod   = rewardKeys.filter(function(k){ return parseInt(k.slice(3)) > ocFrom; });
+      var total      = inPeriod.reduce(function(s,k){ return s + Number(((S.ocOverrides||{})[k]||{}).reward||0); }, 0);
+      L('  oc_<ts> reward keys   : ' + rewardKeys.length);
+      L('  cn_members_<ts> keys  : ' + memKeys.length);
+      L('  in-period reward keys : ' + inPeriod.length);
+      L('  in-period reward $    : ' + (typeof fmt$ === 'function' ? fmt$(total) : total));
     }
-  } catch(e){ L('  ERROR: '+e.message); }
-  L();
+    L();
 
-  // ── SECTION 3: S._crimeLog RAW DUMP (most recent 50)
-  L('── 3. S._crimeLog — RAW ENTRIES (most recent 50) ────────');
-  try {
-    const log=(S._crimeLog||[]).slice().sort((a,b)=>b.timestamp-a.timestamp);
-    if(!log.length){ L('  (empty — no crime log data)'); }
-    else {
-      L('  Total entries: '+log.length);
+    // ── 2. ALL OVERRIDE KEYS
+    L('── 2. S.ocOverrides (all keys) ───────────────────────────');
+    try {
+      var ov = (sExists ? S.ocOverrides : null) || {};
+      var allOvKeys = Object.keys(ov).sort();
+      if(!allOvKeys.length){ L('  (none)'); }
+      else {
+        allOvKeys.slice(0,80).forEach(function(k){
+          var v = ov[k];
+          if(/^oc_\d+$/.test(k)){
+            var ts = parseInt(k.slice(3));
+            L('  '+k+'  date='+(typeof ft==='function'?ft(ts):ts)+'  reward='+((v||{}).reward||0));
+          } else if(/^cn_members_/.test(k)){
+            var ts2 = parseInt(k.replace('cn_members_',''));
+            L('  '+k+'  date='+(typeof ft==='function'?ft(ts2):ts2)+'  members='+((v||{}).members||[]).join(', '));
+          } else {
+            L('  '+k+'  =  '+JSON.stringify(v).slice(0,80));
+          }
+        });
+        if(allOvKeys.length>80) L('  … '+(allOvKeys.length-80)+' more');
+      }
+    } catch(e2){ L('  ERROR: '+e2.message); }
+    L();
+
+    // ── 3. CRIME LOG RAW (most recent 50)
+    L('── 3. S._crimeLog — most recent 50 entries ──────────────');
+    try {
+      var clog2 = (sExists ? (S._crimeLog||[]) : []).slice().sort(function(a,b){ return b.timestamp-a.timestamp; });
+      L('  Total entries: '+clog2.length);
       L();
-      log.slice(0,50).forEach((e,i)=>{
-        const ts=e.timestamp||e.ts||0;
-        const clean=(typeof stripHtml==='function')?stripHtml(e.news||''):(e.news||'').replace(/<[^>]+>/g,'');
-        const crimeType=(typeof parseCrimeType==='function')?parseCrimeType(e.news||''):'?';
-        const isSel=/have been selected/i.test(e.news||'');
-        const isSucc=/successfully/i.test(e.news||'');
-        const isFail=/tried to|but failed/i.test(e.news||'');
-        const tag=isSel?'[SEL]':isSucc?'[RES✓]':isFail?'[RES✗]':'[----]';
-        L('  ['+String(i).padStart(2,'0')+'] '+tag+' ts='+ts+'  parsedType='+crimeType);
+      if(!clog2.length){ L('  (empty)'); }
+      clog2.slice(0,50).forEach(function(e,i){
+        var ts    = e.timestamp || e.ts || 0;
+        var news  = e.news || '';
+        var clean = (typeof stripHtml==='function') ? stripHtml(news) : news.replace(/<[^>]+>/g,'');
+        var type  = (typeof parseCrimeType==='function') ? parseCrimeType(news) : '?';
+        var isSel  = /have been selected/i.test(news);
+        var isSucc = /successfully/i.test(news);
+        var isFail = /tried to|but failed/i.test(news);
+        var tag    = isSel?'[SEL  ]':isSucc?'[RES✓]':isFail?'[RES✗]':'[-----]';
+        L('  ['+(''+i).padStart(2,'0')+'] '+tag+' ts='+ts+'  type='+type);
         L('       date : '+(typeof ft==='function'?ft(ts):new Date(ts*1000).toISOString()));
         L('       clean: '+clean.slice(0,160));
-        L('       raw  : '+(e.news||'').slice(0,160));
+        L('       raw  : '+news.slice(0,160));
         L();
       });
-      if(log.length>50) L('  … '+(log.length-50)+' older entries not shown');
-    }
-  } catch(e){ L('  ERROR: '+e.message+'\n  '+e.stack); }
-  L();
-
-  // ── SECTION 4: MATCH TRACE
-  L('── 4. MATCH TRACE (greedy algorithm replay) ──────────────');
-  try {
-    const all=(S._crimeLog||[]);
-    const selEntries=all.filter(e=>/have been selected/i.test(e.news||'')).slice().sort((a,b)=>a.timestamp-b.timestamp);
-    const resEntries=all.filter(e=>/successfully|tried to|but failed/i.test(e.news||'')).slice().sort((a,b)=>b.timestamp-a.timestamp);
-    L('  Selection entries : '+selEntries.length);
-    L('  Result entries    : '+resEntries.length);
+      if(clog2.length>50) L('  … '+(clog2.length-50)+' older entries not shown');
+    } catch(e3){ L('  ERROR: '+e3.message+'\n'+e3.stack); }
     L();
-    if(!all.length){ L('  (no data)'); }
-    else {
-      const claimed=new Set();
-      resEntries.slice(0,40).forEach((e,i)=>{
-        const compTs=e.timestamp||e.ts;
-        const type=(typeof parseCrimeType==='function')?parseCrimeType(e.news||''):'?';
-        const isSucc=/successfully/i.test(e.news||'');
-        const storedKey='cn_members_'+compTs;
-        const storedMem=(S.ocOverrides?.[storedKey]?.members)||null;
-        const candidates=selEntries.filter(s=>{
-          const sTs=s.timestamp||s.ts;
-          return sTs<compTs && compTs-sTs<=7*86400 && (typeof parseCrimeType==='function'?parseCrimeType(s.news||''):'')=== type;
+
+    // ── 4. MATCH TRACE
+    L('── 4. MATCH TRACE (greedy replay, most recent 40) ───────');
+    try {
+      var allE  = sExists ? (S._crimeLog||[]) : [];
+      var selE  = allE.filter(function(e){ return /have been selected/i.test(e.news||''); }).slice().sort(function(a,b){ return a.timestamp-b.timestamp; });
+      var resE  = allE.filter(function(e){ return /successfully|tried to|but failed/i.test(e.news||''); }).slice().sort(function(a,b){ return b.timestamp-a.timestamp; });
+      L('  Selections: '+selE.length+'   Results: '+resE.length);
+      L();
+      var claimed = {};
+      resE.slice(0,40).forEach(function(e,i){
+        var compTs  = e.timestamp||e.ts;
+        var type    = (typeof parseCrimeType==='function') ? parseCrimeType(e.news||'') : '?';
+        var isSucc  = /successfully/i.test(e.news||'');
+        var storedK = 'cn_members_'+compTs;
+        var storedM = (sExists && S.ocOverrides && S.ocOverrides[storedK]) ? S.ocOverrides[storedK].members : null;
+        var cands   = selE.filter(function(s){
+          var sTs = s.timestamp||s.ts;
+          return sTs < compTs && (compTs-sTs) <= 7*86400 && (typeof parseCrimeType==='function'?parseCrimeType(s.news||''):'')=== type;
         });
-        const matchSel=candidates.find(s=>!claimed.has(s.timestamp||s.ts));
-        let status, members, warn='';
-        if(storedMem){ status='OVERRIDE'; members=storedMem.join(', '); }
-        else if(matchSel){
-          claimed.add(matchSel.timestamp||matchSel.ts);
-          status='AUTO   ';
-          const clean=(typeof stripHtml==='function')?stripHtml(matchSel.news||''):matchSel.news||'';
-          const m=clean.match(/^(.+?)\s+and\s+(.+?)\s+have been selected/i);
-          members=m?(m[1].trim()+' & '+m[2].trim()):'(parse failed)';
-        } else if(candidates.length){
-          status='CONFLICT';
-          members='(all '+candidates.length+' candidates already claimed)';
-          warn='⚠ same-type OC overlap';
+        var matchS  = null;
+        for(var ci=0;ci<cands.length;ci++){ if(!claimed[cands[ci].timestamp||cands[ci].ts]){ matchS=cands[ci]; break; } }
+        var status, members, warn='';
+        if(storedM){ status='OVERRIDE'; members=storedM.join(', '); }
+        else if(matchS){
+          claimed[matchS.timestamp||matchS.ts]=1;
+          status='AUTO';
+          var cleanS=(typeof stripHtml==='function')?stripHtml(matchS.news||''):matchS.news||'';
+          var mS=cleanS.match(/^(.+?)\s+and\s+(.+?)\s+have been selected/i);
+          members=mS?(mS[1].trim()+' & '+mS[2].trim()):'(parse failed: '+cleanS.slice(0,60)+')';
+        } else if(cands.length){
+          status='CONFLICT'; members='('+cands.length+' cands, all claimed)'; warn='⚠ same-type overlap';
         } else {
-          status='UNMATCHED';
-          members='(no selection found within 7d)';
+          status='UNMATCHED'; members='(no selection in 7d)';
         }
-        if(candidates.length>1&&status==='AUTO   ') warn='⚠ '+candidates.length+' candidates — took earliest unclaimed';
-        L('  ['+String(i).padStart(2,'0')+'] '+(isSucc?'SUCCESS':'FAIL  ')+'  type='+type+'  ts='+compTs);
-        L('       date      : '+(typeof ft==='function'?ft(compTs):'?'));
-        L('       status    : '+status);
-        L('       members   : '+members);
-        L('       candidates: '+candidates.length+(warn?' — '+warn:''));
+        if(cands.length>1&&status==='AUTO') warn='⚠ '+cands.length+' cands — took earliest unclaimed';
+        L('  ['+(''+i).padStart(2,'0')+'] '+(isSucc?'SUCCESS':'FAIL   ')+'  type='+type+'  ts='+compTs);
+        L('       date     : '+(typeof ft==='function'?ft(compTs):'?'));
+        L('       status   : '+status);
+        L('       members  : '+members);
+        L('       cands    : '+cands.length+(warn?' — '+warn:''));
         L();
       });
-      if(resEntries.length>40) L('  … '+(resEntries.length-40)+' older results not shown');
-    }
-  } catch(e){ L('  ERROR: '+e.message+'\n  '+e.stack); }
-  L();
+      if(resE.length>40) L('  … '+(resE.length-40)+' older results not shown');
+    } catch(e4){ L('  ERROR: '+e4.message+'\n'+e4.stack); }
+    L();
 
-  // ── SECTION 5: parseCrimeType SPOT CHECK
-  L('── 5. parseCrimeType() SPOT CHECK ────────────────────────');
-  try {
-    if(typeof parseCrimeType!=='function'){ L('  parseCrimeType is NOT defined'); }
-    else {
-      const cases=[
-        ['Kidnapping','members have been selected to kidnap'],
-        ['Bomb Threat','members have been selected to bomb'],
-        ['Blackmailing','members have been selected to blackmail'],
-        ['Murder','members have been selected to murder'],
-        ['Rob a Money Train','members have been selected to rob a money train'],
-        ['Take Over a Cruise Liner','members have been selected to take over a cruise liner'],
-        ['Hijack a Plane','members have been selected to hijack a plane'],
-        ['Political Assassination','members have been selected for a political assassination'],
-        ['Planned Robbery','members have been selected for a planned robbery'],
-        ['Robbery','members have been selected to rob'],
-        ['Fraud','members have been selected to commit fraud'],
-        ['Theft','members have been selected to steal'],
-        ['Arson','members have been selected to commit arson'],
-        ['Other','members have been selected to do something unknown'],
-      ];
-      cases.forEach(([expected,input])=>{
-        const got=parseCrimeType(input);
-        const ok=got===expected;
-        L('  '+(ok?'✓':'✗')+' expected='+expected.padEnd(26)+' got='+got+(ok?'':' ← MISMATCH'));
-      });
-    }
-  } catch(e){ L('  ERROR: '+e.message); }
-  L();
+    // ── 5. parseCrimeType SPOT CHECK
+    L('── 5. parseCrimeType() SPOT CHECK ────────────────────────');
+    try {
+      if(typeof parseCrimeType!=='function'){ L('  parseCrimeType NOT DEFINED'); }
+      else {
+        var cases=[
+          ['Kidnapping','members have been selected to kidnap'],
+          ['Bomb Threat','members have been selected to bomb'],
+          ['Blackmailing','members have been selected to blackmail'],
+          ['Murder','members have been selected to murder'],
+          ['Rob a Money Train','members have been selected to rob a money train'],
+          ['Take Over a Cruise Liner','members have been selected to take over a cruise liner'],
+          ['Hijack a Plane','members have been selected to hijack a plane'],
+          ['Political Assassination','members have been selected for a political assassination'],
+          ['Planned Robbery','members have been selected for a planned robbery'],
+          ['Robbery','members have been selected to rob'],
+          ['Fraud','members have been selected to commit fraud'],
+          ['Theft','members have been selected to steal'],
+          ['Arson','members have been selected to commit arson'],
+          ['Other','members have been selected to do something unknown'],
+        ];
+        cases.forEach(function(c){
+          var got=parseCrimeType(c[1]);
+          var ok=got===c[0];
+          L('  '+(ok?'OK':'XX')+' expected='+c[0].padEnd(26)+' got='+got+(ok?'':' <-- MISMATCH'));
+        });
+      }
+    } catch(e5){ L('  ERROR: '+e5.message); }
+    L();
 
-  // ── FOOTER
-  L('════════════════════════════════════════════════════════════');
-  L('  END OF DIAGNOSTIC LOG');
-  L('════════════════════════════════════════════════════════════');
+    L('═══════════════════════════════════════════════════════════');
+    L('  END OF LOG');
+    L('═══════════════════════════════════════════════════════════');
+
+  } catch(outerErr){
+    L('FATAL ERROR IN ocDbgRun: '+outerErr.message);
+    L(outerErr.stack||'(no stack)');
+  }
 
   _ocDbgLogText = lines.join('\n');
   el.textContent = _ocDbgLogText;
 }
 
 function ocDbgCopy(){
-  const btn=document.getElementById('ocDbgCopyBtn');
-  const orig=btn?btn.textContent:'📋 COPY LOG';
-  const text=_ocDbgLogText||'(no log — click REFRESH first)';
-  if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(text).then(()=>{
-      if(btn){btn.textContent='✓ COPIED';setTimeout(()=>btn.textContent=orig,2000);}
-    }).catch(()=>ocDbgCopyFallback(text,btn,orig));
-  } else { ocDbgCopyFallback(text,btn,orig); }
-}
-
-function ocDbgCopyFallback(text,btn,orig){
-  const ta=document.createElement('textarea');
-  ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
-  document.body.appendChild(ta); ta.select();
-  try{ document.execCommand('copy'); if(btn){btn.textContent='✓ COPIED';setTimeout(()=>btn.textContent=orig,2000);} }
-  catch(e){ if(btn){btn.textContent='✗ FAILED';setTimeout(()=>btn.textContent=orig,2000);} }
-  document.body.removeChild(ta);
+  var btn  = document.getElementById('ocDbgCopyBtn');
+  var orig = btn ? btn.textContent : 'COPY LOG';
+  var text = _ocDbgLogText || '(no log — tap REFRESH first)';
+  function success(){ if(btn){ btn.textContent='COPIED!'; setTimeout(function(){ btn.textContent=orig; },2000); } }
+  function fail(){
+    var ta=document.createElement('textarea');
+    ta.value=text; ta.style.cssText='position:fixed;opacity:0;top:0;left:0;';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try{ document.execCommand('copy'); success(); } catch(e){ if(btn){ btn.textContent='OPEN WIN'; setTimeout(function(){ btn.textContent=orig; },3000); } var w=window.open('','_blank'); if(w){ w.document.write('<pre>'+text.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</pre>'); w.document.close(); } }
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(success,fail);
+  } else { fail(); }
 }
 
 // Save manually-set members for a crimenews completed OC entry (stored in ocOverrides)
