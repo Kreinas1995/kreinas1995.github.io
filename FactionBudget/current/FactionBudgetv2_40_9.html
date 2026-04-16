@@ -124,7 +124,7 @@
     display:none;position:absolute;z-index:999;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
     background:var(--surface2);border:1px solid var(--border);color:var(--text);
     font-family:'Space Mono',monospace;font-size:10px;padding:6px 10px;white-space:nowrap;
-    box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:none;line-height:1.7;
+    box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:auto;line-height:1.7;
   }
   .mem-tip .mem-tip-box::after{
     content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
@@ -7887,12 +7887,15 @@ function _closeTipsExcept(tgt){
 }
 
 // Click: toggle tapped tip, close all others; close if clicking outside
-document.addEventListener('click',function(ev){
-  const tgt=ev.target.closest('.mem-tip');
-  if(!tgt){ _closeAllTips(); return; }
-  const isOpen=tgt.classList.contains('tip-open');
-  _closeAllTips();
-  if(!isOpen) tgt.classList.add('tip-open');
+document.addEventListener('click',function(e){
+  const tip=e.target.closest('.mem-tip');
+  document.querySelectorAll('.mem-tip.tip-open').forEach(el=>{
+    if(el!==tip) el.classList.remove('tip-open');
+  });
+  if(tip){
+    e.stopPropagation();
+    tip.classList.toggle('tip-open');
+  }
 });
 </script>
 
