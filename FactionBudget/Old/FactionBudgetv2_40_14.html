@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.10</title>
+<title>Faction Budget v2.40.14</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1061,7 +1061,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.13';
+const APP_VERSION = '2.40.14';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1126,6 +1126,9 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.14', date:'2026-04-16', notes:[
+    '[*] BUG-INV-PURCHASE: fetchInvPurchases() now falls back to parsing the entry title/news text when structured data fields (data.item_name / data.name / data.item) are absent. The Torn v2 user/log API omits these fields for overseas, item market, and bazaar purchases — item name and quantity are only in the human-readable title string. Regexes now match "You bought 19x Chamois Plushie at $400 each..." and "You bought a Chamois Plushie for $400..." so personal purchases are correctly counted in the auto-adjustment delta.',
+  ]},
   { v:'2.40.13', date:'2026-04-16', notes:[
     '[*] REFACTOR-OC-DEBUG: Replaced tabbed OC debug panel (Income / Raw Data / Member Matching tabs) with a single unified diagnostic log. REFRESH auto-runs on panel open; no tab state to break. ocDbgRun() wrapped in outer try/catch so any error is shown in-log rather than silently swallowed. Sections: state summary, all ocOverrides keys, last 50 crimeLog entries tagged SEL/RES, greedy match trace for last 40 results, parseCrimeType() spot-check against all known crime types. COPY LOG copies full plain-text log to clipboard; falls back to new-window dump if clipboard API unavailable. Uses var declarations throughout to avoid TDZ errors in strict-mode environments.',
   ]},
@@ -4665,8 +4668,21 @@ async function fetchInvPurchases(){
 
         // Try to match item name from data fields
         const data = entry.data||{};
-        const itemName = data.item_name||data.name||data.item||'';
-        const qty = data.quantity||data.qty||data.amount||1;
+        let itemName = data.item_name||data.name||data.item||'';
+        let qty = parseInt(data.quantity||data.qty||data.amount)||0;
+
+        // ── FALLBACK: parse from title/news text if structured data fields are empty ──
+        // Handles overseas, item market, and bazaar purchases where data fields are absent.
+        // Matches: "You bought 19x Chamois Plushie at $400 each..."
+        //          "You bought a Chamois Plushie for $400..."
+        if(!itemName){
+          const text = entry.title||entry.log_message||entry.news||entry.description||'';
+          const mBulk   = text.match(/you bought\s+(\d+)x?\s+(.+?)\s+(?:at|for)\s+\$/i);
+          const mSingle = text.match(/you bought\s+an?\s+(.+?)\s+(?:at|for)\s+\$/i);
+          if(mBulk)  { qty=parseInt(mBulk[1])||1;  itemName=mBulk[2].trim(); }
+          else if(mSingle){ qty=1; itemName=mSingle[1].trim(); }
+        }
+        if(!qty) qty=1;
 
         // Match against museum set (exact or short name)
         let matched = '';
