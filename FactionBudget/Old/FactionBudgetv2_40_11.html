@@ -95,6 +95,7 @@
 
   /* TABLES — scroll within container, never overflow viewport */
   .tw{background:var(--surface);border:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;}
+  #ocTbl{overflow:visible;}
   table{width:100%;border-collapse:collapse;min-width:300px;}
   thead th{background:var(--surface2);font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding:9px 10px;text-align:left;font-family:'Space Mono',monospace;border-bottom:1px solid var(--border);white-space:nowrap;}
   tbody td{padding:9px 10px;font-size:11px;border-bottom:1px solid var(--border);font-family:'Space Mono',monospace;vertical-align:middle;}
@@ -739,8 +740,8 @@
       </div>
     </div>
     <div id="ocRawOut" style="display:none;"></div>
-    <div id="ocIncomeBanner" style="display:none;background:var(--surface2);border:1px solid var(--border);padding:10px 14px;margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;"></div>
-    <div class="tw" id="ocTbl"><div class="empty">No OC data yet.</div></div>
+    <div id="ocIncomeBanner" style="display:none;background:var(--surface2);border:1px solid var(--border);padding:10px 14px;margin-bottom:12px;gap:16px;flex-wrap:wrap;align-items:center;"></div>
+    <div id="ocTbl"><div class="empty">No OC data yet.</div></div>
   </div>
 
   <!-- ITEM RECEIPTS -->
@@ -1109,7 +1110,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.10';
+const APP_VERSION = '2.40.11';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1174,6 +1175,11 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.11', date:'2026-04-15', notes:[
+    '[*] BUG-TOOLTIP-OVERFLOW: Removed .tw class from #ocTbl container div and added #ocTbl{overflow:visible} CSS rule. Browser overflow-x:auto on .tw was implicitly clipping .mem-tip-box (absolutely positioned tooltip) via overflow-y:hidden — tooltip now escapes container correctly on mobile. Table content still gets .tw wrapper injected by renderOC() at innerHTML assignment time.',
+    '[*] BUG-CRIMETYPE: parseCrimeType() now correctly identifies "Hijack a Plane", "Take Over a Cruise Liner", "Political Assassination", and "Rob a Money Train". Specific patterns (money train, cruise liner, hijack/plane, assassination) now checked before generic /rob/ to prevent false Robbery matches. Return values match OC_CRIME_TYPES exactly.',
+    '[*] BUG-DBGTAB: Fixed ocIncomeBanner inline style having both display:none and display:flex — second value was winning, keeping banner always visible. Fixed to display:none only; JS sets flex when revealing. Added try/catch guard in ocDbgTab() around render calls so exceptions do not leave tabs half-switched.',
+  ]},
   { v:'2.40.10', date:'2026-04-16', notes:[
     '[*] BUG-TOOLTIP: Member tooltip (.mem-tip-box) now correctly receives tap/click events on mobile. Changed pointer-events from none to auto — with none, taps on the open tooltip box passed through to the parent .mem-tip element and immediately re-toggled the tooltip closed, making it appear to never open.',
     '[*] BUG-TOOLTIP: Document click handler now calls stopPropagation() when a .mem-tip is tapped, preventing the event from bubbling to other handlers. Refactored to use classList.toggle() with a close-all-except pattern for cleaner open/close behavior.',
@@ -4985,6 +4991,11 @@ function parseCrimeType(news){
   if(/bomb/i.test(n)) return 'Bomb Threat';
   if(/blackmail/i.test(n)) return 'Blackmailing';
   if(/murder/i.test(n)) return 'Murder';
+  if(/money train/i.test(n)) return 'Rob a Money Train';
+  if(/cruise liner/i.test(n)) return 'Take Over a Cruise Liner';
+  if(/hijack|plane/i.test(n)) return 'Hijack a Plane';
+  if(/assassination|political/i.test(n)) return 'Political Assassination';
+  if(/planned rob/i.test(n)) return 'Planned Robbery';
   if(/rob/i.test(n)) return 'Robbery';
   if(/fraud/i.test(n)) return 'Fraud';
   if(/theft|steal/i.test(n)) return 'Theft';
@@ -5021,9 +5032,11 @@ function ocDbgTab(tab){
       btn.style.border=t===tab?'none':'1px solid var(--border)';
     }
   });
-  if(tab==='income') ocDebugRun();
-  if(tab==='raw')    ocDbgRenderRaw();
-  if(tab==='match')  ocDbgRenderMatch(); // auto-runs match trace on tab click
+  try{
+    if(tab==='income') ocDebugRun();
+    if(tab==='raw')    ocDbgRenderRaw();
+    if(tab==='match')  ocDbgRenderMatch(); // auto-runs match trace on tab click
+  }catch(err){ clog('ocDbgTab render error: '+err.message,'err'); }
 }
 
 // ── INCOME TAB
@@ -5495,7 +5508,7 @@ function renderOC(){
       });
       h+='</tbody></table>';
     }
-    document.getElementById('ocTbl').innerHTML=h;
+    document.getElementById('ocTbl').innerHTML='<div class="tw">'+h+'</div>';
 
   } else {
     const allEntries=(S._crimeLog||[]);
@@ -5712,11 +5725,9 @@ function renderOC(){
       }
     }
 
-    document.getElementById('ocTbl').innerHTML=h;
+    document.getElementById('ocTbl').innerHTML='<div class="tw">'+h+'</div>';
   }
 }
-
-// ── RECEIPTS
 function renderReceipts(){ renderOwed(); renderRcptLog(); renderOutgoing(); updateBadge(); }
 
 function renderOutgoing(){
