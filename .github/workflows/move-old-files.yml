@@ -13,7 +13,7 @@ jobs:
     # Set the Actions variable WORKFLOW_ENABLED to 'true' to enable this job.
     # Set it to anything else (or leave it unset) to disable it.
     # Go to: Settings → Secrets and variables → Actions → Variables tab
-    if: vars.WORKFLOW_ENABLED == 'true'
+    if: vars.WORKFLOW_ENABLED == 'true' && github.actor != 'github-actions[bot]'
     # ──────────────────────────────────────────────────────────────────────────
     permissions:
       contents: write
@@ -73,18 +73,20 @@ jobs:
             echo "[$tool_root] Latest: $latest_name"
 
             # Move all versioned files from the tool root to Old/
-            while IFS= read -r f; do
+            mapfile -t root_files < <(find "$tool_root" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
+            for f in "${root_files[@]+"${root_files[@]}"}"; do
               fname=$(basename "$f")
               mv -- "$f" "$old_dir/$fname"
               echo "  Moved root/$fname -> Old/"
-            done < <(find "$tool_root" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
+            done
 
             # Move any versioned files from current/ to Old/
-            while IFS= read -r f; do
+            mapfile -t cur_files < <(find "$current_dir" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
+            for f in "${cur_files[@]+"${cur_files[@]}"}"; do
               fname=$(basename "$f")
               mv -- "$f" "$old_dir/$fname"
               echo "  Moved current/$fname -> Old/"
-            done < <(find "$current_dir" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
+            done
 
             # Verify the latest file ended up in Old/
             if [ ! -f "$old_dir/$latest_name" ]; then
