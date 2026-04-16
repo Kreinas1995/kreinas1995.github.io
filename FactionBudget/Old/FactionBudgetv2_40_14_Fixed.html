@@ -1127,7 +1127,9 @@ const XANAX_ITEM_ID = 206;
 
 const CHANGELOG = [
   { v:'2.40.14', date:'2026-04-16', notes:[
-    '[*] BUG-INV-PURCHASE: fetchInvPurchases() now falls back to parsing the entry title/news text when structured data fields (data.item_name / data.name / data.item) are absent. The Torn v2 user/log API omits these fields for overseas, item market, and bazaar purchases — item name and quantity are only in the human-readable title string. Regexes now match "You bought 19x Chamois Plushie at $400 each..." and "You bought a Chamois Plushie for $400..." so personal purchases are correctly counted in the auto-adjustment delta.',
+    '[*] BUG-INV-PURCHASE: fetchInvPurchases() now uses v1 API (/user/?selections=log) instead of broken v2 endpoint (/v2/user/log). Entry item names parsed from title text ("You bought 19x Chamois Plushie at $400 each...") as v1 structured data fields are not populated for overseas/market/bazaar purchases.',
+    '[*] BUG-INV-DELTA: manualCounts now stores per-item {qty, savedAt} timestamps instead of a single global invDeltaTs. Each item\'s delta is calculated only from events/purchases/sends since that item\'s own last manual save. Re-counting one item no longer resets the delta baseline for all other items, preventing double-counting.',
+    '[*] MIGRATION: Legacy flat manualCounts {itemName: number} auto-migrated to {itemName: {qty, savedAt}} on both localStorage load and next Save Counts. saveManualCounts() now only resets savedAt for items whose qty actually changed.',
   ]},
   { v:'2.40.13', date:'2026-04-16', notes:[
     '[*] REFACTOR-OC-DEBUG: Replaced tabbed OC debug panel (Income / Raw Data / Member Matching tabs) with a single unified diagnostic log. REFRESH auto-runs on panel open; no tab state to break. ocDbgRun() wrapped in outer try/catch so any error is shown in-log rather than silently swallowed. Sections: state summary, all ocOverrides keys, last 50 crimeLog entries tagged SEL/RES, greedy match trace for last 40 results, parseCrimeType() spot-check against all known crime types. COPY LOG copies full plain-text log to clipboard; falls back to new-window dump if clipboard API unavailable. Uses var declarations throughout to avoid TDZ errors in strict-mode environments.',
@@ -1933,9 +1935,9 @@ let S = {
   refundedPayments:new Set(), // payment event timestamps marked as refunded by Sypharius
   _ocCrimes:[], // v2 enriched crime objects with payout attribution
   inventory:[], // user's personal inventory items (deprecated API — use manualCounts instead)
-  manualCounts:{}, // {itemName: qty} — manually entered museum set counts
-  invDeltaTs:0,   // unix ts of last manual count save — delta calculated from here
-  invPurchases:[], // [{id,ts,item,qty,src}] — market/bazaar purchases of museum items
+  manualCounts:{}, // {itemName: {qty, savedAt}} — manually entered museum set counts with per-item timestamps
+  invDeltaTs:0,   // legacy global ts — kept for migration; per-item savedAt in manualCounts is authoritative
+  invPurchases:[], // [{id,ts,item,qty,src}] — market/bazaar/overseas purchases of museum items
   initLookback:2592000, // seconds to look back on init (default 30 days)
   exemptReceipts:new Set(), // receipt IDs exempt from payout
   pointPrice:0, // current points market price $/pt
@@ -2061,7 +2063,17 @@ async function rateSafeGet(section, sel, extra=''){
   try{ S.testers=JSON.parse(localStorage.getItem('hv_v1_testers')||'[]'); }catch(e){}
   try{ S.factionWhitelist=JSON.parse(localStorage.getItem('hv_v1_faction_whitelist')||'[]'); }catch(e){}
   try{ S.inventory=JSON.parse(localStorage.getItem('hv_v1_inventory')||'[]'); }catch(e){}
-  try{ S.manualCounts=JSON.parse(localStorage.getItem('hv_v1_manual_counts')||'{}'); }catch(e){}
+  try{
+    const _mc = JSON.parse(localStorage.getItem('hv_v1_manual_counts')||'{}');
+    const _globalTs = parseInt(localStorage.getItem('hv_v1_inv_delta_ts')||'0')||0;
+    // Migrate legacy flat {itemName: number} → {itemName: {qty, savedAt}}
+    const _migrated = {};
+    Object.entries(_mc).forEach(([k,v])=>{
+      if(typeof v === 'number') _migrated[k] = {qty:v, savedAt:_globalTs};
+      else _migrated[k] = v;
+    });
+    S.manualCounts = _migrated;
+  }catch(e){}
   try{ S.invDeltaTs=parseInt(localStorage.getItem('hv_v1_inv_delta_ts')||'0')||0; }catch(e){}
   try{ S.invPurchases=JSON.parse(localStorage.getItem('hv_v1_inv_purchases')||'[]'); }catch(e){}
   try{ S.eventLog=JSON.parse(localStorage.getItem('hv_v1_event_log')||'[]'); }catch(e){}
@@ -4354,7 +4366,8 @@ function renderInventory(){
   const delta = calcInvDelta();
   const inv = {};
   ALL_MUSEUM.forEach(name=>{
-    const base = S.manualCounts[name]||0;
+    const _mc = S.manualCounts[name];
+    const base = (typeof _mc==='object'&&_mc!==null ? _mc.qty : _mc)||0; // handles {qty,savedAt} and legacy number
     const d    = delta[name]||0;
     inv[name]  = Math.max(0, base + d);
   });
@@ -4505,6 +4518,8 @@ function showInvEntryForm(){
 
   const ALL_MUSEUM = [...PLUSHIE_SET, ...FLOWER_SET];
   const cur = S.manualCounts||{};
+  // Read qty from either new {qty,savedAt} format or legacy number
+  const readQty = v => (v && typeof v==='object') ? (v.qty||0) : (v||0);
 
   let h = `<div style="background:var(--surface);border:1px solid var(--border);padding:16px;margin-bottom:12px;">`;
   h += `<div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent3);margin-bottom:4px;">ENTER CURRENT COUNTS</div>`;
@@ -4518,7 +4533,7 @@ function showInvEntryForm(){
   h += `<div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--accent5);margin-bottom:8px;">PLUSHIES</div>`;
   PLUSHIE_SET.forEach(name=>{
     const short = name.replace(' Plushie','');
-    const val = cur[name]||0;
+    const val = readQty(cur[name]);
     h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;">`;
     h += `<label style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${short}</label>`;
     h += `<input type="number" id="inv_${name.replace(/\s+/g,'_')}" value="${val}" min="0" step="1"
@@ -4531,7 +4546,7 @@ function showInvEntryForm(){
   h += `<div>`;
   h += `<div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);margin-bottom:8px;">FLOWERS</div>`;
   FLOWER_SET.forEach(name=>{
-    const val = cur[name]||0;
+    const val = readQty(cur[name]);
     h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;">`;
     h += `<label style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</label>`;
     h += `<input type="number" id="inv_${name.replace(/\s+/g,'_')}" value="${val}" min="0" step="1"
@@ -4563,76 +4578,122 @@ function cancelInvEntry(){
 
 function saveManualCounts(){
   const ALL_MUSEUM = [...PLUSHIE_SET, ...FLOWER_SET];
-  const counts = {};
+  const now = Math.floor(Date.now()/1000);
+  // Migrate legacy flat format {itemName: qty} to {itemName: {qty, savedAt}}
+  const cur = S.manualCounts||{};
+  const migrated = {};
+  Object.entries(cur).forEach(([k,v])=>{
+    if(typeof v === 'number') migrated[k] = {qty:v, savedAt: S.invDeltaTs||now};
+    else migrated[k] = v;
+  });
+  // Update each item; only reset savedAt if qty actually changed
   ALL_MUSEUM.forEach(name=>{
     const el = document.getElementById('inv_'+name.replace(/\s+/g,'_'));
-    if(el) counts[name] = Math.max(0, parseInt(el.value)||0);
+    if(!el) return;
+    const newQty = Math.max(0, parseInt(el.value)||0);
+    const existing = migrated[name];
+    if(!existing || existing.qty !== newQty){
+      migrated[name] = {qty: newQty, savedAt: now};
+    }
+    // qty unchanged: keep existing savedAt so accumulated delta is not discarded
   });
-  S.manualCounts = counts;
-  S.invDeltaTs = Math.floor(Date.now()/1000);
-  try{ localStorage.setItem('hv_v1_manual_counts', JSON.stringify(counts)); }catch(e){}
-  try{ localStorage.setItem('hv_v1_inv_delta_ts', String(S.invDeltaTs)); }catch(e){}
+  S.manualCounts = migrated;
+  S.invDeltaTs = now;
+  try{ localStorage.setItem('hv_v1_manual_counts', JSON.stringify(migrated)); }catch(e){}
+  try{ localStorage.setItem('hv_v1_inv_delta_ts', String(now)); }catch(e){}
   const formEl = document.getElementById('invEntryForm');
   const colsEl = document.getElementById('invColumnsWrap');
   if(formEl) formEl.style.display='none';
   if(colsEl) colsEl.style.display='';
-  clog(`Manual inventory saved: ${Object.values(counts).reduce((a,b)=>a+b,0)} total items across ${Object.keys(counts).length} types`,'ok');
+  const total = Object.values(migrated).reduce((a,v)=>a+(typeof v==='object'?v.qty:v),0);
+  clog(`Manual inventory saved: ${total} total items, per-item timestamps updated`,'ok');
   renderInventory();
 }
 
 // ── INVENTORY DELTA CALCULATOR
-// Returns {itemName: deltaQty} for all museum items since S.invDeltaTs.
-// Sources: received via events (eventLog), sent out (outgoing), purchases from user/log (fetched separately).
+// Returns {itemName: deltaQty} for all museum items, using per-item savedAt timestamps.
+// Each item's delta is calculated only from events/purchases/sends that occurred AFTER
+// that item's own savedAt (the last time its count was manually set). This prevents
+// double-counting when individual items are re-counted at different times.
 function calcInvDelta(){
   const delta = {};
   const museumSet = new Set([...PLUSHIE_SET, ...FLOWER_SET]);
-  const since = S.invDeltaTs || 0;
+
+  // Build per-item "since" timestamps from manualCounts {itemName: {qty, savedAt}}
+  // Falls back to global invDeltaTs for legacy flat format {itemName: qty}
+  const globalSince = S.invDeltaTs || 0;
+  const itemSince = {}; // {itemName: unixTs}
+  const mc = S.manualCounts || {};
+  museumSet.forEach(name=>{
+    const entry = mc[name];
+    if(entry && typeof entry === 'object' && entry.savedAt){
+      itemSince[name] = entry.savedAt;
+    } else {
+      itemSince[name] = globalSince; // legacy fallback
+    }
+  });
 
   // +: items received (from eventLog — "You were sent X item from Y")
   const events = (S.eventLog&&S.eventLog.length) ? S.eventLog : (S.events||[]);
   events.forEach(ev=>{
-    if((ev.timestamp||0) <= since) return;
+    const ts = ev.timestamp||0;
     const raw = ev.event||ev.news||'';
     if(!raw) return;
     const news = stripHtml(raw);
-    // Match receive patterns
-    const pA = news.match(/^You were sent\s+(\d+)x?\s+(.+?)\s+from\s+/i);
-    const pA1 = news.match(/^You were sent\s+an?\s+(.+?)\s+from\s+/i);
+    const pA   = news.match(/^You were sent\s+(\d+)x?\s+(.+?)\s+from\s+/i);
+    const pA1  = news.match(/^You were sent\s+an?\s+(.+?)\s+from\s+/i);
     const pAlt = news.match(/^.+?\s+sent\s+(\d+)x?\s+(.+?)\s+to\s+you/i);
     let qty=0, item='';
     if(pA){ qty=parseInt(pA[1])||1; item=pA[2].trim(); }
     else if(pA1){ qty=1; item=pA1[1].trim(); }
     else if(pAlt){ qty=parseInt(pAlt[1])||1; item=pAlt[2].trim(); }
-    if(item && museumSet.has(item)){ delta[item]=(delta[item]||0)+qty; }
+    if(item && museumSet.has(item) && ts > (itemSince[item]||0)){
+      delta[item]=(delta[item]||0)+qty;
+    }
   });
 
   // -: items sent out (outgoing log — items you sent to members)
   (S.outgoing||[]).forEach(r=>{
-    if((r.ts||0) <= since) return;
-    if(museumSet.has(r.item)){ delta[r.item]=(delta[r.item]||0)-r.qty; }
+    if(museumSet.has(r.item) && (r.ts||0) > (itemSince[r.item]||0)){
+      delta[r.item]=(delta[r.item]||0)-r.qty;
+    }
   });
 
   // +: purchases fetched by fetchInvPurchases (stored in S.invPurchases)
   (S.invPurchases||[]).forEach(p=>{
-    if((p.ts||0) <= since) return;
-    if(museumSet.has(p.item)){ delta[p.item]=(delta[p.item]||0)+p.qty; }
+    if(museumSet.has(p.item) && (p.ts||0) > (itemSince[p.item]||0)){
+      delta[p.item]=(delta[p.item]||0)+p.qty;
+    }
   });
 
   return delta;
 }
 
 // ── FETCH INVENTORY PURCHASES
-// Fetches user/log since invDeltaTs, parses item market / bazaar / overseas purchases of museum items.
-// Stores results in S.invPurchases and re-renders.
+// Uses v1 API (/user/?selections=log) — same endpoint as fetchOutgoingLog.
+// Parses "You bought Nx Item at $X each..." title text to detect overseas / item market / bazaar purchases.
+// Only processes entries newer than the earliest per-item savedAt so re-counted items are not double-counted.
+// Deduplicates by log entry id stored in S.invPurchases.
 async function fetchInvPurchases(){
   if(!S.key){ clog('No key — cannot fetch purchase log','warn'); return; }
-  const since = S.invDeltaTs || 0;
+
+  // Use the earliest per-item savedAt as the from= parameter so we capture all
+  // purchases that might apply to any item. Per-item filtering happens in calcInvDelta.
+  const mc = S.manualCounts||{};
+  const museumItems = [...PLUSHIE_SET, ...FLOWER_SET];
+  let earliestSince = S.invDeltaTs||0;
+  museumItems.forEach(name=>{
+    const entry = mc[name];
+    if(entry && typeof entry==='object' && entry.savedAt){
+      if(earliestSince===0 || entry.savedAt < earliestSince) earliestSince = entry.savedAt;
+    }
+  });
+
   const statusEl = document.getElementById('invDeltaStatus');
   if(statusEl){ statusEl.textContent='↻ Fetching purchase log…'; statusEl.style.display='block'; }
 
-  const museumSet = new Set([...PLUSHIE_SET, ...FLOWER_SET]);
-  const museumNames = new Set([...PLUSHIE_SET, ...FLOWER_SET]);
-  // Also match short names (e.g. "Camel Plushie" -> "Camel")
+  // Short-name → full canonical name lookup
+  const museumNames = new Set(museumItems);
   const shortToFull = {};
   PLUSHIE_SET.forEach(n=>{ shortToFull[n.replace(' Plushie','').toLowerCase()]=n; });
   FLOWER_SET.forEach(n=>{ shortToFull[n.toLowerCase()]=n; });
@@ -4641,80 +4702,86 @@ async function fetchInvPurchases(){
   const existingIds = new Set(S.invPurchases.map(p=>p.id));
 
   let newCount = 0;
-  let offset = 0;
-  const limit = 100;
-  let done = false;
-
   try{
-    while(!done){
-      await rateSleep();
-      // user/log — fetch from invDeltaTs forward, all categories
-      const url = `https://api.torn.com/v2/user/log?limit=${limit}&offset=${offset}${since?`&from=${since}&`:'&'}sort=DESC&key=${S.key}`;
-      trackApiCall();
-      const r = await fetch(url); const d = await r.json();
-      if(d.error){ clog(`Purchase log [${d.error.code}]: ${d.error.error}`,'warn'); break; }
-
-      const entries = d.log||[];
-      if(!entries.length){ done=true; break; }
-
-      entries.forEach(entry=>{
-        if(existingIds.has(entry.id)) return;
-        const cat = (entry.category||entry.log_type||'').toLowerCase();
-        const title = (entry.title||'').toLowerCase();
-        // Categories that add items to your possession:
-        // item market purchase, bazaar purchase, overseas purchase, trade received
-        const isBuy = /item.*market|bazaar|abroad|overseas|trade.*receiv|auction/i.test(cat+' '+title);
-        if(!isBuy) return;
-
-        // Try to match item name from data fields
-        const data = entry.data||{};
-        let itemName = data.item_name||data.name||data.item||'';
-        let qty = parseInt(data.quantity||data.qty||data.amount)||0;
-
-        // ── FALLBACK: parse from title/news text if structured data fields are empty ──
-        // Handles overseas, item market, and bazaar purchases where data fields are absent.
-        // Matches: "You bought 19x Chamois Plushie at $400 each..."
-        //          "You bought a Chamois Plushie for $400..."
-        if(!itemName){
-          const text = entry.title||entry.log_message||entry.news||entry.description||'';
-          const mBulk   = text.match(/you bought\s+(\d+)x?\s+(.+?)\s+(?:at|for)\s+\$/i);
-          const mSingle = text.match(/you bought\s+an?\s+(.+?)\s+(?:at|for)\s+\$/i);
-          if(mBulk)  { qty=parseInt(mBulk[1])||1;  itemName=mBulk[2].trim(); }
-          else if(mSingle){ qty=1; itemName=mSingle[1].trim(); }
-        }
-        if(!qty) qty=1;
-
-        // Match against museum set (exact or short name)
-        let matched = '';
-        if(museumNames.has(itemName)){ matched=itemName; }
-        else{ matched=shortToFull[itemName.toLowerCase()]||''; }
-
-        if(matched){
-          S.invPurchases.push({id:entry.id, ts:entry.timestamp, item:matched, qty:parseInt(qty)||1, src:'log'});
-          existingIds.add(entry.id);
-          newCount++;
-        }
-      });
-
-      if(entries.length < limit){ done=true; }
-      else { offset+=limit; }
-      if(offset > 1000){ done=true; } // safety cap
+    // v1 API — same as fetchOutgoingLog; returns {log: {id: entry, ...}}
+    const fromParam = earliestSince>0 ? `&from=${earliestSince}` : '';
+    const url = `https://api.torn.com/user/?selections=log${fromParam}&key=${S.key}`;
+    trackApiCall();
+    const r = await fetch(url); const d = await r.json();
+    if(d.error){
+      clog(`Purchase log [${d.error.code}]: ${d.error.error}`, 'warn');
+      if(statusEl) statusEl.textContent = `Purchase log error [${d.error.code}]: ${d.error.error}`;
+      return;
     }
 
-    clog(`Purchase log: checked entries since ${since?new Date(since*1000).toLocaleDateString():'start'}, ${newCount} museum item purchase(s) found`,'ok');
+    const log = d.log||{};
+    const entries = Object.entries(log).map(([id,e])=>({...e, _id:id}));
+    if(!entries.length){
+      clog('Purchase log: no log entries returned','info');
+    }
+
+    // On first fetch, dump unique titles to console for diagnostics
+    if(!S._invLogTitlesSeen){
+      S._invLogTitlesSeen = true;
+      const titles = [...new Set(entries.map(e=>e.title||'(no title)'))].slice(0,30);
+      clog(`inv purchase log titles: ${titles.join(' | ')}`, 'info');
+    }
+
+    entries.forEach(entry=>{
+      const id = String(entry._id||entry.id||'');
+      if(!id || existingIds.has(id)) return;
+
+      const ts = entry.timestamp||0;
+      const title = entry.title||'';
+
+      // Detect purchase entries by title keyword
+      // Known Torn v1 log titles: "Item market purchase", "Abroad purchase", "Bazaar purchase", "Auction won"
+      const isBuy = /item.{0,15}market|abroad|overseas|bazaar|auction/i.test(title);
+      if(!isBuy) return;
+
+      // Primary: parse structured data fields
+      const data = entry.data||entry.params||{};
+      let itemName = data.item_name||data.name||data.item||'';
+      let qty = parseInt(data.quantity||data.qty||data.amount)||0;
+
+      // Fallback: parse title text — "You bought 19x Chamois Plushie at $400 each..."
+      //                             "You bought a Chamois Plushie for $400..."
+      if(!itemName){
+        const mBulk   = title.match(/you bought\s+(\d+)x?\s+(.+?)\s+(?:at|for)\s+\$/i);
+        const mSingle = title.match(/you bought\s+an?\s+(.+?)\s+(?:at|for)\s+\$/i);
+        if(mBulk)        { qty=parseInt(mBulk[1])||1;  itemName=mBulk[2].trim(); }
+        else if(mSingle) { qty=1;                       itemName=mSingle[1].trim(); }
+      }
+      if(!qty) qty=1;
+
+      // Resolve to canonical museum item name
+      let matched = '';
+      if(museumNames.has(itemName))                        matched = itemName;
+      else if(shortToFull[itemName.toLowerCase()])         matched = shortToFull[itemName.toLowerCase()];
+
+      if(matched){
+        S.invPurchases.push({id, ts, item:matched, qty, src:'log'});
+        existingIds.add(id);
+        newCount++;
+      }
+    });
+
+    const sinceStr = earliestSince ? new Date(earliestSince*1000).toLocaleDateString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'ever';
+    clog(`Purchase log: checked ${entries.length} entries since ${sinceStr}, ${newCount} museum purchase(s) found`, 'ok');
     try{ localStorage.setItem('hv_v1_inv_purchases', JSON.stringify(S.invPurchases.slice(0,500))); }catch(e){}
 
-    // Update delta status
+    // Rebuild delta status banner using per-item calcInvDelta
     const delta = calcInvDelta();
     const totalDelta = Object.values(delta).reduce((a,b)=>a+Math.abs(b),0);
-    const ts = since ? new Date(since*1000).toLocaleDateString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'ever';
     if(statusEl){
       if(totalDelta > 0){
-        const parts = Object.entries(delta).filter(([,v])=>v!==0).map(([k,v])=>`${v>0?'+':''}${v} ${k.replace(' Plushie','')}`).join(' · ');
-        statusEl.textContent = `Auto-adjustments since ${ts}: ${parts}`;
+        const parts = Object.entries(delta).filter(([,v])=>v!==0)
+          .map(([k,v])=>`${v>0?'+':''}${v} ${k.replace(' Plushie','')}`)
+          .join(' · ');
+        statusEl.textContent = `Auto-adjustments since ${sinceStr}: ${parts}`;
         statusEl.style.display='block';
       } else {
-        statusEl.textContent = `No changes tracked since ${ts}`;
+        statusEl.textContent = `No changes tracked since ${sinceStr}`;
         statusEl.style.display='block';
       }
     }
