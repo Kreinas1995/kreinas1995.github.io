@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.8</title>
+<title>Faction Budget v2.40.9</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1109,7 +1109,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.8';
+const APP_VERSION = '2.40.9';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1174,6 +1174,10 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.9', date:'2026-04-15', notes:[
+    '[*] BUG-TOOLTIP: Tooltips now dismiss correctly and no longer persist through tab changes. Root cause: <td class="mem-tip"> had an inline onclick="this.classList.toggle(\'tip-open\')" that double-fired with the document-level click handler — the inline toggle opened the tip, then the outer handler immediately closed it (or vice versa), making tips erratic and impossible to dismiss. Removed inline onclick; document click handler at bottom of file already manages all tooltip open/close/toggle logic correctly.',
+    '[*] BUG-CACHE-LIMIT: Removed all .slice(0,2000) caps on eventLog and _crimeLog localStorage saves. Previously, deep-fetched older entries were being silently discarded — the sort puts oldest entries first after merge, and slice(0,2000) would cut them off. All five slice caps removed (runInitialize crime save, fetchAll event/crime deep-fetch sources, fetchAll merge save, mergeEventLog cap). Data is now stored without an entry limit.',
+  ]},
   { v:'2.40.8', date:'2026-04-15', notes:[
     '[*] BUG-TOOLTIP: Member tooltips (.mem-tip) now close reliably on mobile. Removed CSS :hover rule — visibility is driven entirely by JS .tip-open class. Added mouseenter/mouseleave delegation for desktop hover via MutationObserver (binds to dynamically-rendered tips). Click handler now correctly toggles the tapped tip and closes all others; click outside closes all.',
     '[*] BUG-DEBUG-TABS: Raw Data and Member Matching OC debug tabs now auto-run their render function on tab click (match trace was supposed to auto-run via ocDbgTab but copy tab was stomping _ocDbgActiveTab — fixed so copy action never changes active tab state).',
@@ -2601,7 +2605,7 @@ async function runInitialize(){
     ilog(`✓ faction/attacknews: ${S.crimeNews.length}`);
     const crArr=await pages('faction','crimenews',20,fromFloor);
     S._crimeLog=crArr.sort((a,b)=>b.timestamp-a.timestamp);
-    try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog.slice(0,2000)));}catch(e){}
+    try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog));}catch(e){}
     ilog(`✓ faction/crimenews: ${S._crimeLog.length}`);
     stepDone('s-attacknews',`${S.crimeNews.length} atk · ${S._crimeLog.length} crime`);
 
@@ -2690,7 +2694,7 @@ async function adminDeepFetch(){
     { id:'events',     section:'user',    sel:'events',     metaKey:'events',
       getArr:()=>S.eventLog||[],          tsKey:'timestamp',
       merge:(old,nw)=>{ const seen=new Set(old.map(e=>e.id||e.timestamp)); const added=nw.filter(e=>!seen.has(e.id||e.timestamp)); return [...old,...added].sort((a,b)=>b.timestamp-a.timestamp); },
-      save:(arr)=>{ S.eventLog=arr; try{localStorage.setItem('hv_v1_event_log',JSON.stringify(arr.slice(0,2000)));}catch(e){} }
+      save:(arr)=>{ S.eventLog=arr; try{localStorage.setItem('hv_v1_event_log',JSON.stringify(arr));}catch(e){} }
     },
     { id:'armory',     section:'faction', sel:'armorynews', metaKey:'armory',
       getArr:()=>S.armoryNews||[],        tsKey:'timestamp',
@@ -2710,7 +2714,7 @@ async function adminDeepFetch(){
     { id:'crimenews',  section:'faction', sel:'crimenews',  metaKey:'crimenews',
       getArr:()=>S._crimeLog||[],         tsKey:'timestamp',
       merge:(old,nw)=>{ const map={}; old.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,20)]=e;}); nw.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,20)]=e;}); return Object.values(map).sort((a,b)=>b.timestamp-a.timestamp); },
-      save:(arr)=>{ S._crimeLog=arr; try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(arr.slice(0,2000)));}catch(e){} }
+      save:(arr)=>{ S._crimeLog=arr; try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(arr));}catch(e){} }
     },
   ];
 
@@ -3194,7 +3198,7 @@ async function fetchAll(isManual=false, isBackground=false){
       crArr.forEach(e=>{ crMap[e.timestamp+'_'+(e.news||'').slice(0,20)]=e; });
       const crAll=Object.values(crMap).sort((a,b)=>b.timestamp-a.timestamp);
       S._crimeLog=crAll;
-      try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog.slice(0,2000)));}catch(e){}
+      try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog));}catch(e){}
       writeFetchMeta(['crimenews']);
 
       // OC detail fetches (faction/crimes&ID=X) removed — always [16] on custom keys.
@@ -5427,7 +5431,7 @@ function renderOC(){
   function memberBadge(members){
     if(!members||!members.length) return `<td class="cm" style="font-size:10px;">—</td>`;
     const names=(members||[]).join('<br>');
-    return `<td class="mem-tip" onclick="this.classList.toggle('tip-open')" style="font-size:10px;">
+    return `<td class="mem-tip" style="font-size:10px;">
       <span style="color:var(--accent5);">${members.length}</span>
       <span style="font-size:8px;color:var(--muted);"> ▸</span>
       <div class="mem-tip-box">${names}</div>
@@ -7274,7 +7278,6 @@ function mergeEventLog(){
   if(added>0){
     S.eventLog.sort((a,b)=>b.timestamp-a.timestamp);
     // Cap at 2000 entries to keep localStorage reasonable (~400KB max)
-    if(S.eventLog.length>2000) S.eventLog=S.eventLog.slice(0,2000);
     try{ localStorage.setItem('hv_v1_event_log', JSON.stringify(S.eventLog)); }catch(e){}
   }
 

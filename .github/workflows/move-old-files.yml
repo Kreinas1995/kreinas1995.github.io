@@ -28,29 +28,29 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Discover all tool root directories: the parent of any 'Old' or 'current' subdir.
-          # Works generically for any tool that follows the versioned-file structure.
           while IFS= read -r tool_root; do
-            # Skip the repo root itself
             [ "$tool_root" = "." ] && continue
 
             old_dir="$tool_root/Old"
             current_dir="$tool_root/current"
 
-            # Collect all versioned HTML filenames from root, Old/, and current/.
-            # Versioned files match: *v<digits>_<digits>[_<digits>...].html
+            # Skip if no current/ dir
+            [ -d "$current_dir" ] || continue
+
+            mkdir -p "$old_dir"
+
+            # Collect all versioned HTML filenames from tool root, Old/, and current/
             tmpfile=$(mktemp)
             find "$tool_root" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' \
               -exec basename {} \; 2>/dev/null >> "$tmpfile" || true
             [ -d "$old_dir" ] && find "$old_dir" -maxdepth 1 \
               -name '*v[0-9]*_[0-9]*.html' -exec basename {} \; \
               2>/dev/null >> "$tmpfile" || true
-            [ -d "$current_dir" ] && find "$current_dir" -maxdepth 1 \
+            find "$current_dir" -maxdepth 1 \
               -name '*v[0-9]*_[0-9]*.html' -exec basename {} \; \
               2>/dev/null >> "$tmpfile" || true
 
-            # Deduplicate and find latest by numeric version sort
-            # Parses vMAJOR_MINOR_PATCH and optional _modifier suffix for correct ordering
+            # Determine latest by numeric version tuple sort
             latest_name=$(awk '
               {
                 f = $0
@@ -69,10 +69,9 @@ jobs:
               continue
             fi
 
-            mkdir -p "$old_dir" "$current_dir"
             echo "[$tool_root] Latest: $latest_name"
 
-            # Move all versioned files from the tool root to Old/
+            # Move any versioned files from the tool root (not current/ or Old/) to Old/
             mapfile -t root_files < <(find "$tool_root" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
             for f in "${root_files[@]+"${root_files[@]}"}"; do
               fname=$(basename "$f")
@@ -80,27 +79,33 @@ jobs:
               echo "  Moved root/$fname -> Old/"
             done
 
-            # Move any versioned files from current/ to Old/
+            # Move non-latest versioned files from current/ to Old/
+            # Do NOT touch the latest file — leave it in current/ where it belongs
             mapfile -t cur_files < <(find "$current_dir" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
             for f in "${cur_files[@]+"${cur_files[@]}"}"; do
               fname=$(basename "$f")
+              if [ "$fname" = "$latest_name" ]; then
+                echo "  Keeping current/$fname (latest)"
+                continue
+              fi
               mv -- "$f" "$old_dir/$fname"
-              echo "  Moved current/$fname -> Old/"
+              echo "  Archived current/$fname -> Old/"
             done
 
-            # Verify the latest file ended up in Old/
+            # Ensure the latest is also present in Old/ (archive copy)
             if [ ! -f "$old_dir/$latest_name" ]; then
-              echo "  ERROR: $latest_name missing from $old_dir!" >&2
-              continue
+              cp -- "$current_dir/$latest_name" "$old_dir/$latest_name"
+              echo "  Archived copy: Old/$latest_name"
             fi
 
-            # Copy latest into current/ keeping the versioned filename
-            cp -- "$old_dir/$latest_name" "$current_dir/$latest_name"
-            echo "  Updated: $current_dir/$latest_name <- Old/$latest_name"
+            # Ensure the latest is in current/ (it should already be there, but just in case)
+            if [ ! -f "$current_dir/$latest_name" ]; then
+              cp -- "$old_dir/$latest_name" "$current_dir/$latest_name"
+              echo "  Restored: current/$latest_name"
+            fi
 
           done < <(
-            find . -type d \(
-              -name 'Old' -o -name 'current' \)
+            find . -type d \( -name 'Old' -o -name 'current' \) \
               -not -path './.git/*' \
               | sed -E 's,/(Old|current)(/.*)?$,,' | sort -u
           )
