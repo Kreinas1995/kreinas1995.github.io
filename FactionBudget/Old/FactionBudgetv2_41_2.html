@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.41.1</title>
+<title>Faction Budget v2.41.2</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1061,7 +1061,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.1';
+const APP_VERSION = '2.41.2';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1126,6 +1126,11 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.2', date:'2026-04-17', notes:[
+    '[*] BUG-INV-ITEMNAME: Fixed "itemName.toLowerCase is not a function" crash in fetchInvPurchases(). The Torn v1 log API can return data.item_name as a numeric item ID instead of a string. itemName is now coerced with String() immediately after extraction in both the buy block and the sell block.',
+    '[*] BUG-INV-STALE: renderInventory() now clears and hides #invDeltaStatus at the top of every render pass. Previously, a "Purchase log fetch failed" error from a prior session could persist on-screen after a successful subsequent sync.',
+    '[+] MEMBERS-TEST: Added [test] debug member row to the Members tab. Toggled by the ! button in the Members header (next to grand total). Shows one pill per category (MED, DRUG, ALC, NRG, BST) each with $1 value. Row is highlighted with a yellow left border and DBG label. Not counted in any totals or calculations. S._showTestMember is never persisted to localStorage — resets on every page load. Removal: delete the TEST MEMBER block in renderMemberUsage(), the toggleTestMember() function, and the id="testMemberToggleBtn" button from the header.',
+  ]},
   { v:'2.41.1', date:'2026-04-16', notes:[
     '[*] BUG-INV-UPDATE: Fixed "narrative.match is not a function" crash in fetchInvPurchases(). The Torn v1 log API can return entry.log as a non-string value (object or number). narrative is now coerced with String() before regex matching, preventing the TypeError that aborted the UPDATE button fetch entirely.',
   ]},
@@ -4362,6 +4367,10 @@ function renderVault(){
 // [PLUSHIE_SET/FLOWER_SET moved to top of script — TDZ fix]
 
 function renderInventory(){
+  // Clear stale status message so old errors don't persist between renders
+  const _statusClear = document.getElementById('invDeltaStatus');
+  if(_statusClear){ _statusClear.style.display='none'; _statusClear.textContent=''; }
+
   const plushieCol = document.getElementById('invPlushieCol');
   const flowerCol  = document.getElementById('invFlowerCol');
   const summaryRow = document.getElementById('invSummaryRow');
@@ -4902,7 +4911,7 @@ async function fetchInvPurchases(){
       const isBuy = /item.{0,15}market|abroad|overseas|bazaar|auction/i.test(title);
       if(isBuy && !existingIds.has(id)){
         const data = entry.data||entry.params||{};
-        let itemName = data.item_name||data.name||data.item||'';
+        let itemName = String(data.item_name||data.name||data.item||'');
         let qty      = parseInt(data.quantity||data.qty||data.amount)||0;
 
         // Fallback: parse narrative text (entry.log field)
@@ -4938,7 +4947,7 @@ async function fetchInvPurchases(){
       const isSell = /bazaar.{0,20}list|list.{0,15}bazaar|item.{0,15}(?:market|bazaar).{0,10}sell|sell.{0,15}(?:market|bazaar)|sold.{0,15}(?:market|bazaar)|bazaar.{0,10}sold/i.test(title);
       if(isSell && !existingSellIds.has(id)){
         const data = entry.data||entry.params||{};
-        let itemName = data.item_name||data.name||data.item||'';
+        let itemName = String(data.item_name||data.name||data.item||'');
         let qty      = parseInt(data.quantity||data.qty||data.amount)||0;
 
         if(!itemName && narrative){
@@ -5141,7 +5150,13 @@ function renderMemberUsage(){
   // Build HTML
   let h=`<div style="padding:10px 12px 6px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px;">
     <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;">MEMBERS · ${period.toUpperCase()} · ${allMembers.length} total</span>
-    <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent);">${fmt$(grand)} total</span>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent);">${fmt$(grand)} total</span>
+      <button id="testMemberToggleBtn" onclick="toggleTestMember()" title="Toggle test member row"
+        style="background:${S._showTestMember?'rgba(240,192,64,0.15)':'transparent'};border:1px solid ${S._showTestMember?'var(--accent3)':'var(--muted2)'};
+        color:${S._showTestMember?'var(--accent3)':'var(--muted2)'};font-family:'Space Mono',monospace;font-size:9px;
+        padding:2px 6px;cursor:pointer;letter-spacing:1px;border-radius:2px;line-height:1.4;">!</button>
+    </div>
   </div>`;
 
   allMembers.forEach(({name,data})=>{
@@ -5199,8 +5214,53 @@ function renderMemberUsage(){
     h='<div class="empty">No members found.</div>';
   }
 
+  // ── TEST MEMBER ─────────────────────────────────────────────────────────────
+  // Render-only test row. Not counted in any totals/calculations.
+  // S._showTestMember is never persisted to localStorage (resets each page load).
+  // TO REMOVE: delete this block and the toggleTestMember() function below,
+  //   and remove id="testMemberToggleBtn" from the header div above.
+  if(S._showTestMember){
+    const testCats=['Medical','Drug','Alcohol','Energy','Booster'];
+    let testPills='';
+    testCats.forEach(cat=>{
+      const col=muCatColor(cat.toLowerCase());
+      const lbl=muCatLabel(cat.toLowerCase());
+      testPills+=`<button style="background:rgba(0,0,0,0.3);border:1px solid ${col};color:${col};
+        font-family:'Space Mono',monospace;font-size:9px;padding:3px 7px;cursor:default;
+        letter-spacing:0.5px;border-radius:2px;display:inline-flex;flex-direction:column;
+        align-items:center;gap:1px;line-height:1.2;min-width:40px;opacity:0.7;">
+        <span style="font-size:8px;font-weight:700;">${lbl}</span>
+        <span style="font-size:8px;opacity:0.85;">$1</span>
+      </button>`;
+    });
+    h+=`<div style="padding:10px 12px;border-bottom:1px solid var(--border);border-left:2px solid var(--accent3);
+      display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(240,192,64,0.04);">
+      <div style="min-width:90px;max-width:110px;flex-shrink:0;">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent3);letter-spacing:1px;">DBG</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--muted);
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="[test]">[test]</div>
+        <div style="height:2px;background:var(--border);margin-top:4px;"></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:0;">${testPills}</div>
+      <div style="flex-shrink:0;text-align:right;min-width:54px;">
+        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--muted);">—</div>
+      </div>
+    </div>`;
+  }
+  // ── END TEST MEMBER ──────────────────────────────────────────────────────────
+
   document.getElementById('memberTbl').innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);">${h}</div>`;
 }
+
+// ── TEST MEMBER TOGGLE ───────────────────────────────────────────────────────
+// Toggles the [test] debug row in the Members panel.
+// S._showTestMember is never saved — resets on page load.
+// TO REMOVE: delete this function and the TEST MEMBER block in renderMemberUsage().
+function toggleTestMember(){
+  S._showTestMember = !S._showTestMember;
+  renderMemberUsage();
+}
+// ── END TEST MEMBER TOGGLE ───────────────────────────────────────────────────
 
 // Helper: convert hex colour to rgb triplet string for rgba()
 function hexToRgb(hex){
