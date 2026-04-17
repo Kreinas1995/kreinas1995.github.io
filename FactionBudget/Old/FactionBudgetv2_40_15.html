@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.14</title>
+<title>Faction Budget v2.40.15</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1061,7 +1061,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.14';
+const APP_VERSION = '2.40.15';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1126,6 +1126,14 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.40.15', date:'2026-04-16', notes:[
+    '[*] BUG-INV-PURCHASE: fetchInvPurchases() now parses entry.log (narrative text) instead of entry.title (category label) for item name extraction. Fixes zero purchases being counted. Regex stop-word updated to halt at "on <word>" so bazaar seller names are never captured as part of the item name.',
+    '[*] BUG-INV-TRADE-IN: calcInvDelta() now counts items received via multi-item trade ("X added Nx A, Nx B... to a trade with you"), but only after a matching "You accepted the trade with X" event confirms the trade completed.',
+    '[*] BUG-INV-TRADE-OUT: Items you add to a trade are now deducted from delta counts, but only after "X accepted the trade" confirms the trade was finalized.',
+    '[*] BUG-INV-MUSEUM: Museum set exchanges ("You exchanged 29x Plushie Set to the museum for 290 points") now deduct N copies of every item in the respective set.',
+    '[+] INV-SELLS: fetchInvPurchases() now detects bazaar listing / market sell log entries and stores them in S.invSells / hv_v1_inv_sells. calcInvDelta() deducts these as inventory losses.',
+    '[+] INV-AUDIT-TS: showInvEntryForm() shows "Last audited: date/time" below each item input when a per-item savedAt exists, so you can see exactly when each count was last manually confirmed.',
+  ]},
   { v:'2.40.14', date:'2026-04-16', notes:[
     '[*] BUG-INV-PURCHASE: fetchInvPurchases() now uses v1 API (/user/?selections=log) instead of broken v2 endpoint (/v2/user/log). Entry item names parsed from title text ("You bought 19x Chamois Plushie at $400 each...") as v1 structured data fields are not populated for overseas/market/bazaar purchases.',
     '[*] BUG-INV-DELTA: manualCounts now stores per-item {qty, savedAt} timestamps instead of a single global invDeltaTs. Each item\'s delta is calculated only from events/purchases/sends since that item\'s own last manual save. Re-counting one item no longer resets the delta baseline for all other items, preventing double-counting.',
@@ -1938,6 +1946,7 @@ let S = {
   manualCounts:{}, // {itemName: {qty, savedAt}} — manually entered museum set counts with per-item timestamps
   invDeltaTs:0,   // legacy global ts — kept for migration; per-item savedAt in manualCounts is authoritative
   invPurchases:[], // [{id,ts,item,qty,src}] — market/bazaar/overseas purchases of museum items
+  invSells:[],    // [{id,ts,item,qty,src}] — bazaar/market listings/sells of museum items (losses)
   initLookback:2592000, // seconds to look back on init (default 30 days)
   exemptReceipts:new Set(), // receipt IDs exempt from payout
   pointPrice:0, // current points market price $/pt
@@ -2011,7 +2020,7 @@ async function rateSafeGet(section, sel, extra=''){
     ['hv_rcpts','hv_paid','hv_rates','hv_sync_rate','hv_wars','hv_card_periods',
      'hv_outgoing','hv_inventory','hv_event_log','hv_last_event_ts','hv_prev_event_ts',
      'hv_oc_manual','hv_crime_log','hv_oc_crimes','hv_manual_counts','hv_inv_delta_ts',
-     'hv_inv_purchases','hv_ptprice','hv_ptphist','hv_exempt','hv_track_consumables',
+     'hv_inv_purchases','hv_inv_sells','hv_ptprice','hv_ptphist','hv_exempt','hv_track_consumables',
      'hv_last_sync','hv_fetch_meta','hv_init_lookback',
      'hv_faction_cache','hv_armory_cache','hv_mainnews_cache','hv_attacknews_cache','hv_items_cache'
     ].forEach(k=>localStorage.removeItem(k));
@@ -2076,6 +2085,7 @@ async function rateSafeGet(section, sel, extra=''){
   }catch(e){}
   try{ S.invDeltaTs=parseInt(localStorage.getItem('hv_v1_inv_delta_ts')||'0')||0; }catch(e){}
   try{ S.invPurchases=JSON.parse(localStorage.getItem('hv_v1_inv_purchases')||'[]'); }catch(e){}
+  try{ S.invSells=JSON.parse(localStorage.getItem('hv_v1_inv_sells')||'[]'); }catch(e){}
   try{ S.eventLog=JSON.parse(localStorage.getItem('hv_v1_event_log')||'[]'); }catch(e){}
   try{ S.lastEventTs=parseInt(localStorage.getItem('hv_v1_last_event_ts')||'0')||0; }catch(e){}
   try{ S._prevEventTs=parseInt(localStorage.getItem('hv_v1_prev_event_ts')||'0')||0; }catch(e){}
@@ -2279,7 +2289,7 @@ function checkExpiryWarning(){
 function clearSessionState(){
   S.faction=null; S.donations={}; S.armoryNews=[]; S.events=[]; S.prices={};
   S.ocRaw=[]; S.attackNews=[]; S.crimeNews=[]; S.outgoing=[]; S.wars=[];
-  S._crimeLog=[]; S._ocCrimes=[]; S._ocDetails=[];
+  S._crimeLog=[]; S._ocCrimes=[]; S._ocDetails=[]; S.invPurchases=[]; S.invSells=[];
   S._prevEventTs=0; S._logTitlesSeen=false; S.deltaFilterOn=false;
   S.errorLog=[]; S.loading=false; bgSyncMode=false;
   clearTimeout(dTimer); clearTimeout(bgTimer);
@@ -4534,10 +4544,16 @@ function showInvEntryForm(){
   PLUSHIE_SET.forEach(name=>{
     const short = name.replace(' Plushie','');
     const val = readQty(cur[name]);
-    h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;">`;
+    const entry = cur[name];
+    const auditTs = (entry && typeof entry==='object' && entry.savedAt) ? entry.savedAt : 0;
+    const auditStr = auditTs ? new Date(auditTs*1000).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : null;
+    h += `<div style="margin-bottom:6px;">`;
+    h += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">`;
     h += `<label style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${short}</label>`;
     h += `<input type="number" id="inv_${name.replace(/\s+/g,'_')}" value="${val}" min="0" step="1"
       style="width:64px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:3px 6px;text-align:right;">`;
+    h += `</div>`;
+    if(auditStr) h += `<div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-top:1px;padding-right:2px;text-align:right;">audited ${auditStr}</div>`;
     h += `</div>`;
   });
   h += `</div>`;
@@ -4547,10 +4563,16 @@ function showInvEntryForm(){
   h += `<div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);margin-bottom:8px;">FLOWERS</div>`;
   FLOWER_SET.forEach(name=>{
     const val = readQty(cur[name]);
-    h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;">`;
+    const entry = cur[name];
+    const auditTs = (entry && typeof entry==='object' && entry.savedAt) ? entry.savedAt : 0;
+    const auditStr = auditTs ? new Date(auditTs*1000).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : null;
+    h += `<div style="margin-bottom:6px;">`;
+    h += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">`;
     h += `<label style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</label>`;
     h += `<input type="number" id="inv_${name.replace(/\s+/g,'_')}" value="${val}" min="0" step="1"
       style="width:64px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:3px 6px;text-align:right;">`;
+    h += `</div>`;
+    if(auditStr) h += `<div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-top:1px;padding-right:2px;text-align:right;">audited ${auditStr}</div>`;
     h += `</div>`;
   });
   h += `</div>`;
@@ -4633,36 +4655,157 @@ function calcInvDelta(){
     }
   });
 
-  // +: items received (from eventLog — "You were sent X item from Y")
   const events = (S.eventLog&&S.eventLog.length) ? S.eventLog : (S.events||[]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PASS 1 — build trade acceptance maps (needed before processing trade events)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // youAccepted[personName] = [ts, ...] — timestamps when YOU accepted trades from them
+  const youAccepted = {};
+  // theyAccepted[personName] = [ts, ...] — timestamps when THEY accepted trades with you
+  const theyAccepted = {};
+
+  events.forEach(ev=>{
+    const raw = ev.event||ev.news||''; if(!raw) return;
+    const news = stripHtml(raw);
+    const ts = ev.timestamp||0;
+
+    // "You accepted the trade with DanTheHighMan [view]"
+    const pYouAccept = news.match(/^You accepted the trade with\s+(.+?)(?:\s*[\[（]|$)/i);
+    if(pYouAccept){
+      const n = pYouAccept[1].trim();
+      (youAccepted[n]||(youAccepted[n]=[])).push(ts);
+    }
+    // "DanTheHighMan accepted the trade" or "DanTheHighMan accepted the trade with you"
+    const pTheyAccept = news.match(/^(.+?)\s+accepted the trade(?:\s+with you)?(?:\s*[\[（]|$)/i);
+    if(pTheyAccept){
+      const n = pTheyAccept[1].trim();
+      (theyAccepted[n]||(theyAccepted[n]=[])).push(ts);
+    }
+  });
+
+  // Helper: find the earliest acceptance timestamp >= eventTs for a given person in a map
+  const firstAcceptAfter = (map, person, eventTs) =>
+    (map[person]||[]).filter(t=>t>=eventTs).sort((a,b)=>a-b)[0] || null;
+
+  // Helper: parse a comma-separated item list string like
+  //   "1x Camel Plushie, 14x Chamois Plushie, 15x Jaguar Plushie"
+  // or "a Kitten Plushie, 2x Lion Plushie"
+  // Returns [{qty, item}]
+  function parseItemList(str){
+    const parts = str.split(',');
+    const out = [];
+    parts.forEach(part=>{
+      part = part.trim().replace(/\s*\[.*?\]\s*$/,'').trim(); // strip [view]
+      if(!part) return;
+      const mQty = part.match(/^(\d+)x?\s+(.+)$/i);
+      const mSing = part.match(/^an?\s+(.+)$/i);
+      if(mQty)      out.push({qty:parseInt(mQty[1])||1, item:mQty[2].trim()});
+      else if(mSing) out.push({qty:1, item:mSing[1].trim()});
+      else           out.push({qty:1, item:part});
+    });
+    return out;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PASS 2 — process all event sources
+  // ─────────────────────────────────────────────────────────────────────────────
+
   events.forEach(ev=>{
     const ts = ev.timestamp||0;
-    const raw = ev.event||ev.news||'';
-    if(!raw) return;
+    const raw = ev.event||ev.news||''; if(!raw) return;
     const news = stripHtml(raw);
-    const pA   = news.match(/^You were sent\s+(\d+)x?\s+(.+?)\s+from\s+/i);
-    const pA1  = news.match(/^You were sent\s+an?\s+(.+?)\s+from\s+/i);
-    const pAlt = news.match(/^.+?\s+sent\s+(\d+)x?\s+(.+?)\s+to\s+you/i);
-    let qty=0, item='';
-    if(pA){ qty=parseInt(pA[1])||1; item=pA[2].trim(); }
-    else if(pA1){ qty=1; item=pA1[1].trim(); }
-    else if(pAlt){ qty=parseInt(pAlt[1])||1; item=pAlt[2].trim(); }
-    if(item && museumSet.has(item) && ts > (itemSince[item]||0)){
-      delta[item]=(delta[item]||0)+qty;
+
+    // ── GAIN: Direct sends to you ──────────────────────────────────────────────
+    // "You were sent 5x Camel Plushie from Sassyquatch"
+    // "You were sent a Camel Plushie from Sassyquatch"
+    // "Sassyquatch sent 12x Dahlia to you"
+    const pSentN  = news.match(/^You were sent\s+(\d+)x?\s+(.+?)\s+from\s+/i);
+    const pSentA  = news.match(/^You were sent\s+an?\s+(.+?)\s+from\s+/i);
+    const pSentAlt= news.match(/^.+?\s+sent\s+(\d+)x?\s+(.+?)\s+to\s+you\b/i);
+    const pSentAltA= news.match(/^.+?\s+sent\s+an?\s+(.+?)\s+to\s+you\b/i);
+    {
+      let qty=0, item='';
+      if(pSentN)      { qty=parseInt(pSentN[1])||1;  item=pSentN[2].trim(); }
+      else if(pSentA) { qty=1;                        item=pSentA[1].trim(); }
+      else if(pSentAlt){ qty=parseInt(pSentAlt[1])||1; item=pSentAlt[2].trim(); }
+      else if(pSentAltA){ qty=1;                       item=pSentAltA[1].trim(); }
+      if(item && museumSet.has(item) && ts>(itemSince[item]||0)){
+        delta[item]=(delta[item]||0)+qty;
+      }
+    }
+
+    // ── GAIN: Trade items added by OTHER person → only count when YOU accepted ─
+    // "DanTheHighMan added 1x Camel Plushie, 14x Chamois Plushie, ... to a trade with you [view]"
+    const pTradeIn = news.match(/^(.+?)\s+added\s+(.+?)\s+to\s+a\s+trade\s+with\s+you\b/i);
+    if(pTradeIn){
+      const person = pTradeIn[1].trim();
+      const itemsStr = pTradeIn[2];
+      const acceptTs = firstAcceptAfter(youAccepted, person, ts);
+      if(acceptTs !== null){ // trade was accepted — items are now ours
+        parseItemList(itemsStr).forEach(({qty,item})=>{
+          // Use acceptance ts to decide if this is "after" the per-item audit baseline
+          if(item && museumSet.has(item) && acceptTs>(itemSince[item]||0)){
+            delta[item]=(delta[item]||0)+qty;
+          }
+        });
+      }
+    }
+
+    // ── LOSS: Museum exchange — surrenders one of every item in the set × N ───
+    // "You exchanged 29x Plushie Set to the museum for 290 points"
+    // "You exchanged 5x Flower Set to the museum for 50 points"
+    // singular: "You exchanged a Plushie Set..." / "You exchanged 1x Plushie Set..."
+    const pMuseum = news.match(/^You exchanged\s+(?:(\d+)x?\s+|an?\s+)(Plushie|Flower)\s+Set\s+to\s+the\s+museum/i);
+    if(pMuseum){
+      const n = parseInt(pMuseum[1])||1;
+      const setItems = /plushie/i.test(pMuseum[2]) ? PLUSHIE_SET : FLOWER_SET;
+      setItems.forEach(item=>{
+        if(ts>(itemSince[item]||0)) delta[item]=(delta[item]||0)-n;
+      });
+    }
+
+    // ── LOSS: Items YOU added to a trade → only count when THEY accepted ──────
+    // "You added 5x Camel Plushie to a trade with DanTheHighMan [view]"
+    // "You added a Camel Plushie to a trade with DanTheHighMan [view]"
+    const pTradeOut = news.match(/^You added\s+(.+?)\s+to\s+a\s+trade\s+with\s+(.+?)(?:\s*[\[（]|$)/i);
+    if(pTradeOut){
+      const itemsStr = pTradeOut[1];
+      const person   = pTradeOut[2].trim();
+      const acceptTs = firstAcceptAfter(theyAccepted, person, ts);
+      if(acceptTs !== null){ // trade was finalized — items left your possession
+        parseItemList(itemsStr).forEach(({qty,item})=>{
+          if(item && museumSet.has(item) && acceptTs>(itemSince[item]||0)){
+            delta[item]=(delta[item]||0)-qty;
+          }
+        });
+      }
     }
   });
 
-  // -: items sent out (outgoing log — items you sent to members)
-  (S.outgoing||[]).forEach(r=>{
-    if(museumSet.has(r.item) && (r.ts||0) > (itemSince[r.item]||0)){
-      delta[r.item]=(delta[r.item]||0)-r.qty;
-    }
-  });
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Log-sourced deltas (from fetchInvPurchases / fetchOutgoingLog)
+  // ─────────────────────────────────────────────────────────────────────────────
 
-  // +: purchases fetched by fetchInvPurchases (stored in S.invPurchases)
+  // +: purchases (Item Market, Bazaar, Overseas)
   (S.invPurchases||[]).forEach(p=>{
-    if(museumSet.has(p.item) && (p.ts||0) > (itemSince[p.item]||0)){
+    if(museumSet.has(p.item) && (p.ts||0)>(itemSince[p.item]||0)){
       delta[p.item]=(delta[p.item]||0)+p.qty;
+    }
+  });
+
+  // -: bazaar listings / market sells (items leaving your inventory)
+  (S.invSells||[]).forEach(p=>{
+    if(museumSet.has(p.item) && (p.ts||0)>(itemSince[p.item]||0)){
+      delta[p.item]=(delta[p.item]||0)-p.qty;
+    }
+  });
+
+  // -: items sent out (outgoing log — direct sends to faction members / other players)
+  (S.outgoing||[]).forEach(r=>{
+    if(museumSet.has(r.item) && (r.ts||0)>(itemSince[r.item]||0)){
+      delta[r.item]=(delta[r.item]||0)-r.qty;
     }
   });
 
@@ -4699,9 +4842,12 @@ async function fetchInvPurchases(){
   FLOWER_SET.forEach(n=>{ shortToFull[n.toLowerCase()]=n; });
 
   if(!S.invPurchases) S.invPurchases = [];
-  const existingIds = new Set(S.invPurchases.map(p=>p.id));
+  if(!S.invSells)     S.invSells     = [];
+  const existingIds     = new Set(S.invPurchases.map(p=>p.id));
+  const existingSellIds = new Set(S.invSells.map(p=>p.id));
 
-  let newCount = 0;
+  let newCount     = 0;
+  let newSellCount = 0;
   try{
     // v1 API — same as fetchOutgoingLog; returns {log: {id: entry, ...}}
     const fromParam = earliestSince>0 ? `&from=${earliestSince}` : '';
@@ -4729,46 +4875,88 @@ async function fetchInvPurchases(){
 
     entries.forEach(entry=>{
       const id = String(entry._id||entry.id||'');
-      if(!id || existingIds.has(id)) return;
+      if(!id) return;
 
-      const ts = entry.timestamp||0;
-      const title = entry.title||'';
+      const ts    = entry.timestamp||0;
+      const title = entry.title||''; // category label e.g. "Bazaar purchase"
 
-      // Detect purchase entries by title keyword
-      // Known Torn v1 log titles: "Item market purchase", "Abroad purchase", "Bazaar purchase", "Auction won"
+      // ── Narrative text ── v1 log stores the human-readable description in entry.log,
+      //    NOT in entry.title (which is just the category label like "Bazaar purchase").
+      //    Fallback chain: entry.log → entry.message → entry.text
+      const narrative = entry.log || entry.message || entry.text || '';
+
+      // ── GAIN: Purchases (Item Market, Bazaar, Overseas/Abroad) ────────────────
+      // Known Torn v1 log titles: "Item market purchase", "Abroad purchase",
+      //   "Overseas purchase", "Bazaar purchase", "Auction won"
       const isBuy = /item.{0,15}market|abroad|overseas|bazaar|auction/i.test(title);
-      if(!isBuy) return;
+      if(isBuy && !existingIds.has(id)){
+        const data = entry.data||entry.params||{};
+        let itemName = data.item_name||data.name||data.item||'';
+        let qty      = parseInt(data.quantity||data.qty||data.amount)||0;
 
-      // Primary: parse structured data fields
-      const data = entry.data||entry.params||{};
-      let itemName = data.item_name||data.name||data.item||'';
-      let qty = parseInt(data.quantity||data.qty||data.amount)||0;
+        // Fallback: parse narrative text (entry.log field)
+        // "You bought 19x Chamois Plushie at $400 each..."
+        // "You bought a Kitten Plushie on KGlizzy's bazaar at $700 each..."
+        // "You bought a Kitten Plushie on the item market from HavocReveries at $500 each..."
+        // "You bought a Chamois Plushie for $400..."
+        // Stop item capture at "on <word>" OR "at $" OR "for $"
+        if(!itemName && narrative){
+          const mBulk   = narrative.match(/you bought\s+(\d+)x?\s+(.+?)\s+(?:on\s+\S|at\s+\$|for\s+\$)/i);
+          const mSingle = narrative.match(/you bought\s+an?\s+(.+?)\s+(?:on\s+\S|at\s+\$|for\s+\$)/i);
+          if(mBulk)        { qty=parseInt(mBulk[1])||1;  itemName=mBulk[2].trim(); }
+          else if(mSingle) { qty=1;                       itemName=mSingle[1].trim(); }
+        }
+        if(!qty) qty=1;
 
-      // Fallback: parse title text — "You bought 19x Chamois Plushie at $400 each..."
-      //                             "You bought a Chamois Plushie for $400..."
-      if(!itemName){
-        const mBulk   = title.match(/you bought\s+(\d+)x?\s+(.+?)\s+(?:at|for)\s+\$/i);
-        const mSingle = title.match(/you bought\s+an?\s+(.+?)\s+(?:at|for)\s+\$/i);
-        if(mBulk)        { qty=parseInt(mBulk[1])||1;  itemName=mBulk[2].trim(); }
-        else if(mSingle) { qty=1;                       itemName=mSingle[1].trim(); }
+        let matched = '';
+        if(museumNames.has(itemName))                        matched = itemName;
+        else if(shortToFull[itemName.toLowerCase()])         matched = shortToFull[itemName.toLowerCase()];
+
+        if(matched){
+          S.invPurchases.push({id, ts, item:matched, qty, src:'log'});
+          existingIds.add(id);
+          newCount++;
+        }
       }
-      if(!qty) qty=1;
 
-      // Resolve to canonical museum item name
-      let matched = '';
-      if(museumNames.has(itemName))                        matched = itemName;
-      else if(shortToFull[itemName.toLowerCase()])         matched = shortToFull[itemName.toLowerCase()];
+      // ── LOSS: Bazaar listings / market sells ───────────────────────────────────
+      // Listing an item on your bazaar removes it from inventory immediately.
+      // Torn v1 log title variants (logged diagnostically on first fetch for tuning):
+      //   "Bazaar listing", "Bazaar item listed", "Item listed on bazaar",
+      //   "Item market sell", "Market sell", "Sold item on market"
+      const isSell = /bazaar.{0,20}list|list.{0,15}bazaar|item.{0,15}(?:market|bazaar).{0,10}sell|sell.{0,15}(?:market|bazaar)|sold.{0,15}(?:market|bazaar)|bazaar.{0,10}sold/i.test(title);
+      if(isSell && !existingSellIds.has(id)){
+        const data = entry.data||entry.params||{};
+        let itemName = data.item_name||data.name||data.item||'';
+        let qty      = parseInt(data.quantity||data.qty||data.amount)||0;
 
-      if(matched){
-        S.invPurchases.push({id, ts, item:matched, qty, src:'log'});
-        existingIds.add(id);
-        newCount++;
+        if(!itemName && narrative){
+          // "You listed 5x Camel Plushie on your bazaar for $400 each"
+          // "You listed a Camel Plushie on your bazaar for $400"
+          // "You sold 5x Camel Plushie on the item market for $400 each"
+          const mBulk   = narrative.match(/you (?:listed|sold)\s+(\d+)x?\s+(.+?)\s+(?:on\s+\S|at\s+\$|for\s+\$)/i);
+          const mSingle = narrative.match(/you (?:listed|sold)\s+an?\s+(.+?)\s+(?:on\s+\S|at\s+\$|for\s+\$)/i);
+          if(mBulk)        { qty=parseInt(mBulk[1])||1;  itemName=mBulk[2].trim(); }
+          else if(mSingle) { qty=1;                       itemName=mSingle[1].trim(); }
+        }
+        if(!qty) qty=1;
+
+        let matched = '';
+        if(museumNames.has(itemName))                       matched = itemName;
+        else if(shortToFull[itemName.toLowerCase()])        matched = shortToFull[itemName.toLowerCase()];
+
+        if(matched){
+          S.invSells.push({id, ts, item:matched, qty, src:'log'});
+          existingSellIds.add(id);
+          newSellCount++;
+        }
       }
     });
 
     const sinceStr = earliestSince ? new Date(earliestSince*1000).toLocaleDateString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'ever';
-    clog(`Purchase log: checked ${entries.length} entries since ${sinceStr}, ${newCount} museum purchase(s) found`, 'ok');
+    clog(`Purchase log: checked ${entries.length} entries since ${sinceStr}, ${newCount} purchase(s) + ${newSellCount} sell/listing(s) found`, 'ok');
     try{ localStorage.setItem('hv_v1_inv_purchases', JSON.stringify(S.invPurchases.slice(0,500))); }catch(e){}
+    try{ localStorage.setItem('hv_v1_inv_sells',     JSON.stringify(S.invSells.slice(0,500)));     }catch(e){}
 
     // Rebuild delta status banner using per-item calcInvDelta
     const delta = calcInvDelta();
@@ -6667,7 +6855,7 @@ function adminAddManualReceipt(){
 
 // ── STORAGE INSPECTOR
 function adminInspectStorage(){
-  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'];
+  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'];
   let totalBytes=0;
   let out='=== LOCALSTORAGE ===\n\n';
   keys.forEach(k=>{
@@ -6740,7 +6928,7 @@ function adminClearAll(){
   const paidCount=Object.keys(S.paidLog).length;
   const warCount=S.wars.length;
   if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• ${warCount} war payout record(s)\n• All payout rates & card settings\n• Sync settings\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
-  ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'].forEach(k=>localStorage.removeItem(k));
+  ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'].forEach(k=>localStorage.removeItem(k));
   S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98}; S.refundedPayments=new Set(); S.testers=[]; S.factionWhitelist=[];
   S.cardPeriods={supply:'30d',oc:'30d',pnl:'30d'}; RMINS=15;
   S.pointPrice=0; S.pointPriceHistory=[];
