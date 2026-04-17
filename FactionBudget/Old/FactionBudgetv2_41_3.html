@@ -1061,7 +1061,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.2';
+const APP_VERSION = '2.41.3';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1126,6 +1126,9 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.3', date:'2026-04-17', notes:[
+    '[*] BUG-INV-AUDIT-MISMATCH: showInvEntryForm() now pre-fills each input with the effective count (manual base + auto-tracked delta) instead of the raw manual base. Previously, opening SET COUNTS showed the stale audited value, so saving reset the baseline without incorporating auto-tracked changes — causing the dashboard display to diverge from the form. Now the form shows the same number the dashboard displays. Delta contributions are shown inline (e.g. "base 563 +14 auto") so you can verify them before saving. Saving locks in the effective count as the new baseline and clears the accumulated delta for that item.',
+  ]},
   { v:'2.41.2', date:'2026-04-17', notes:[
     '[*] BUG-INV-ITEMNAME: Fixed "itemName.toLowerCase is not a function" crash in fetchInvPurchases(). The Torn v1 log API can return data.item_name as a numeric item ID instead of a string. itemName is now coerced with String() immediately after extraction in both the buy block and the sell block.',
     '[*] BUG-INV-STALE: renderInventory() now clears and hides #invDeltaStatus at the top of every render pass. Previously, a "Purchase log fetch failed" error from a prior session could persist on-screen after a successful subsequent sync.',
@@ -4549,30 +4552,59 @@ function showInvEntryForm(){
   // Read qty from either new {qty,savedAt} format or legacy number
   const readQty = v => (v && typeof v==='object') ? (v.qty||0) : (v||0);
 
+  // Calculate current delta so we can pre-fill with EFFECTIVE counts (base + delta)
+  // This ensures what you see in the form matches what the dashboard displays.
+  const delta = Object.keys(cur).length > 0 ? calcInvDelta() : {};
+
+  const hasExisting = Object.keys(cur).length > 0;
+
   let h = `<div style="background:var(--surface);border:1px solid var(--border);padding:16px;margin-bottom:12px;">`;
   h += `<div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent3);margin-bottom:4px;">ENTER CURRENT COUNTS</div>`;
-  h += `<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:14px;line-height:1.8;">Open your Torn items page, filter to Plushies and Flowers, and enter quantities below. After saving, the dashboard will auto-track received items from events.</div>`;
+  if(hasExisting){
+    h += `<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.8;">Counts are pre-filled with your current effective totals (base + auto-tracked changes). Adjust any that are wrong, then save.</div>`;
+    h += `<div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-bottom:14px;line-height:1.6;">🔄 auto-tracked changes shown in <span style="color:var(--accent2);">green</span> / <span style="color:var(--accent4);">red</span> — saving locks these in as the new baseline.</div>`;
+  } else {
+    h += `<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:14px;line-height:1.8;">Open your Torn items page, filter to Plushies and Flowers, and enter quantities below. After saving, the dashboard will auto-track received items from events.</div>`;
+  }
 
   // Two-column grid: Plushies | Flowers
   h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">`;
+
+  function buildItemRow(name, shortName){
+    const base = readQty(cur[name]);
+    const d = delta[name]||0;
+    const effectiveQty = Math.max(0, base + d);
+    const entry = cur[name];
+    const auditTs = (entry && typeof entry==='object' && entry.savedAt) ? entry.savedAt : 0;
+    const auditStr = auditTs ? new Date(auditTs*1000).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : null;
+    const inputId = 'inv_'+name.replace(/\s+/g,'_');
+
+    let row = `<div style="margin-bottom:8px;">`;
+    row += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">`;
+    row += `<label style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${shortName}</label>`;
+    row += `<input type="number" id="${inputId}" value="${effectiveQty}" min="0" step="1"
+      style="width:64px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:3px 6px;text-align:right;">`;
+    row += `</div>`;
+
+    // Show delta breakdown if there's an existing baseline
+    if(hasExisting && d !== 0){
+      const dColor = d > 0 ? 'var(--accent2)' : 'var(--accent4)';
+      const dSign  = d > 0 ? '+' : '';
+      row += `<div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-top:1px;padding-right:2px;text-align:right;">`;
+      row += `base ${base} <span style="color:${dColor};">${dSign}${d} auto</span>`;
+      row += `</div>`;
+    } else if(hasExisting && auditStr){
+      row += `<div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-top:1px;padding-right:2px;text-align:right;">audited ${auditStr}</div>`;
+    }
+    row += `</div>`;
+    return row;
+  }
 
   // Plushie column
   h += `<div>`;
   h += `<div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--accent5);margin-bottom:8px;">PLUSHIES</div>`;
   PLUSHIE_SET.forEach(name=>{
-    const short = name.replace(' Plushie','');
-    const val = readQty(cur[name]);
-    const entry = cur[name];
-    const auditTs = (entry && typeof entry==='object' && entry.savedAt) ? entry.savedAt : 0;
-    const auditStr = auditTs ? new Date(auditTs*1000).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : null;
-    h += `<div style="margin-bottom:6px;">`;
-    h += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">`;
-    h += `<label style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${short}</label>`;
-    h += `<input type="number" id="inv_${name.replace(/\s+/g,'_')}" value="${val}" min="0" step="1"
-      style="width:64px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:3px 6px;text-align:right;">`;
-    h += `</div>`;
-    if(auditStr) h += `<div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-top:1px;padding-right:2px;text-align:right;">audited ${auditStr}</div>`;
-    h += `</div>`;
+    h += buildItemRow(name, name.replace(' Plushie',''));
   });
   h += `</div>`;
 
@@ -4580,25 +4612,14 @@ function showInvEntryForm(){
   h += `<div>`;
   h += `<div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);margin-bottom:8px;">FLOWERS</div>`;
   FLOWER_SET.forEach(name=>{
-    const val = readQty(cur[name]);
-    const entry = cur[name];
-    const auditTs = (entry && typeof entry==='object' && entry.savedAt) ? entry.savedAt : 0;
-    const auditStr = auditTs ? new Date(auditTs*1000).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : null;
-    h += `<div style="margin-bottom:6px;">`;
-    h += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">`;
-    h += `<label style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</label>`;
-    h += `<input type="number" id="inv_${name.replace(/\s+/g,'_')}" value="${val}" min="0" step="1"
-      style="width:64px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:3px 6px;text-align:right;">`;
-    h += `</div>`;
-    if(auditStr) h += `<div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-top:1px;padding-right:2px;text-align:right;">audited ${auditStr}</div>`;
-    h += `</div>`;
+    h += buildItemRow(name, name);
   });
   h += `</div>`;
   h += `</div>`; // grid
 
   h += `<div style="display:flex;gap:8px;">`;
   h += `<button onclick="saveManualCounts()" style="flex:1;background:var(--accent);color:var(--bg);border:none;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:10px;cursor:pointer;letter-spacing:2px;text-transform:uppercase;">SAVE COUNTS</button>`;
-  if(Object.keys(cur).length > 0){
+  if(hasExisting){
     h += `<button onclick="cancelInvEntry()" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;padding:10px 14px;cursor:pointer;letter-spacing:1px;">CANCEL</button>`;
   }
   h += `</div>`;
