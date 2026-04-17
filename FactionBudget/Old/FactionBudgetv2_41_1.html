@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.40.16</title>
+<title>Faction Budget v2.41.1</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1061,7 +1061,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.40.16';
+const APP_VERSION = '2.41.1';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1126,7 +1126,10 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
-  { v:'2.40.16', date:'2026-04-16', notes:[
+  { v:'2.41.1', date:'2026-04-16', notes:[
+    '[*] BUG-INV-UPDATE: Fixed "narrative.match is not a function" crash in fetchInvPurchases(). The Torn v1 log API can return entry.log as a non-string value (object or number). narrative is now coerced with String() before regex matching, preventing the TypeError that aborted the UPDATE button fetch entirely.',
+  ]},
+  { v:'2.40.0', date:'2026-04-16', notes:[
     '[+] MEMBERS-TAB: All faction members now always rendered — zero-usage members show with "— no usage" placeholder instead of being hidden.',
     '[+] MEMBERS-TAB: New XYZ row layout. X = member name with proportional progress bar. Y = tappable category pills (MED, DRUG, ALC, NRG, etc.) each showing category total MV; tap opens detail sheet with per-item qty and cost. Z = member total MV right-aligned.',
     '[+] MEMBERS-TAB: muShowDetail() bottom-sheet modal for category drill-down — shows each item used in that category with quantity and market value, sorted by cost desc.',
@@ -4889,7 +4892,9 @@ async function fetchInvPurchases(){
       // ── Narrative text ── v1 log stores the human-readable description in entry.log,
       //    NOT in entry.title (which is just the category label like "Bazaar purchase").
       //    Fallback chain: entry.log → entry.message → entry.text
-      const narrative = entry.log || entry.message || entry.text || '';
+      //    Coerce to string — entry.log can be a non-string (object/number) from the API,
+      //    which would cause .match() to throw "narrative.match is not a function".
+      const narrative = String(entry.log || entry.message || entry.text || '');
 
       // ── GAIN: Purchases (Item Market, Bazaar, Overseas/Abroad) ────────────────
       // Known Torn v1 log titles: "Item market purchase", "Abroad purchase",
