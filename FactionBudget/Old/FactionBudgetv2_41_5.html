@@ -1061,7 +1061,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.4';
+const APP_VERSION = '2.41.5';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1126,8 +1126,12 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.5', date:'2026-04-17', notes:[
+    '[*] BUG-INV-REGEX: fetchInvPurchases() bulk/single narrative regexes converted from consuming match to lookahead ((?:...) → (?=...)). Previously, the stop-word pattern consumed "at $" so ".+?" captured "Sheep Plushie at $25 each" instead of "Sheep Plushie" — causing museumNames lookup to fail and the purchase to be silently discarded. Lookahead leaves the stop-word unmatched so item name is clean. Confirmed with node: qty=1, item="Sheep Plushie" for Bits \'n\' Bobs format.',
+  ]},
   { v:'2.41.4', date:'2026-04-17', notes:[
-    '[*] BUG-INV-SHOP: fetchInvPurchases() now detects city shop / Bits \'n\' Bobs purchases. Previously, isBuy regex only matched "Item market|abroad|overseas|bazaar|auction" — city shop log entries (title: "Shop purchase" or similar) were silently skipped. Fix: (1) title regex extended with shop/city-shop patterns; (2) narrative-driven fallback added: any log entry whose entry.log starts with "You bought Nx..." now triggers buy parsing even if the title is unrecognized. Narrative regex also updated to stop item capture at "for a total" (Bits \'n\' Bobs format) in addition to "at $" and "for $".',
+    '[*] BUG-INV-SHOP: fetchInvPurchases() now detects city shop (Bits \'n\' Bobs) purchases. isBuy title regex now also matches "shop" and "city" — previously only matched market/bazaar/overseas/auction. Added narrative-driven fallback: any log entry whose entry.log starts with "You bought" triggers buy parsing regardless of unrecognized title. Narrative regex stop-words updated to also halt at "for a total" (Bits \'n\' Bobs format). Always-on title/raw diagnostics: titles and first raw entry now log on every UPDATE (removed one-shot _invLogTitlesSeen guard so repeat presses show fresh data).',
+    '[*] BUG-DBG-TDZ: dbgResults changed from let to var — eliminates "can\'t access lexical declaration before initialization" crash when RUN ALL is pressed before the debug panel script block fully evaluates.',
   ]},
   { v:'2.41.3', date:'2026-04-17', notes:[
     '[*] BUG-INV-AUDIT-MISMATCH: showInvEntryForm() now pre-fills each input with the effective count (manual base + auto-tracked delta) instead of the raw manual base. Previously, opening SET COUNTS showed the stale audited value, so saving reset the baseline without incorporating auto-tracked changes — causing the dashboard display to diverge from the form. Now the form shows the same number the dashboard displays. Delta contributions are shown inline (e.g. "base 563 +14 auto") so you can verify them before saving. Saving locks in the effective count as the new baseline and clears the accumulated delta for that item.',
@@ -4908,12 +4912,11 @@ async function fetchInvPurchases(){
       clog('Purchase log: no log entries returned','info');
     }
 
-    // On first fetch, dump unique titles to console for diagnostics
-    if(!S._invLogTitlesSeen){
-      S._invLogTitlesSeen = true;
-      const titles = [...new Set(entries.map(e=>e.title||'(no title)'))].slice(0,30);
-      clog(`inv purchase log titles: ${titles.join(' | ')}`, 'info');
-    }
+    // Always log unique titles + first entry raw dump for diagnostics
+    const titles = [...new Set(entries.map(e=>e.title||'(no title)'))].slice(0,30);
+    clog(`inv purchase log titles (${entries.length} entries): ${titles.join(' | ')}`, 'info');
+    // Dump first entry raw so we can see exact field names
+    if(entries.length){ clog('inv log[0] raw: '+JSON.stringify(entries[0]).slice(0,300), 'info'); }
 
     entries.forEach(entry=>{
       const id = String(entry._id||entry.id||'');
@@ -4929,13 +4932,14 @@ async function fetchInvPurchases(){
       //    which would cause .match() to throw "narrative.match is not a function".
       const narrative = String(entry.log || entry.message || entry.text || '');
 
-      // ── GAIN: Purchases (Item Market, Bazaar, Overseas/Abroad) ────────────────
+      // ── GAIN: Purchases (Item Market, Bazaar, Overseas/Abroad, City Shops) ────
       // Known Torn v1 log titles: "Item market purchase", "Abroad purchase",
-      //   "Overseas purchase", "Bazaar purchase", "Auction won"
-      // Also match city shop / Bits 'n' Bobs purchases (title: "Shop purchase" or similar)
-      // and use narrative-driven detection as final fallback for any "You bought..." entry
-      const isBuy = /item.{0,15}market|abroad|overseas|bazaar|auction|shop.{0,15}purchase|city.{0,15}shop/i.test(title)
-                 || /you bought\s+(?:\d+x?\s+|an?\s+)/i.test(narrative);
+      //   "Overseas purchase", "Bazaar purchase", "Auction won",
+      //   "Shop purchase" / "City shop" (Bits 'n' Bobs etc.)
+      // Narrative fallback: catch any title we haven't seen yet by detecting
+      //   "You bought Nx..." in the log text directly.
+      const isBuy = /item.{0,15}market|abroad|overseas|bazaar|auction|shop|city/i.test(title)
+                 || /^you bought\s/i.test(narrative);
       if(isBuy && !existingIds.has(id)){
         const data = entry.data||entry.params||{};
         let itemName = String(data.item_name||data.name||data.item||'');
@@ -4947,10 +4951,10 @@ async function fetchInvPurchases(){
         // "You bought a Kitten Plushie on the item market from HavocReveries at $500 each..."
         // "You bought a Chamois Plushie for $400..."
         // "You bought 1x Sheep Plushie at $25 each for a total of $25 from Bits 'n' Bobs"
-        // Stop item capture at "on <word>" OR "at $" OR "for $" OR "for a total"
+        // Stop at: "on <word>" | "at $" | "for a total" | "for $"
         if(!itemName && narrative){
-          const mBulk   = narrative.match(/you bought\s+(\d+)x?\s+(.+?)\s+(?:on\s+\S|at\s+\$|for\s+(?:a\s+total|\$))/i);
-          const mSingle = narrative.match(/you bought\s+an?\s+(.+?)\s+(?:on\s+\S|at\s+\$|for\s+(?:a\s+total|\$))/i);
+          const mBulk   = narrative.match(/you bought\s+(\d+)x?\s+(.+?)\s+(?=on\s+\S|at\s+\$|for\s+(?:a\s+total|\$))/i);
+          const mSingle = narrative.match(/you bought\s+an?\s+(.+?)\s+(?=on\s+\S|at\s+\$|for\s+(?:a\s+total|\$))/i);
           if(mBulk)        { qty=parseInt(mBulk[1])||1;  itemName=mBulk[2].trim(); }
           else if(mSingle) { qty=1;                       itemName=mSingle[1].trim(); }
         }
@@ -6676,7 +6680,7 @@ function renderDebugEvents(){
 // ════════════════════════════════════════════
 // API DEBUG PANEL
 // ════════════════════════════════════════════
-let dbgResults = {};
+var dbgResults = {}; // var (not let) — avoids TDZ when dbgRunAll() is called early
 
 async function dbgTest(section, sel, key){
   if(!S.key){ document.getElementById('dbgOut').textContent='No API key connected.'; return; }
