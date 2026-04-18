@@ -368,7 +368,7 @@
   <div class="logo-dot"></div>
   <h1>PatchTool</h1>
   <span>// FactionBudget HTML Editor</span>
-  <div class="header-version" id="toolVersion">v1.1.2</div>
+  <div class="header-version" id="toolVersion">v1.2.0</div>
 </header>
 
 <main>
@@ -439,7 +439,7 @@
 </main>
 
 <script>
-const TOOL_VERSION = '1.1.2';
+const TOOL_VERSION = '1.2.0';
 // ─── State ───────────────────────────────────────────────
 let srcText   = null;   // original file content
 let srcName   = '';
@@ -454,7 +454,7 @@ exact text to find (must be unique in file)<br>
 <code>===</code><br>
 replacement text<br>
 <code>&gt;&gt;&gt; END</code><br><br>
-Multiple blocks separated by a blank line are all applied in order.`,
+Multiple blocks separated by a blank line are all applied in one pass. Format is auto-detected on paste.`,
 
   line_range: `<strong>line_range</strong> — replace a line range:<br>
 <code>LINES 1240-1255</code><br>
@@ -542,6 +542,12 @@ function setFmt(btn) {
 
 // ─── Patch parsing ───────────────────────────────────────
 function parsePatch(raw) {
+  // Auto-detect str_replace format regardless of active tab
+  if (/<<<\s*FIND/m.test(raw)) {
+    document.querySelectorAll('.fmt-tab').forEach(t => t.classList.remove('active'));
+    const tab = document.querySelector('.fmt-tab[data-fmt="str_replace"]');
+    if (tab) { tab.classList.add('active'); activeFmt = 'str_replace'; document.getElementById('fmtHint').innerHTML = FMT_HINTS['str_replace']; }
+  }
   const fmt = activeFmt;
 
   if (fmt === 'str_replace') {
@@ -676,7 +682,7 @@ function previewPatch() {
   for (const op of parsed.ops) {
     if (op.type === 'str_replace') {
       const idx = tempText.indexOf(op.find);
-      if (idx === -1) { diffLines.push(`<div class="d-hdr">✗ FIND block not found</div>`); allOk = false; continue; }
+      if (idx === -1) { diffLines.push(`<div class="d-hdr">✗ FIND block not found — "${esc(op.find.slice(0,50).replace(/\n/g,'↵'))}"</div>`); allOk = false; continue; }
       const before = tempText.slice(0, idx).split('\n');
       const lineNum = before.length;
       diffLines.push(`<div class="d-hdr">@@ line ~${lineNum} @@</div>`);
@@ -721,8 +727,10 @@ function applyPatch() {
   let allOk = true;
 
   for (let i = 0; i < parsed.ops.length; i++) {
-    addLog('info', `Applying op ${i+1}/${parsed.ops.length} [${parsed.ops[i].type}]`);
-    const result = applyOp(text, parsed.ops[i], addLog);
+    const op = parsed.ops[i];
+    const hint = op.find ? ` — "${op.find.slice(0,50).replace(/\n/g,'↵')}"` : '';
+    addLog('info', `Applying op ${i+1}/${parsed.ops.length} [${op.type}]${hint}`);
+    const result = applyOp(text, op, addLog);
     if (result === null) { allOk = false; break; }
     text = result;
   }
