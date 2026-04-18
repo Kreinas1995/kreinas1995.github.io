@@ -254,6 +254,17 @@
     .sh{flex-direction:column;align-items:flex-start;}
     .oc-form .fg:last-child{grid-column:1/-1;}
   }
+
+  /* DEBUG PANEL — collapsible sections */
+  .dbg-section{background:var(--surface);border:1px solid var(--border);margin-bottom:8px;overflow:hidden;}
+  .dbg-section-hdr{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;cursor:pointer;user-select:none;transition:background 0.15s;}
+  .dbg-section-hdr:hover{background:var(--surface2);}
+  .dbg-section-label{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text);}
+  .dbg-section-caret{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);transition:transform 0.2s;}
+  .dbg-section-caret.collapsed{transform:rotate(-90deg);}
+  .dbg-section-body{padding:14px 16px 16px;border-top:1px solid var(--border);}
+  .dbg-section-body.collapsed{display:none;}
+  .dbg-sub-label{font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--muted2);margin-bottom:6px;}
 </style>
 </head>
 <body>
@@ -843,77 +854,182 @@
     <div class="tw" id="logTbl"><div class="empty">No data yet.</div></div>
   </div>
 
-  <!-- EVENT DEBUG -->
+  <!-- DEBUG -->
   <div class="panel" id="panel-debug">
-    <!-- Endpoint tester -->
-    <div style="background:var(--surface);border:1px solid var(--border);padding:14px;margin-bottom:14px;">
-      <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;font-family:'Space Mono',monospace;">ENDPOINT TESTER</div>
-      <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-bottom:6px;letter-spacing:1px;">USER</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
-        <button class="btn-sm" onclick="dbgTest('user','events','events')">user/events</button>
-        <button class="btn-sm" onclick="dbgTest('user','log','log')" style="border-color:var(--accent5);color:var(--accent5);">user/log sample</button>
-        <button class="btn-sm" onclick="dbgLogCategories()" style="border-color:var(--accent5);color:var(--accent5);">torn/logcategories</button>
+
+    <!-- ── SECTION 1: API ENDPOINT TESTER ── -->
+    <div class="dbg-section" id="dbgSec-api">
+      <div class="dbg-section-hdr" onclick="dbgToggleSection('api')">
+        <span class="dbg-section-label">🔌 API ENDPOINT TESTER</span>
+        <span class="dbg-section-caret" id="dbgCaret-api">▾</span>
       </div>
-      <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted2);margin-bottom:6px;letter-spacing:1px;">FACTION</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
-        <button class="btn-sm" onclick="dbgTest('faction','basic','basic')">faction/basic</button>
-        <button class="btn-sm" onclick="dbgTest('faction','currency','money')" style="border-color:var(--accent3);color:var(--accent3);">faction/currency ★</button>
-        <button class="btn-sm" onclick="dbgTest('faction','donations','donations')">faction/donations</button>
-        <button class="btn-sm" onclick="dbgTest('faction','armorynews','armorynews')">faction/armorynews</button>
-        <button class="btn-sm" onclick="dbgTest('faction','mainnews','mainnews')">faction/mainnews</button>
-        <button class="btn-sm" onclick="dbgTest('faction','attacknews','attacknews')">faction/attacknews</button>
-        <button class="btn-sm" onclick="dbgTest('faction','crimenews','crimenews')">faction/crimenews</button>
+      <div class="dbg-section-body" id="dbgBody-api">
+        <div class="dbg-sub-label">USER</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+          <button class="btn-sm" onclick="dbgTest('user','basic','userbasic')">user/basic</button>
+          <button class="btn-sm" onclick="dbgTest('user','events','events')">user/events</button>
+          <button class="btn-sm" onclick="dbgTest('user','log','log')" style="border-color:var(--accent5);color:var(--accent5);">user/log (raw)</button>
+          <button class="btn-sm" onclick="dbgUserLog()" style="border-color:var(--accent5);color:var(--accent5);">user/log (analyzed)</button>
+          <button class="btn-sm" onclick="dbgLogCategories()" style="border-color:var(--accent5);color:var(--accent5);">torn/logcategories</button>
+        </div>
+        <div class="dbg-sub-label" style="margin-top:4px;">FACTION</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+          <button class="btn-sm" onclick="dbgTest('faction','basic','basic')">faction/basic</button>
+          <button class="btn-sm" onclick="dbgTest('faction','currency','money')" style="border-color:var(--accent3);color:var(--accent3);">faction/currency ★</button>
+          <button class="btn-sm" onclick="dbgTest('faction','donations','donations')">faction/donations</button>
+          <button class="btn-sm" onclick="dbgTest('faction','armorynews','armorynews')">faction/armorynews</button>
+          <button class="btn-sm" onclick="dbgTest('faction','mainnews','mainnews')">faction/mainnews</button>
+          <button class="btn-sm" onclick="dbgTest('faction','attacknews','attacknews')">faction/attacknews</button>
+          <button class="btn-sm" onclick="dbgTest('faction','crimenews','crimenews')">faction/crimenews</button>
+        </div>
+        <div class="dbg-sub-label" style="margin-top:4px;">USER LOG — BY CATEGORY</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">
+          <button class="btn-sm" onclick="dbgTestLogCat(85)" style="border-color:var(--accent5);color:var(--accent5);">cat=85 Item sending</button>
+          <button class="btn-sm" onclick="dbgTestLogCat(86)" style="border-color:var(--accent5);color:var(--accent5);">cat=86 Shops</button>
+          <button class="btn-sm" onclick="dbgTestLogCat(18)" style="border-color:var(--accent5);color:var(--accent5);">cat=18 Bazaars</button>
+          <button class="btn-sm" onclick="dbgTestLogCat(11)" style="border-color:var(--accent5);color:var(--accent5);">cat=11 Item market</button>
+          <button class="btn-sm" onclick="dbgTestLogCat(15)" style="border-color:var(--accent5);color:var(--accent5);">cat=15 Items incoming</button>
+          <button class="btn-sm" onclick="dbgTestLogCat(87)" style="border-color:var(--accent5);color:var(--accent5);">cat=87 Travel</button>
+          <button class="btn-sm" onclick="dbgTestLogCat(88)" style="border-color:var(--accent5);color:var(--accent5);">cat=88 Auctions</button>
+          <button class="btn-sm" onclick="dbgTestLogCat(94)" style="border-color:var(--accent3);color:var(--accent3);">cat=94 Trades ★</button>
+          <button class="btn-sm" onclick="dbgTestLogCat(12)" style="border-color:var(--accent5);color:var(--accent5);">cat=12 Items</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+          <button class="btn-primary" onclick="dbgRunAll()" style="font-size:10px;padding:6px 14px;">▶ RUN ALL ENDPOINTS</button>
+          <button class="btn-sm" onclick="dbgCopy()" style="border-color:var(--accent2);color:var(--accent2);">⎘ COPY REPORT</button>
+        </div>
+        <div id="dbgStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px;min-height:14px;"></div>
+        <pre id="dbgOut" style="background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:9px;color:var(--text);max-height:320px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;margin:0;">Run a test to see raw API output.</pre>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-        <button class="btn-primary" onclick="dbgRunAll()" style="font-size:10px;padding:6px 14px;">▶ RUN ALL</button>
-        <button class="btn-sm" onclick="dbgCopy()" style="border-color:var(--accent2);color:var(--accent2);">⎘ COPY REPORT</button>
-      </div>
-      <div id="dbgStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px;"></div>
-      <div id="dbgOut" style="background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);max-height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;">Run a test to see raw API output.</div>
     </div>
 
-    <!-- Item events viewer -->
-    <div class="sh">
-      <span class="st">Raw User Events</span>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <input type="text" class="ls" id="debugSearch" placeholder="Filter events…" oninput="renderDebugEvents()">
-        <button class="btn-sm" id="btnDeltaOnly" onclick="toggleDeltaFilter()" style="font-size:9px;padding:4px 8px;">NEW ONLY</button>
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)" id="debugCount"></span>
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);display:none;" id="debugNewBadge"></span>
+    <!-- ── SECTION 2: FULL API DIAGNOSTIC ── -->
+    <div class="dbg-section" id="dbgSec-diag">
+      <div class="dbg-section-hdr" onclick="dbgToggleSection('diag')">
+        <span class="dbg-section-label">🔬 FULL API DIAGNOSTIC</span>
+        <span class="dbg-section-caret" id="dbgCaret-diag">▾</span>
+      </div>
+      <div class="dbg-section-body" id="dbgBody-diag">
+        <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.8;">Tests every API selection. Diagnose permission errors, vault access, and key scope. Rate-limited to 75 calls/min.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <button class="btn-primary" id="btnAdminDiag" onclick="adminRunFullDiagnostic()">▶ RUN FULL DIAGNOSTIC</button>
+          <button id="btnDiagCopy" onclick="adminCopyDiagnostic()" style="display:none;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:9px 14px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--accent2)';" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)';">📋 COPY REPORT</button>
+        </div>
+        <div id="adminDiagWrap" style="display:none;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span id="adminDiagPct" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">0%</span>
+            <span id="adminDiagETA" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">ETA: calculating…</span>
+          </div>
+          <div style="height:4px;background:var(--border);overflow:hidden;margin-bottom:10px;">
+            <div id="adminDiagBar" style="height:100%;width:0%;background:var(--accent3);transition:width 0.3s;"></div>
+          </div>
+          <pre id="adminDiagOut" style="display:none;background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:9px;color:var(--text);max-height:320px;overflow-y:auto;white-space:pre-wrap;line-height:1.6;margin:0;"></pre>
+          <div id="adminDiagCopyStatus" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2);margin-top:6px;min-height:14px;"></div>
+        </div>
       </div>
     </div>
-    <div class="tw" id="debugTbl"><div class="empty">Sync events first to see raw data.</div></div>
+
+    <!-- ── SECTION 3: STATE INSPECTOR ── -->
+    <div class="dbg-section" id="dbgSec-state">
+      <div class="dbg-section-hdr" onclick="dbgToggleSection('state')">
+        <span class="dbg-section-label">🗄 STATE &amp; STORAGE INSPECTOR</span>
+        <span class="dbg-section-caret" id="dbgCaret-state">▾</span>
+      </div>
+      <div class="dbg-section-body" id="dbgBody-state">
+        <div class="dbg-sub-label">LIVE STATE SNAPSHOT</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
+          <button class="btn-sm" onclick="dbgSnapState()">📊 Print State Summary</button>
+          <button class="btn-sm" onclick="dbgSnapInventory()" style="border-color:var(--accent2);color:var(--accent2);">📦 Inventory Delta</button>
+          <button class="btn-sm" onclick="dbgSnapReceipts()" style="border-color:var(--accent2);color:var(--accent2);">📋 Receipts</button>
+          <button class="btn-sm" onclick="dbgSnapOC()" style="border-color:var(--accent3);color:var(--accent3);">⚡ OC State</button>
+          <button class="btn-sm" onclick="dbgSnapWar()" style="border-color:var(--accent3);color:var(--accent3);">⚔ War State</button>
+          <button class="btn-sm" onclick="dbgSnapSync()" style="border-color:var(--accent5);color:var(--accent5);">🔄 Sync Timestamps</button>
+        </div>
+        <div class="dbg-sub-label" style="margin-top:4px;">LOCALSTORAGE</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <button class="btn-sm" onclick="adminInspectStorage()">🔍 Inspect All Keys</button>
+          <span id="cacheSizeBadge" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);"></span>
+        </div>
+        <pre id="dbgStateOut" style="background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:9px;color:var(--text);max-height:320px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;margin:0;display:none;"></pre>
+        <div id="adminStorageOut" style="background:var(--bg);border:1px solid var(--border);padding:12px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);max-height:240px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;margin-top:8px;display:none;"></div>
+      </div>
+    </div>
+
+    <!-- ── SECTION 4: EVENT LOG ── -->
+    <div class="dbg-section" id="dbgSec-events">
+      <div class="dbg-section-hdr" onclick="dbgToggleSection('events')">
+        <span class="dbg-section-label">📡 EVENT LOG VIEWER</span>
+        <span class="dbg-section-caret" id="dbgCaret-events">▾</span>
+      </div>
+      <div class="dbg-section-body" id="dbgBody-events">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <input type="text" class="ls" id="debugSearch" placeholder="Filter events…" oninput="renderDebugEvents()">
+          <button class="btn-sm" id="btnDeltaOnly" onclick="toggleDeltaFilter()" style="font-size:9px;padding:4px 8px;">NEW ONLY</button>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);" id="debugCount"></span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);display:none;" id="debugNewBadge"></span>
+        </div>
+        <div class="tw" id="debugTbl"><div class="empty">Sync events first to see raw data.</div></div>
+      </div>
+    </div>
+
+    <!-- ── SECTION 5: ITEM TRACKING ── -->
+    <div class="dbg-section" id="dbgSec-items">
+      <div class="dbg-section-hdr" onclick="dbgToggleSection('items')">
+        <span class="dbg-section-label">📦 ITEM TRACKING — OUTGOING &amp; PURCHASES</span>
+        <span class="dbg-section-caret" id="dbgCaret-items">▾</span>
+      </div>
+      <div class="dbg-section-body" id="dbgBody-items">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <button class="btn-sm" onclick="fetchOutgoingLog().then(renderDebugEvents)" style="border-color:var(--accent5);color:var(--accent5);">↻ Re-fetch Outgoing Log</button>
+          <button class="btn-sm" onclick="fetchInvPurchases()" style="border-color:var(--accent2);color:var(--accent2);">↻ Re-fetch Purchases</button>
+          <button class="btn-sm" onclick="_copyText(JSON.stringify(S.outgoing||[],null,2),()=>{clog('Outgoing copied','ok');})" style="border-color:var(--muted);color:var(--muted);">⎘ Copy Outgoing JSON</button>
+          <button class="btn-sm" onclick="_copyText(JSON.stringify(S.invPurchases||[],null,2),()=>{clog('Purchases copied','ok');})" style="border-color:var(--muted);color:var(--muted);">⎘ Copy Purchases JSON</button>
+        </div>
+        <!-- Outgoing and Purchases blocks are injected here by renderDebugEvents() -->
+        <div id="hvOutgoingLogBlock"></div>
+        <div id="hvIncomingPurchasesBlock"></div>
+      </div>
+    </div>
+
+    <!-- ── SECTION 6: OC DIAGNOSTICS ── -->
+    <div class="dbg-section" id="dbgSec-oc">
+      <div class="dbg-section-hdr" onclick="dbgToggleSection('oc')">
+        <span class="dbg-section-label">⚡ OC DIAGNOSTICS</span>
+        <span class="dbg-section-caret" id="dbgCaret-oc">▾</span>
+      </div>
+      <div class="dbg-section-body" id="dbgBody-oc">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <button class="btn-sm" onclick="manualOCRefresh()" style="border-color:var(--accent3);color:var(--accent3);">↻ Re-fetch OC v2</button>
+          <button class="btn-sm" onclick="ocRawDiag()" style="border-color:var(--accent3);color:var(--accent3);">🔬 Raw v2 Response Dump</button>
+        </div>
+        <div id="ocV2Status" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:8px;min-height:14px;"></div>
+        <pre id="ocRawOut" style="display:none;background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:9px;color:var(--text);max-height:320px;overflow-y:auto;white-space:pre-wrap;line-height:1.6;margin:0;"></pre>
+      </div>
+    </div>
+
+    <!-- ── SECTION 7: ERROR LOG ── -->
+    <div class="dbg-section" id="dbgSec-errors">
+      <div class="dbg-section-hdr" onclick="dbgToggleSection('errors')">
+        <span class="dbg-section-label" id="dbgErrorLabel">⚠ ERROR LOG</span>
+        <span class="dbg-section-caret" id="dbgCaret-errors">▾</span>
+      </div>
+      <div class="dbg-section-body" id="dbgBody-errors">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+          <button class="btn-sm" onclick="copyErrorLog()" id="errCopyBtn" style="font-size:9px;padding:4px 8px;border-color:var(--accent2);color:var(--accent2);">⎘ COPY</button>
+          <button class="btn-sm" onclick="clearErrorLog()" style="font-size:9px;padding:4px 8px;border-color:var(--accent4);color:var(--accent4);">CLEAR</button>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent4);display:none;" id="errLogBadge"></span>
+        </div>
+        <div class="tw" id="errLogTbl"><div class="empty">No errors logged yet.</div></div>
+      </div>
+    </div>
 
   </div>
 
   <!-- ADMIN -->
   <div class="panel" id="panel-admin">
     <div style="background:rgba(255,107,107,0.06);border:1px solid rgba(255,107,107,0.2);padding:12px 16px;margin-bottom:20px;font-family:'Space Mono',monospace;font-size:10px;color:var(--accent4);line-height:1.8;">
-      ⚠ ADMIN PANEL — Data management, export/import, and diagnostics. Changes here directly affect stored data.
+      ⚠ ADMIN PANEL — Data management only. Diagnostics and inspection have moved to the <strong>Debug</strong> tab.
     </div>
-
-    <!-- FULL API DIAGNOSTIC -->
-    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
-      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent3);margin-bottom:8px;font-family:'Space Mono',monospace;">🔬 FULL API DIAGNOSTIC</div>
-      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.8;">Tests every API selection including <span style="color:var(--accent3)">faction/currency ★</span> (vault). Diagnose why vault shows ---. Rate-limited to 75 calls/min.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-        <button class="btn-primary" id="btnAdminDiag" onclick="adminRunFullDiagnostic()">▶ RUN FULL DIAGNOSTIC</button>
-        <button id="btnDiagCopy" onclick="adminCopyDiagnostic()" style="display:none;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:9px 14px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--accent2)';" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)';">📋 COPY REPORT</button>
-      </div>
-      <div id="adminDiagWrap" style="display:none;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-          <span id="adminDiagPct" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">0%</span>
-          <span id="adminDiagETA" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">ETA: calculating…</span>
-        </div>
-        <div style="height:4px;background:var(--border);overflow:hidden;margin-bottom:10px;">
-          <div id="adminDiagBar" style="height:100%;width:0%;background:var(--accent3);transition:width 0.3s;"></div>
-        </div>
-        <pre id="adminDiagOut" style="display:none;background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:9px;color:var(--text);max-height:320px;overflow-y:auto;white-space:pre-wrap;line-height:1.6;margin:0;"></pre>
-        <div id="adminDiagCopyStatus" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2);margin-top:6px;min-height:14px;"></div>
-      </div>
-    </div>
-
-    <!-- VERSION -->
     <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent);margin-bottom:14px;font-family:'Space Mono',monospace;">⬡ VERSION HISTORY</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -1017,16 +1133,6 @@
       </div>
     </div>
 
-    <!-- STORAGE INSPECTOR -->
-    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
-      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">🗄 LOCALSTORAGE INSPECTOR</div>
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <button class="btn-sm" onclick="adminInspectStorage()">🔍 Inspect All Keys</button>
-        <span id="cacheSizeBadge" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);"></span>
-      </div>
-      <div id="adminStorageOut" style="background:var(--bg);border:1px solid var(--border);padding:12px;font-family:'Space Mono',monospace;font-size:10px;color:var(--text);max-height:240px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;margin-top:12px;display:none;"></div>
-    </div>
-
     <!-- RECEIPT AUDIT TABLE -->
     <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">📋 RECEIPT AUDIT — ALL ENTRIES (including deleted)</div>
@@ -1035,19 +1141,6 @@
         <button class="btn-sm" onclick="adminRestoreDeleted()" style="border-color:var(--accent2);color:var(--accent2);">↩ Restore All Deleted</button>
       </div>
       <div class="tw" id="adminAuditTbl" style="display:none;"></div>
-    </div>
-
-    <!-- ERROR LOG -->
-    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;">
-      <div class="sh" style="margin-bottom:12px;">
-        <span class="st" style="color:var(--accent4);">⚠ Error Log</span>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent4);display:none;" id="errLogBadge"></span>
-          <button class="btn-sm" onclick="copyErrorLog()" id="errCopyBtn" style="font-size:9px;padding:4px 8px;border-color:var(--accent2);color:var(--accent2);">⎘ COPY</button>
-          <button class="btn-sm" onclick="clearErrorLog()" style="font-size:9px;padding:4px 8px;border-color:var(--accent4);color:var(--accent4);">CLEAR</button>
-        </div>
-      </div>
-      <div class="tw" id="errLogTbl"><div class="empty">No errors logged yet.</div></div>
     </div>
   </div>
 
@@ -1062,7 +1155,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.9';
+const APP_VERSION = '2.41.11';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1127,6 +1220,20 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.11', date:'2026-04-17', notes:[
+    '[+] UX-DEBUG-PANEL: Debug tab completely rebuilt. All debug functionality consolidated into 7 collapsible sections: (1) API Endpoint Tester, (2) Full API Diagnostic, (3) State & Storage Inspector, (4) Event Log Viewer, (5) Item Tracking, (6) OC Diagnostics, (7) Error Log. Sections can be collapsed/expanded independently via dbgToggleSection().',
+    '[+] DBG-LOG-CAT-BUTTONS: New per-category log test buttons in Endpoint Tester — one button per purchase category (85 Item sending, 86 Shops, 18 Bazaars, 11 Item market, 15 Items incoming, 87 Travel, 88 Auctions, 94 Trades, 12 Items). Each fetches that category and prints a title/category distribution plus raw first 3 entries for immediate field inspection.',
+    '[+] DBG-STATE-SNAPS: New State & Storage Inspector section with 6 snapshot buttons: State Summary (all counters), Inventory Delta (manual + delta + adjusted per item), Receipts (active/deleted/top members), OC State (v2 crimes, payouts), War State (per-war breakdown), Sync Timestamps (all watermarks + fetch meta). All print to a stable pre output block.',
+    '[+] DBG-ITEM-TRACKING: Item Tracking section now has direct Re-fetch Outgoing Log and Re-fetch Purchases buttons, plus Copy JSON buttons for both S.outgoing and S.invPurchases.',
+    '[*] DBG-CLEANUP: Full API Diagnostic and Storage Inspector moved from Admin to Debug. Admin panel now contains data management only (export, import, manual receipt, danger zone, deep fetch, version, receipt audit). Admin warning banner updated accordingly.',
+    '[*] DBG-RENDER: renderDebugEvents() no longer re-injects hvOutgoingLogBlock and hvIncomingPurchasesBlock via insertAdjacentHTML — these are now permanent containers in the HTML. Eliminates the root cause of the duplicate block bug. Both blocks are updated via innerHTML assignment.',
+    '[+] DBG-USER-LOG-ANALYZED: Added "user/log (analyzed)" button (calls existing dbgUserLog()) alongside the raw user/log button in the endpoint tester.',
+  ]},
+  { v:'2.41.10', date:'2026-04-17', notes:[
+    '[*] BUG-INV-MULTICAT: fetchInvPurchases() now fetches all purchase-relevant log categories in a sequential loop instead of only cat=86 (Shops). Categories fetched: 86=Shops, 18=Bazaars, 11=Item market, 87=Travel/abroad, 88=Auctions, 15=Items incoming, 94=Trades. Previously only Shops entries were ever checked — Item market, Bazaar, Travel, Auction, and Items incoming purchases were silently missed despite being listed in comments. Torn API accepts only one cat= per call so each category is fetched separately; entries are merged and deduplicated by log ID before processing. Errors in any single category are logged but do not abort remaining fetches.',
+    '[*] BUG-INV-TRADES: fetchInvPurchases() now handles cat=94 (Trades) entries. isBuy gate extended to match entry.category "Trades". Narrative parser added for "X added Nx Item, Nx Item to a trade with you" format — splits comma-separated items and pushes each museum-set match to S.invPurchases with a composite id+itemName dedup key. This supplements the existing calcInvDelta() trade logic (which reads from S.eventLog and is capped at ~100 events) with the full persistent user/log record.',
+    '[*] BUG-INV-PURCHASES-EMPTY: Debug "INCOMING PURCHASES" block was always empty because it depended entirely on S.invPurchases which was never populated (consequence of only fetching cat=86). Resolved by the multi-category fix above.',
+  ]},
   { v:'2.41.9', date:'2026-04-17', notes:[
     '[*] BUG-CUSTOM-KEY-LOG: fetchOutgoingLog() now requests &cat=85 (Item sending) and fetchInvPurchases() requests &cat=86 (Shops). Without a category filter the 99-entry API window was saturated by company/casino/faction noise — on custom keys with broad log access, purchase and send entries were never returned. Category filter pins each call to only the relevant log category.',
     '[*] BUG-INV-PURCHASES-CATEGORY: fetchInvPurchases() isBuy gate now uses entry.category as primary check (Shops, Bazaars, Item market, Travel, Auctions, Items incoming) before falling back to title regex and narrative text. entry.category is a structured API field and more reliable than parsing the human-readable title string.',
@@ -4928,33 +5035,41 @@ async function fetchInvPurchases(){
   try{
     // v1 API — same as fetchOutgoingLog; returns {log: {id: entry, ...}}
     const fromParam = earliestSince>0 ? `&from=${earliestSince}` : '';
-    // cat= filters: 11=Item market, 15=Items incoming, 18=Bazaars, 86=Shops, 87=Travel, 88=Auctions
-    // Narrows the 99-entry window to purchase-relevant entries only — critical for custom keys
-    // where company/faction noise otherwise fills the window with zero purchases visible
-    const url = `https://api.torn.com/user/?selections=log${fromParam}&cat=86&key=${S.key}`;
-    trackApiCall();
-    const r = await fetch(url); const d = await r.json();
-    if(d.error){
-      clog(`Purchase log [${d.error.code}]: ${d.error.error}`, 'warn');
-      if(statusEl) statusEl.textContent = `Purchase log error [${d.error.code}]: ${d.error.error}`;
-      return;
+    // Fetch all purchase-relevant categories separately (Torn API only accepts one cat= per call).
+    // 11=Item market, 15=Items incoming, 18=Bazaars, 86=Shops, 87=Travel, 88=Auctions, 94=Trades
+    // Each call is filtered to its category so the 99-entry window is never saturated by noise.
+    const PURCHASE_CATS = [86, 18, 11, 87, 88, 15, 94];
+    const seenIds = new Set();
+    const allEntries = [];
+    for(const cat of PURCHASE_CATS){
+      const url = `https://api.torn.com/user/?selections=log${fromParam}&cat=${cat}&key=${S.key}`;
+      trackApiCall();
+      const r = await fetch(url); const d = await r.json();
+      if(d.error){
+        clog(`Purchase log cat=${cat} [${d.error.code}]: ${d.error.error}`, 'warn');
+        // Continue — other categories may still succeed
+        continue;
+      }
+      const log = d.log||{};
+      Object.entries(log).forEach(([id,e])=>{
+        if(!seenIds.has(id)){ seenIds.add(id); allEntries.push({...e, _id:id}); }
+      });
+      clog(`Purchase log cat=${cat}: ${Object.keys(log).length} entries`, 'info');
     }
-
-    const log = d.log||{};
-    const entries = Object.entries(log).map(([id,e])=>({...e, _id:id}));
+    const entries = allEntries;
     if(!entries.length){
-      clog('Purchase log: no log entries returned','info');
+      clog('Purchase log: no log entries returned across all categories','info');
     }
 
     // Always log unique titles + first entry raw dump for diagnostics
     const titles = [...new Set(entries.map(e=>e.title||'(no title)'))].slice(0,30);
-    clog(`inv purchase log titles (${entries.length} entries): ${titles.join(' | ')}`, 'info');
+    clog(`inv purchase log titles (${entries.length} entries total): ${titles.join(' | ')}`, 'info');
     // Dump first entry raw so we can see exact field names
     if(entries.length){ clog('inv log[0] raw: '+JSON.stringify(entries[0]).slice(0,300), 'info'); }
 
-    entries.forEach(entry=>{
+    for(const entry of entries){
       const id = String(entry._id||entry.id||'');
-      if(!id) return;
+      if(!id) continue;
 
       const ts    = entry.timestamp||0;
       const title = entry.title||''; // category label e.g. "Bazaar purchase"
@@ -4966,15 +5081,17 @@ async function fetchInvPurchases(){
       //    which would cause .match() to throw "narrative.match is not a function".
       const narrative = String(entry.log || entry.message || entry.text || '');
 
-      // ── GAIN: Purchases (Item Market, Bazaar, Overseas/Abroad, City Shops) ────
+      // ── GAIN: Purchases (Item Market, Bazaar, Overseas/Abroad, City Shops, Trades) ──
       // Primary gate: entry.category (structured API field, most reliable)
       //   86=Shops, 18=Bazaars, 11=Item market, 87=Travel/abroad, 88=Auctions, 15=Items incoming
+      //   94=Trades — items received via an accepted trade
       // Secondary: title string match (human-readable label)
-      // Tertiary: narrative text fallback ("You bought Nx...") for unknown future categories
+      // Tertiary: narrative text fallback ("You bought Nx..." / "X added Nx... to a trade with you")
       const cat = String(entry.category||'');
-      const isBuy = /^shops$|^bazaar|^item.{0,10}market|^travel|^auction|^items.{0,10}incoming/i.test(cat)
-                 || /item.{0,15}market|abroad|overseas|bazaar|auction|shop|city/i.test(title)
-                 || /^you bought\s/i.test(narrative);
+      const isBuy = /^shops$|^bazaar|^item.{0,10}market|^travel|^auction|^items.{0,10}incoming|^trades$/i.test(cat)
+                 || /item.{0,15}market|abroad|overseas|bazaar|auction|shop|city|^trade/i.test(title)
+                 || /^you bought\s/i.test(narrative)
+                 || /added.+?to\s+a\s+trade\s+with\s+you/i.test(narrative);
       if(isBuy && !existingIds.has(id)){
         const data = entry.data||entry.params||{};
         let itemName = String(data.item_name||data.name||data.item||'');
@@ -4993,6 +5110,39 @@ async function fetchInvPurchases(){
           if(mBulk)        { qty=parseInt(mBulk[1])||1;  itemName=mBulk[2].trim(); }
           else if(mSingle) { qty=1;                       itemName=mSingle[1].trim(); }
         }
+
+        // Trade narrative: "DanTheHighMan added 5x Camel Plushie, 2x Dahlia to a trade with you"
+        // For trades, entry.log may list multiple items — parse the first museum match.
+        // (calcInvDelta also handles these via eventLog; this path catches them via user/log.)
+        // Note: multi-item trade lines are handled by iterating comma-separated items.
+        if(!itemName && /added.+?to\s+a\s+trade\s+with\s+you/i.test(narrative)){
+          const mTradeItems = narrative.match(/added\s+(.+?)\s+to\s+a\s+trade\s+with\s+you/i);
+          if(mTradeItems){
+            const itemsStr = mTradeItems[1];
+            const parts = itemsStr.split(',');
+            parts.forEach(part=>{
+              part = part.trim().replace(/\s*\[.*?\]\s*$/,'').trim();
+              if(!part) return;
+              const mQ = part.match(/^(\d+)x?\s+(.+)$/i);
+              const mA = part.match(/^an?\s+(.+)$/i);
+              let pQty=1, pItem='';
+              if(mQ)       { pQty=parseInt(mQ[1])||1; pItem=mQ[2].trim(); }
+              else if(mA)  { pQty=1; pItem=mA[1].trim(); }
+              else         { pItem=part; }
+              let pMatched='';
+              if(museumNames.has(pItem))                       pMatched=pItem;
+              else if(shortToFull[pItem.toLowerCase()])        pMatched=shortToFull[pItem.toLowerCase()];
+              if(pMatched && !existingIds.has(id+'_'+pMatched)){
+                S.invPurchases.push({id:id+'_'+pMatched, ts, item:pMatched, qty:pQty, src:'trade-log'});
+                existingIds.add(id+'_'+pMatched);
+                newCount++;
+              }
+            });
+          }
+          // Skip the single-item matched block below for trade entries (already handled above)
+          continue;
+        }
+
         if(!qty) qty=1;
 
         let matched = '';
@@ -5038,7 +5188,7 @@ async function fetchInvPurchases(){
           newSellCount++;
         }
       }
-    });
+    }
 
     const sinceStr = earliestSince ? new Date(earliestSince*1000).toLocaleDateString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'ever';
     clog(`Purchase log: checked ${entries.length} entries since ${sinceStr}, ${newCount} purchase(s) + ${newSellCount} sell/listing(s) found`, 'ok');
@@ -6674,7 +6824,7 @@ function renderDebugEvents(){
   const eventEntries=(S.outgoing||[]).filter(r=>r.src!=='log');
   const allTitles=[...new Set(logEntries.map(r=>r.logTitle||'(no title)'))];
 
-  let lo=`<div id="hvOutgoingLogBlock" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">`;
+  let lo=``;
   lo+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent5);margin-bottom:10px;font-family:'Space Mono',monospace;">OUTGOING LOG (user/log)</div>`;
 
   const lastLogTs=logEntries.reduce((mx,r)=>Math.max(mx,r.ts),0);
@@ -6706,14 +6856,11 @@ function renderDebugEvents(){
     lo+='</tbody></table>';
   }
 
-  lo+=`<button onclick="_copyText(JSON.stringify(S.outgoing||[],null,2),()=>{this.textContent='✓ COPIED';setTimeout(()=>this.textContent='COPY OUTGOING JSON',2000);clog('Outgoing state copied','ok');})" style="margin-top:10px;background:none;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1px;padding:3px 10px;cursor:pointer;border-radius:3px;">COPY OUTGOING JSON</button>`;
-  lo+=`</div>`;
-
   // ── INCOMING PURCHASES SECTION
   // Surfaces S.invPurchases so auto-tracked buys are visible in debug tab
   const purchases=(S.invPurchases||[]);
   const sells=(S.invSells||[]);
-  let li=`<div id="hvIncomingPurchasesBlock" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">`;
+  let li=``;
   li+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);margin-bottom:10px;font-family:'Space Mono',monospace;">INCOMING PURCHASES (user/log)</div>`;
   li+=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:8px;display:flex;flex-wrap:wrap;gap:16px;">`;
   li+=`<span>purchases tracked: <span style="color:var(--accent2)">${purchases.length}</span></span>`;
@@ -6732,19 +6879,213 @@ function renderDebugEvents(){
     if(purchases.length>50) li+=`<tr><td colspan="4" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);text-align:center;padding:6px;">+${purchases.length-50} more</td></tr>`;
     li+='</tbody></table>';
   } else {
-    li+=`<div style="font-size:10px;color:var(--muted2);font-family:'Space Mono',monospace;">No purchases tracked yet — hit ↻ UPDATE on the Inventory tab.</div>`;
+    li+=`<div style="font-size:10px;color:var(--muted2);font-family:'Space Mono',monospace;">No purchases tracked yet — hit ↻ UPDATE on the Inventory tab or use Item Tracking → Re-fetch Purchases above.</div>`;
   }
-  li+=`</div>`;
 
-  // Replace both blocks atomically — remove old ones first, then inject fresh
-  const debugTbl=document.getElementById('debugTbl');
-  const oldOut=document.getElementById('hvOutgoingLogBlock');
-  const oldIn=document.getElementById('hvIncomingPurchasesBlock');
-  if(oldOut) oldOut.remove();
-  if(oldIn) oldIn.remove();
-  if(debugTbl) debugTbl.insertAdjacentHTML('afterend', li);
-  if(debugTbl) debugTbl.insertAdjacentHTML('afterend', lo);
+  // Write into permanent containers (no re-injection needed)
+  const outBlock = document.getElementById('hvOutgoingLogBlock');
+  const inBlock  = document.getElementById('hvIncomingPurchasesBlock');
+  if(outBlock) outBlock.innerHTML = lo;
+  if(inBlock)  inBlock.innerHTML  = li;
 }
+// ════════════════════════════════════════════
+// DEBUG PANEL — COLLAPSIBLE SECTIONS
+// ════════════════════════════════════════════
+
+function dbgToggleSection(id){
+  const body  = document.getElementById('dbgBody-'+id);
+  const caret = document.getElementById('dbgCaret-'+id);
+  if(!body) return;
+  const collapsed = body.classList.toggle('collapsed');
+  if(caret) caret.classList.toggle('collapsed', collapsed);
+}
+
+// ── Fetch a single user/log category and display raw results
+async function dbgTestLogCat(catId){
+  const out    = document.getElementById('dbgOut');
+  const status = document.getElementById('dbgStatus');
+  if(!S.key){ out.textContent='No API key connected.'; return; }
+  status.textContent = `Fetching user/log cat=${catId}…`;
+  out.textContent    = `Fetching user/log?cat=${catId}…\n`;
+  try{
+    const url = `https://api.torn.com/user/?selections=log&cat=${catId}&key=${S.key}`;
+    trackApiCall();
+    const r = await fetch(url); const d = await r.json();
+    if(d.error){ out.textContent += `ERROR [${d.error.code}]: ${d.error.error}\n`; status.textContent='Error'; return; }
+    const entries = Object.entries(d.log||{}).map(([id,e])=>({...e,_id:id}));
+    // Title + category distribution
+    const dist = {};
+    entries.forEach(e=>{ const k=`${e.category||'?'} / ${e.title||'?'}`; dist[k]=(dist[k]||0)+1; });
+    out.textContent += `Total entries: ${entries.length}\n\n`;
+    out.textContent += `=== CATEGORY/TITLE DISTRIBUTION ===\n`;
+    Object.entries(dist).sort((a,b)=>b[1]-a[1]).forEach(([k,n])=>{ out.textContent += `  ${n}x  ${k}\n`; });
+    if(entries.length){
+      out.textContent += `\n=== FIRST 3 ENTRIES (raw) ===\n`;
+      entries.slice(0,3).forEach((e,i)=>{ out.textContent += `[${i}] ${JSON.stringify(e,null,2)}\n\n`; });
+    }
+    status.textContent = `✓ cat=${catId}: ${entries.length} entries`;
+  }catch(e){ out.textContent += `Fetch error: ${e.message}`; status.textContent='Error'; }
+}
+
+// ── State snapshot functions — each prints a section to #dbgStateOut
+function _dbgShowStateOut(text){
+  const el = document.getElementById('dbgStateOut');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent   = text;
+  // Ensure State section is expanded
+  const body = document.getElementById('dbgBody-state');
+  if(body && body.classList.contains('collapsed')) dbgToggleSection('state');
+}
+
+function dbgSnapState(){
+  const mc   = S.manualCounts||{};
+  const mcEntries = Object.entries(mc).map(([k,v])=>`  ${k}: qty=${typeof v==='object'?v.qty:v}${typeof v==='object'&&v.savedAt?' savedAt='+ft(v.savedAt):''}`).join('\n')||'  (empty)';
+  const lines = [
+    '=== LIVE STATE SNAPSHOT ===',
+    `APP_VERSION     : ${APP_VERSION}`,
+    `S.key           : ${S.key?S.key.slice(0,4)+'…****':'(none)'}`,
+    `S.player        : ${S.player||'?'} [${S.playerId||'?'}]`,
+    `S.factionName   : ${S.factionName||'?'}`,
+    '',
+    '--- SYNC ---',
+    `lastEventTs     : ${S.lastEventTs?ft(S.lastEventTs):'not set'}`,
+    `_prevEventTs    : ${S._prevEventTs?ft(S._prevEventTs):'not set'}`,
+    `invDeltaTs      : ${S.invDeltaTs?ft(S.invDeltaTs):'not set'}`,
+    '',
+    '--- COUNTS ---',
+    `S.events        : ${(S.events||[]).length}`,
+    `S.eventLog      : ${(S.eventLog||[]).length}`,
+    `S.receipts      : ${(S.receipts||[]).length} total / ${(S.receipts||[]).filter(r=>!r.deleted).length} active`,
+    `S.outgoing      : ${(S.outgoing||[]).length}`,
+    `S.invPurchases  : ${(S.invPurchases||[]).length}`,
+    `S.invSells      : ${(S.invSells||[]).length}`,
+    `S.armoryNews    : ${(S.armoryNews||[]).length}`,
+    `S.attackNews    : ${(S.attackNews||[]).length}`,
+    `S.crimeNews     : ${(S.crimeNews||[]).length}`,
+    `S._crimeLog     : ${(S._crimeLog||[]).length}`,
+    `S._ocCrimes     : ${(S._ocCrimes||[]).length}`,
+    `S.ocRaw         : ${(S.ocRaw||[]).length}`,
+    `S.wars          : ${(S.wars||[]).length}`,
+    `S.prices        : ${Object.keys(S.prices||{}).length} items`,
+    '',
+    '--- MANUAL COUNTS ---',
+    mcEntries,
+  ];
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapInventory(){
+  const delta = calcInvDelta();
+  const mc    = S.manualCounts||{};
+  const museumSet = [...PLUSHIE_SET, ...FLOWER_SET];
+  const lines = ['=== INVENTORY DELTA ===', ''];
+  lines.push('Item                        Manual  Delta   Adjusted');
+  lines.push('─'.repeat(54));
+  museumSet.forEach(name=>{
+    const mcEntry = mc[name];
+    const base    = typeof mcEntry==='object' ? (mcEntry.qty||0) : (typeof mcEntry==='number' ? mcEntry : 0);
+    const d       = delta[name]||0;
+    const adj     = base + d;
+    const savedAt = typeof mcEntry==='object' && mcEntry.savedAt ? ' (saved '+ft(mcEntry.savedAt)+')' : '';
+    lines.push(`${name.padEnd(28)}${String(base).padStart(4)}    ${(d>=0?'+':'')+d}    ${adj}${savedAt}`);
+  });
+  lines.push('');
+  lines.push(`S.invPurchases: ${(S.invPurchases||[]).length} entries`);
+  lines.push(`S.invSells    : ${(S.invSells||[]).length} entries`);
+  lines.push(`S.outgoing    : ${(S.outgoing||[]).length} entries`);
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapReceipts(){
+  const active  = (S.receipts||[]).filter(r=>!r.deleted);
+  const deleted = (S.receipts||[]).filter(r=>r.deleted);
+  const lines   = ['=== RECEIPTS SNAPSHOT ===',''];
+  lines.push(`Active: ${active.length}  Deleted: ${deleted.length}  Total: ${(S.receipts||[]).length}`);
+  lines.push('');
+  if(active.length){
+    lines.push('Recent 20 active:');
+    active.slice(0,20).forEach((r,i)=>{
+      lines.push(`  [${i}] ${ft(r.ts)} | ${r.qty}x ${r.item} → ${r.member} [${r.cat||'?'}]`);
+    });
+  } else {
+    lines.push('  (no active receipts)');
+  }
+  lines.push('');
+  lines.push(`Outgoing tracked: ${(S.outgoing||[]).length}`);
+  const byMember = {};
+  active.forEach(r=>{ byMember[r.member]=(byMember[r.member]||0)+1; });
+  const top = Object.entries(byMember).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  if(top.length){ lines.push(''); lines.push('Top recipients:'); top.forEach(([m,n])=>lines.push(`  ${m}: ${n} receipts`)); }
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapOC(){
+  const lines = ['=== OC STATE ===',''];
+  lines.push(`S.ocRaw         : ${(S.ocRaw||[]).length} entries`);
+  lines.push(`S._crimeLog     : ${(S._crimeLog||[]).length} entries`);
+  lines.push(`S._ocCrimes     : ${(S._ocCrimes||[]).length} v2 crimes`);
+  lines.push(`S._ocV2Running  : ${S._ocV2Running||false}`);
+  if((S._ocCrimes||[]).length){
+    const paid = S._ocCrimes.filter(c=>(c._totalPaid||0)>0);
+    lines.push(`Crimes w/ payouts: ${paid.length}`);
+    const total = S._ocCrimes.reduce((s,c)=>s+(c._totalPaid||0),0);
+    lines.push(`Total OC paid   : ${fmt$(total)}`);
+    lines.push('');
+    lines.push('First v2 crime fields: '+Object.keys(S._ocCrimes[0]).join(', '));
+  }
+  if((S._crimeLog||[]).length){
+    lines.push('');
+    lines.push('Recent 5 crime log entries:');
+    S._crimeLog.slice(0,5).forEach((e,i)=>{
+      lines.push(`  [${i}] ts=${e.timestamp} | ${(e.news||'').slice(0,80)}`);
+    });
+  }
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapWar(){
+  const lines = ['=== WAR STATE ===',''];
+  lines.push(`Wars loaded: ${(S.wars||[]).length}`);
+  (S.wars||[]).forEach((w,i)=>{
+    const pot  = warTotalPot(w);
+    const cut  = warFactionCut(w);
+    lines.push('');
+    lines.push(`[${i}] ${w.name||'?'}`);
+    lines.push(`  Date    : ${w.date||'?'}  Result: ${w.result||'?'}`);
+    lines.push(`  Pot     : ${fmt$(pot)}  Faction cut: ${w.factionCutPct||20}% = ${fmt$(cut)}`);
+    lines.push(`  Members : ${(w.members||[]).length}`);
+  });
+  if(!(S.wars||[]).length) lines.push('  (no wars imported)');
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapSync(){
+  const meta = (() => { try{ return JSON.parse(localStorage.getItem('hv_v1_fetch_meta')||'{}'); }catch(e){ return {}; } })();
+  const lines = ['=== SYNC TIMESTAMPS ===',''];
+  lines.push(`lastEventTs     : ${S.lastEventTs?ft(S.lastEventTs)+' ('+S.lastEventTs+')':'not set'}`);
+  lines.push(`_prevEventTs    : ${S._prevEventTs?ft(S._prevEventTs)+' ('+S._prevEventTs+')':'not set'}`);
+  lines.push(`invDeltaTs      : ${S.invDeltaTs?ft(S.invDeltaTs)+' ('+S.invDeltaTs+')':'not set'}`);
+  const lsSync = localStorage.getItem('hv_v1_last_sync');
+  lines.push(`last_sync (ms)  : ${lsSync?new Date(parseInt(lsSync)).toLocaleString():'not set'}`);
+  lines.push('');
+  lines.push('Fetch meta (per-category freshness):');
+  if(Object.keys(meta).length){
+    Object.entries(meta).sort((a,b)=>b[1]-a[1]).forEach(([cat,ts])=>{
+      lines.push(`  ${cat.padEnd(18)}: ${ft(ts)} (${ts})`);
+    });
+  } else {
+    lines.push('  (empty)');
+  }
+  lines.push('');
+  lines.push('Key invPurchases/Sells watermarks:');
+  const pMax = (S.invPurchases||[]).reduce((m,p)=>Math.max(m,p.ts),0);
+  const sMax = (S.invSells||[]).reduce((m,p)=>Math.max(m,p.ts),0);
+  lines.push(`  invPurchases newest: ${pMax?ft(pMax):'none'}`);
+  lines.push(`  invSells newest    : ${sMax?ft(sMax):'none'}`);
+  _dbgShowStateOut(lines.join('\n'));
+}
+
 // ════════════════════════════════════════════
 // API DEBUG PANEL
 // ════════════════════════════════════════════
