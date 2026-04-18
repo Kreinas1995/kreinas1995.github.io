@@ -1185,7 +1185,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.23';
+const APP_VERSION = '2.41.24';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1250,6 +1250,10 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v: '2.41.24', date: '2026-04-18', notes: [
+    'Respect tab: war respect now sourced from ArmaSync w.members[].respect — credited per member individually, total 1881.5 for Roman Empire war',
+    'Step 3a keeps mainnews rank-up parsing as fallback; Step 3b adds authoritative ArmaSync source',
+  ]},
   { v: '2.41.23', date: '2026-04-18', notes: [
     'War bonus: broadened regex to also catch war-win respect grants (not just rank-up format)',
     'Test member row moved to top of Members list, highlighted with 20% neon green background',
@@ -4450,13 +4454,11 @@ function renderRespect(){
     totalChain+=totalChainBonus;
   }
 
-  // Step 3: War rank-up bonus (mainnews).
+  // Step 3a: War rank-up bonus from mainnews (faction ranked up during/after war).
   S.attackNews.forEach(ev=>{
     if(!inPeriod(ev.timestamp,period)) return;
     const n=stripHtml(ev.news||'');
-    // Pattern 1: rank-up bonus — "ranked up from X to Y and received N bonus respect"
     const warRankM=n.match(/ranked up from .+? to .+? and received\s+([\d,.]+)\s+bonus\s+respect/i);
-    // Pattern 2: war-win respect — "won the war against X ... N respect" or "received N respect for winning"
     const warWinM=!warRankM&&n.match(/(?:won(?:.{0,40}war|.{0,40}against)|for winning(?:.{0,20}war)?).{0,80}?([\d,]+(?:\.\d+)?)\s+respect/i);
     const warMatch=warRankM||warWinM;
     if(warMatch){
@@ -4467,6 +4469,22 @@ function renderRespect(){
       memberRespect['⚡ War Rank Bonus'].war+=resp;
       totalWar+=resp;
     }
+  });
+
+  // Step 3b: Per-member war respect from imported ArmaSync war records.
+  // w.members[].respect is parsed directly from ArmaSync — authoritative, no text parsing needed.
+  // Each member's war respect credited to their individual row. War filtered by date vs period.
+  (S.wars||[]).forEach(w=>{
+    const warDateMs=w.date?new Date(w.date).getTime():0;
+    const warDateTs=warDateMs/1000;
+    if(!inPeriod(warDateTs,period)) return;
+    (w.members||[]).forEach(m=>{
+      const resp=Number(m.respect||0);
+      if(!resp||!m.name) return;
+      if(!memberRespect[m.name]) memberRespect[m.name]={atk:0,chain:0,war:0};
+      memberRespect[m.name].war+=resp;
+      totalWar+=resp;
+    });
   });
 
   const totalGross=totalAtk+totalChain+totalWar;
