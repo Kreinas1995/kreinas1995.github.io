@@ -5,9 +5,8 @@ on:
     branches:
       - main
     paths:
-      - 'FactionBudget/current/*.html'
-      - 'Training/current/*.html'
-      - 'War/current/*.html'
+      - '**/*.html'
+      - '**/manifest.json'
 
 jobs:
   move-old-files:
@@ -31,26 +30,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          while IFS= read -r tool_root; do
+          # Auto-detect every tool root: any directory that contains a current/ subdir.
+          # Excludes .git and legacy at any depth.
+          while IFS= read -r current_dir; do
+            tool_root="$(dirname "$current_dir")"
+            [[ "$tool_root" == */.git* ]] && continue
+            [[ "$tool_root" == ./legacy* ]] && continue
             [ "$tool_root" = "." ] && continue
 
             old_dir="$tool_root/Old"
-            current_dir="$tool_root/current"
-
-            # Skip if no current/ dir
-            [ -d "$current_dir" ] || continue
-
             mkdir -p "$old_dir"
 
             # Collect all versioned HTML filenames from tool root, Old/, and current/
             tmpfile=$(mktemp)
-            find "$tool_root" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' \
+            find "$tool_root" -maxdepth 1 -name '*.html' \
               -exec basename {} \; 2>/dev/null >> "$tmpfile" || true
-            [ -d "$old_dir" ] && find "$old_dir" -maxdepth 1 \
-              -name '*v[0-9]*_[0-9]*.html' -exec basename {} \; \
+            find "$old_dir" -maxdepth 1 \
+              -name '*.html' -exec basename {} \; \
               2>/dev/null >> "$tmpfile" || true
             find "$current_dir" -maxdepth 1 \
-              -name '*v[0-9]*_[0-9]*.html' -exec basename {} \; \
+              -name '*.html' -exec basename {} \; \
               2>/dev/null >> "$tmpfile" || true
 
             # Determine latest by numeric version tuple sort
@@ -75,7 +74,7 @@ jobs:
             echo "[$tool_root] Latest: $latest_name"
 
             # Move any versioned files from the tool root (not current/ or Old/) to Old/
-            mapfile -t root_files < <(find "$tool_root" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
+            mapfile -t root_files < <(find "$tool_root" -maxdepth 1 -name '*.html' 2>/dev/null)
             for f in "${root_files[@]+"${root_files[@]}"}"; do
               fname=$(basename "$f")
               mv -- "$f" "$old_dir/$fname"
@@ -83,8 +82,7 @@ jobs:
             done
 
             # Move non-latest versioned files from current/ to Old/
-            # Do NOT touch the latest file — leave it in current/ where it belongs
-            mapfile -t cur_files < <(find "$current_dir" -maxdepth 1 -name '*v[0-9]*_[0-9]*.html' 2>/dev/null)
+            mapfile -t cur_files < <(find "$current_dir" -maxdepth 1 -name '*.html' 2>/dev/null)
             for f in "${cur_files[@]+"${cur_files[@]}"}"; do
               fname=$(basename "$f")
               if [ "$fname" = "$latest_name" ]; then
@@ -101,35 +99,34 @@ jobs:
               echo "  Archived copy: Old/$latest_name"
             fi
 
-            # Ensure the latest is in current/ (it should already be there, but just in case)
+            # Ensure the latest is in current/
             if [ ! -f "$current_dir/$latest_name" ]; then
               cp -- "$old_dir/$latest_name" "$current_dir/$latest_name"
               echo "  Restored: current/$latest_name"
             fi
 
           done < <(
-            find . -type d \( -name 'Old' -o -name 'current' \) \
+            find . -type d -name 'current' \
               -not -path './.git/*' \
-              | sed -E 's,/(Old|current)(/.*)?$,,' | sort -u
+              -not -path './legacy/*'
           )
 
       - name: Move old files to Old/ for non-versioned tools
         run: |
-          # Fallback for current/ folders whose files don't use versioned naming:
-          # keep only the most-recently-modified non-manifest file.
           while IFS= read -r current_dir; do
+            [[ "$current_dir" == */.git* ]] && continue
+            [[ "$current_dir" == ./legacy* ]] && continue
             old_dir="$(dirname "$current_dir")/Old"
             mkdir -p "$old_dir"
 
-            # Count non-manifest, non-versioned files in current/
             count=$(find "$current_dir" -maxdepth 1 -type f \
               -not -name 'manifest.json' \
-              -not -name '*v[0-9]*_[0-9]*.html' | wc -l)
+              -not -name '*.html' | wc -l)
 
             if [ "$count" -gt 1 ]; then
               find "$current_dir" -maxdepth 1 -type f \
                 -not -name 'manifest.json' \
-                -not -name '*v[0-9]*_[0-9]*.html' \
+                -not -name '*.html' \
                 -printf '%T@ %p\n' \
                 | sort -n \
                 | head -n -1 \
@@ -139,7 +136,11 @@ jobs:
                     echo "Moved: $file -> $old_dir/"
                   done
             fi
-          done < <(find . -type d -name 'current' -not -path './.git/*')
+          done < <(
+            find . -type d -name 'current' \
+              -not -path './.git/*' \
+              -not -path './legacy/*'
+          )
 
       - name: Regenerate manifest.json for every tool's current/ folder
         run: |
@@ -154,39 +155,38 @@ jobs:
               has_mod = 1 if m.group(4) else 0
               return (int(m.group(1)), int(m.group(2)), int(m.group(3)), has_mod)
 
-          for root, dirs, files in os.walk('.'): 
-              # Skip hidden directories (e.g. .git)
-              dirs[:] = [d for d in dirs if not d.startswith('.')] 
+          EXCLUDE = {'.git', 'legacy'}
+
+          for root, dirs, files in os.walk('.'):
+              # Skip excluded directories at any depth
+              dirs[:] = [d for d in dirs if d not in EXCLUDE and not d.startswith('.')]
               if os.path.basename(root) != 'current':
                   continue
+
               old_dir = os.path.join(os.path.dirname(root), 'Old')
               all_files = []
               if os.path.isdir(old_dir):
                   all_files += [f for f in os.listdir(old_dir) if f.endswith('.html')]
               all_files += [f for f in os.listdir(root) if f.endswith('.html')]
 
-              # Warn and deduplicate: the latest file lives in both Old/ and current/
-              # after the move step, so duplicates are expected but must be removed.
               counts = Counter(all_files)
               duplicates = [f for f, c in counts.items() if c > 1]
               if duplicates:
-                  print(f'WARNING [{root}]: Duplicate entries detected and removed: {duplicates}') 
-              # Use dict to deduplicate while preserving insertion order, then sort
+                  print(f'WARNING [{root}]: Duplicates removed: {duplicates}')
               all_files = list(dict.fromkeys(all_files))
+              all_files.sort(key=parse_version)
 
-              all_files.sort(key=parse_version) 
               if not all_files:
                   continue
-              manifest = {'latest': all_files[-1], 'all': all_files} 
-              out_path = os.path.join(root, 'manifest.json') 
+
+              manifest = {'latest': all_files[-1], 'all': all_files}
+              out_path = os.path.join(root, 'manifest.json')
               with open(out_path, 'w') as fh:
                   json.dump(manifest, fh, indent=2)
                   fh.write('\n')
               print(f'Updated {out_path}: latest={manifest["latest"]}, count={len(all_files)}')
-              # Confirm the latest field always points to the newest version after sort
-              print(f'CONFIRM [{root}]: latest field={manifest["latest"]} == newest in all={all_files[-1]}')
               assert manifest['latest'] == all_files[-1], \
-                  f'ERROR [{root}]: latest field does not match newest version in all!'
+                  f'ERROR [{root}]: latest field does not match newest version!'
           EOF
 
       - name: Commit and push changes
