@@ -1155,7 +1155,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.16';
+const APP_VERSION = '2.41.17';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1220,6 +1220,11 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.17', date:'2026-04-18', notes:[
+    '[*] BUG-DEEPFETCH-UPGRADE: armory/mainnews/attacknews/crimenews getArr() now seeds from localStorage on cache miss — fixes skipping after version upgrade wipe.',
+    '[*] BUG-DEEPFETCH-EXHAUSTED: Removed premature <25-entry page break. Page cap raised 50→200.',
+    '[+] DEEP-FETCH-THROTTLE: Live rate limit message shown when 75/min cap is hit; auto-removes when window clears.',
+  ]},
   { v:'2.41.16', date:'2026-04-18', notes:[
     '[*] RESPECT-CHAIN: Chain bonuses are additive — chain×25 earns ×10(+10) and ×25(+20) = +30 total. All milestones reached summed, deducted from attack pool.',
     '[+] RESPECT-LOSS: Incoming attacks that cost respect (−X) tracked as Incoming Losses row; subtracted from net total.',
@@ -2883,22 +2888,22 @@ async function adminDeepFetch(){
       save:(arr)=>{ S.eventLog=arr; try{localStorage.setItem('hv_v1_event_log',JSON.stringify(arr));}catch(e){} }
     },
     { id:'armory',     section:'faction', sel:'armorynews', metaKey:'armory',
-      getArr:()=>S.armoryNews||[],        tsKey:'timestamp',
+      getArr:()=>{ if((S.armoryNews||[]).length) return S.armoryNews; try{const r=localStorage.getItem('hv_v1_armory_cache'); if(r){const d=JSON.parse(r); S.armoryNews=d; return d;}}catch(e){} return []; },        tsKey:'timestamp',
       merge:(old,nw)=>{ const seen=new Set(old.map(e=>e.id||e.timestamp+'_'+e.news?.slice(0,20))); const added=nw.filter(e=>!seen.has(e.id||e.timestamp+'_'+e.news?.slice(0,20))); return [...old,...added].sort((a,b)=>b.timestamp-a.timestamp); },
       save:(arr)=>{ S.armoryNews=arr; try{localStorage.setItem('hv_v1_armory_cache',JSON.stringify(arr));}catch(e){} }
     },
     { id:'mainnews',   section:'faction', sel:'mainnews',   metaKey:'mainnews',
-      getArr:()=>[...(S.attackNews||[]),...(S.ocRaw||[])], tsKey:'timestamp',
+      getArr:()=>{ const mem=[...(S.attackNews||[]),...(S.ocRaw||[])]; if(mem.length) return mem; try{const r=localStorage.getItem('hv_v1_mainnews_cache'); if(r){const d=JSON.parse(r); S.attackNews=d.attackNews||[]; S.ocRaw=d.ocRaw||[]; return [...S.attackNews,...S.ocRaw];}}catch(e){} return []; }, tsKey:'timestamp',
       merge:(old,nw)=>{ const map={}; old.forEach(e=>{map[e.timestamp+(e.news||'').slice(0,20)]=e;}); nw.forEach(e=>{map[e.timestamp+(e.news||'').slice(0,20)]=e;}); return Object.values(map).sort((a,b)=>b.timestamp-a.timestamp); },
       save:(arr)=>{ S.attackNews=arr.filter(e=>e.news&&/respect/i.test(e.news)); S.ocRaw=arr.filter(e=>e.news&&/faction received \$[\d,]+|\$[\d,]+.*payout|payout.*\$[\d,]+/i.test(e.news)).slice(0,500); try{localStorage.setItem('hv_v1_mainnews_cache',JSON.stringify({attackNews:S.attackNews,ocRaw:S.ocRaw}));}catch(e){} }
     },
     { id:'attacknews', section:'faction', sel:'attacknews', metaKey:'attacknews',
-      getArr:()=>S.crimeNews||[],         tsKey:'timestamp',
+      getArr:()=>{ if((S.crimeNews||[]).length) return S.crimeNews; try{const r=localStorage.getItem('hv_v1_attacknews_cache'); if(r){const d=JSON.parse(r); S.crimeNews=d; return d;}}catch(e){} return []; },         tsKey:'timestamp',
       merge:(old,nw)=>{ const map={}; old.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,30)]=e;}); nw.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,30)]=e;}); return Object.values(map).sort((a,b)=>b.timestamp-a.timestamp); },
       save:(arr)=>{ S.crimeNews=arr; try{localStorage.setItem('hv_v1_attacknews_cache',JSON.stringify(arr));}catch(e){} }
     },
     { id:'crimenews',  section:'faction', sel:'crimenews',  metaKey:'crimenews',
-      getArr:()=>S._crimeLog||[],         tsKey:'timestamp',
+      getArr:()=>{ if((S._crimeLog||[]).length) return S._crimeLog; try{const r=localStorage.getItem('hv_v1_crime_log'); if(r){const d=JSON.parse(r); S._crimeLog=d; return d;}}catch(e){} return []; },         tsKey:'timestamp',
       merge:(old,nw)=>{ const map={}; old.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,20)]=e;}); nw.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,20)]=e;}); return Object.values(map).sort((a,b)=>b.timestamp-a.timestamp); },
       save:(arr)=>{ S._crimeLog=arr; try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(arr));}catch(e){} }
     },
@@ -2923,9 +2928,19 @@ async function adminDeepFetch(){
       const toTs=oldest-1;
       const extra=`&to=${toTs}`;
       const newEntries=[];
-      let pg=0; const maxPg=50; let curToTs=toTs;
+      let pg=0; const maxPg=200; let curToTs=toTs;
       while(pg<maxPg){
-        await rateSleep();
+        { const _now=Date.now(); const _recent=apiCallLog.filter(t=>_now-t<60000);
+          if(_recent.length>=API_LIMIT){
+            const _waitMs=Math.max(0,_recent[0]+60100-_now);
+            const _sec=Math.ceil(_waitMs/1000);
+            let _lel=statusEl.querySelector('#dfRateMsg');
+            if(!_lel){ _lel=document.createElement('div'); _lel.id='dfRateMsg'; _lel.style.cssText='color:var(--accent3);font-style:italic;margin:2px 0;'; statusEl.appendChild(_lel); }
+            _lel.textContent=`⏳ rate limit (${_recent.length}/min) — throttling, still working… (~${_sec}s)`;
+            await new Promise(r=>setTimeout(r,_waitMs));
+            const _rem=statusEl.querySelector('#dfRateMsg'); if(_rem) _rem.remove();
+          } else { await rateSleep(); }
+        }
         const url=`https://api.torn.com/${src.section}/?selections=${src.sel}&key=${S.key}${curToTs>0?`&to=${curToTs}`:''}`;
         trackApiCall();
         let d;
@@ -2941,7 +2956,6 @@ async function adminDeepFetch(){
         const oldestNew=Math.min(...ts);
         if(oldestNew===curToTs) break;
         curToTs=oldestNew-1; pg++;
-        if(vals.length<25) break;
         statusEl.innerHTML=statusEl.innerHTML.replace(/\(page \d+\)/,'')+'<span style="color:var(--muted)">(page '+pg+')</span>';
       }
       if(newEntries.length){
