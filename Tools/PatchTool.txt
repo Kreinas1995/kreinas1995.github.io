@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PatchTool — FactionBudget Editor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg:      #0a0d0f;
+    --surface: #111418;
+    --surface2:#181d22;
+    --border:  #1e2530;
+    --accent:  #7fff6e;
+    --accent2: #3dd68c;
+    --accent3: #f0c040;
+    --accent4: #ff6b6b;
+    --accent5: #7eb8ff;
+    --text:    #e8edf2;
+    --muted:   #5a6a7a;
+    --muted2:  #3a4550;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* --- HEADER --- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .logo-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; box-shadow: 0 0 8px var(--accent); }
+    50%      { opacity: 0.5; box-shadow: 0 0 2px var(--accent); }
+  }
+  header h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  header span {
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+  .header-version {
+    margin-left: auto;
+    font-size: 0.65rem;
+    color: var(--muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+
+  /* --- MAIN LAYOUT --- */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr auto;
+    gap: 0;
+    padding: 24px;
+    gap: 20px;
+    max-width: 1400px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .full-row { grid-column: 1 / -1; }
+
+  /* --- PANELS --- */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .panel-header .label {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .panel-header .status {
+    margin-left: auto;
+    font-size: 0.65rem;
+    color: var(--muted);
+  }
+  .panel-header .status.ok   { color: var(--accent2); }
+  .panel-header .status.warn { color: var(--accent3); }
+  .panel-header .status.err  { color: var(--accent4); }
+  .panel-body { padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 12px; }
+
+  /* --- DROP ZONE --- */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 6px;
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(127,255,110,0.04);
+  }
+  .drop-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .drop-icon { font-size: 1.6rem; margin-bottom: 8px; opacity: 0.5; }
+  .drop-label { font-size: 0.75rem; color: var(--muted); line-height: 1.6; }
+  .drop-label strong { color: var(--text); }
+
+  .file-loaded {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(61,214,140,0.08);
+    border: 1px solid var(--accent2);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.75rem;
+  }
+  .file-loaded .fname { color: var(--accent2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-loaded .fsize { color: var(--muted); }
+  .file-loaded .clear-btn {
+    background: none; border: none; color: var(--accent4);
+    cursor: pointer; font-size: 0.8rem; padding: 2px 6px;
+    font-family: inherit;
+  }
+  .file-loaded .clear-btn:hover { color: #ff9999; }
+
+  /* --- TEXTAREA --- */
+  textarea {
+    flex: 1;
+    min-height: 280px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    line-height: 1.6;
+    padding: 12px;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  textarea:focus { border-color: var(--accent5); }
+  textarea::placeholder { color: var(--muted2); }
+
+  /* --- FORMAT TABS --- */
+  .fmt-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .fmt-tab {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+  .fmt-tab:hover { border-color: var(--muted); color: var(--text); }
+  .fmt-tab.active {
+    border-color: var(--accent5);
+    color: var(--accent5);
+    background: rgba(126,184,255,0.08);
+  }
+
+  /* --- DIFF PREVIEW --- */
+  #diffPreview {
+    font-size: 0.7rem;
+    line-height: 1.7;
+    max-height: 220px;
+    overflow-y: auto;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  #diffPreview .d-add  { color: var(--accent2); }
+  #diffPreview .d-rem  { color: var(--accent4); }
+  #diffPreview .d-ctx  { color: var(--muted); }
+  #diffPreview .d-hdr  { color: var(--accent5); margin: 4px 0; }
+  #diffPreview .d-empty { color: var(--muted); font-style: italic; }
+
+  /* --- PROCESS BUTTON --- */
+  .process-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  #processBtn {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: var(--accent);
+    color: #0a0d0f;
+    border: none;
+    border-radius: 6px;
+    padding: 12px 28px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+  #processBtn:hover:not(:disabled) {
+    background: #a0ffaa;
+    box-shadow: 0 0 16px rgba(127,255,110,0.3);
+  }
+  #processBtn:disabled {
+    background: var(--muted2);
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+  #statusMsg {
+    font-size: 0.72rem;
+    color: var(--muted);
+    flex: 1;
+  }
+  #statusMsg.ok   { color: var(--accent2); }
+  #statusMsg.err  { color: var(--accent4); }
+  #statusMsg.warn { color: var(--accent3); }
+
+  /* --- LOG --- */
+  #logPanel {
+    font-size: 0.7rem;
+    line-height: 1.8;
+    max-height: 160px;
+    overflow-y: auto;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .log-ok   { color: var(--accent2); }
+  .log-warn { color: var(--accent3); }
+  .log-err  { color: var(--accent4); }
+  .log-info { color: var(--accent5); }
+  .log-muted{ color: var(--muted); }
+
+  /* --- DOWNLOAD ROW --- */
+  .dl-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .btn-dl {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    padding: 9px 18px;
+    border-radius: 5px;
+    border: 1px solid var(--accent2);
+    background: rgba(61,214,140,0.08);
+    color: var(--accent2);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-dl:hover:not(:disabled) {
+    background: rgba(61,214,140,0.18);
+    box-shadow: 0 0 8px rgba(61,214,140,0.2);
+  }
+  .btn-dl:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .btn-secondary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    padding: 9px 18px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--muted); color: var(--text); }
+  .btn-secondary:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* --- SCROLLBAR --- */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface2); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted2); }
+
+  /* --- RESPONSIVE --- */
+  @media (max-width: 700px) {
+    main { grid-template-columns: 1fr; padding: 12px; }
+    .full-row { grid-column: 1; }
+  }
+
+  /* format hints */
+  .hint-box {
+    background: rgba(126,184,255,0.05);
+    border: 1px solid rgba(126,184,255,0.15);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.68rem;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+  .hint-box code {
+    color: var(--accent5);
+    background: rgba(126,184,255,0.1);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  .patch-count {
+    background: var(--accent3);
+    color: #0a0d0f;
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 10px;
+    margin-left: 6px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-dot"></div>
+  <h1>PatchTool</h1>
+  <span>// FactionBudget HTML Editor</span>
+  <div class="header-version">v1.0.0</div>
+</header>
+
+<main>
+
+  <!-- LEFT: File Upload -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="label">① Source File</span>
+      <span class="status" id="fileStatus">no file loaded</span>
+    </div>
+    <div class="panel-body">
+      <div id="dropZone" class="drop-zone">
+        <input type="file" id="fileInput" accept=".html,.htm,.js,.css,.txt">
+        <div class="drop-icon">📄</div>
+        <div class="drop-label"><strong>Drop your HTML file here</strong><br>or click to browse</div>
+      </div>
+      <div id="fileInfo" style="display:none"></div>
+      <div class="hint-box">
+        Load your current <code>FactionBudgetv*.html</code> before applying any patch.
+        The original file is never modified — output is always a new download.
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Patch Input -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="label">② Patch / Edit</span>
+      <span id="patchCount"></span>
+    </div>
+    <div class="panel-body">
+      <div class="fmt-tabs">
+        <button class="fmt-tab active" data-fmt="str_replace" onclick="setFmt(this)">str_replace</button>
+        <button class="fmt-tab" data-fmt="line_range" onclick="setFmt(this)">line range</button>
+        <button class="fmt-tab" data-fmt="regex" onclick="setFmt(this)">regex</button>
+        <button class="fmt-tab" data-fmt="append" onclick="setFmt(this)">append</button>
+        <button class="fmt-tab" data-fmt="insert_after" onclick="setFmt(this)">insert_after</button>
+      </div>
+      <div id="fmtHint" class="hint-box"></div>
+      <textarea id="patchInput" placeholder="Paste patch here..." spellcheck="false" oninput="onPatchInput()"></textarea>
+    </div>
+  </div>
+
+  <!-- BOTTOM: Diff Preview -->
+  <div class="panel full-row">
+    <div class="panel-header">
+      <span class="label">③ Preview</span>
+      <span class="status" id="previewStatus">—</span>
+    </div>
+    <div class="panel-body">
+      <div id="diffPreview"><span class="d-empty">Load a file and paste a patch to preview changes.</span></div>
+
+      <div class="process-row">
+        <button id="processBtn" onclick="applyPatch()" disabled>▶ Apply Patch</button>
+        <span id="statusMsg">Waiting for file + patch…</span>
+      </div>
+
+      <div id="logPanel"><span class="log-muted">// patch log will appear here</span></div>
+
+      <div class="dl-row">
+        <button class="btn-dl" id="dlBtn" disabled onclick="downloadResult()">⬇ Download Patched File</button>
+        <button class="btn-secondary" id="copyBtn" disabled onclick="copyResult()">Copy to Clipboard</button>
+        <button class="btn-secondary" onclick="resetAll()">↺ Reset</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ─── State ───────────────────────────────────────────────
+let srcText   = null;   // original file content
+let srcName   = '';
+let patchedText = null; // result after apply
+let activeFmt = 'str_replace';
+
+// ─── Format hints ────────────────────────────────────────
+const FMT_HINTS = {
+  str_replace: `<strong>str_replace</strong> — paste one or more blocks:<br>
+<code>&lt;&lt;&lt; FIND</code><br>
+exact text to find (must be unique in file)<br>
+<code>===</code><br>
+replacement text<br>
+<code>&gt;&gt;&gt; END</code><br><br>
+Multiple blocks separated by a blank line are all applied in order.`,
+
+  line_range: `<strong>line_range</strong> — replace a line range:<br>
+<code>LINES 1240-1255</code><br>
+replacement lines…<br>
+<code>&gt;&gt;&gt; END</code><br><br>
+Lines are 1-indexed. The specified range is replaced entirely.`,
+
+  regex: `<strong>regex</strong> — find &amp; replace using JS regex:<br>
+<code>PATTERN /your_regex/flags</code><br>
+<code>REPLACE</code><br>
+replacement string (supports $1, $2 capture groups)<br>
+<code>&gt;&gt;&gt; END</code>`,
+
+  append: `<strong>append</strong> — add content at end of file (before &lt;/body&gt; if present):<br>
+Just paste the content to append. No delimiters needed.`,
+
+  insert_after: `<strong>insert_after</strong> — insert content after a search anchor:<br>
+<code>&lt;&lt;&lt; AFTER</code><br>
+anchor text (must be unique)<br>
+<code>===</code><br>
+content to insert after the anchor<br>
+<code>&gt;&gt;&gt; END</code>`
+};
+
+// ─── Init ────────────────────────────────────────────────
+setFmt(document.querySelector('.fmt-tab.active'));
+
+// ─── File loading ────────────────────────────────────────
+const dropZone  = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+function loadFile(file) {
+  srcName = file.name;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    srcText = ev.target.result;
+    const lines = srcText.split('\n').length;
+    const kb    = (file.size / 1024).toFixed(1);
+    document.getElementById('dropZone').style.display = 'none';
+    document.getElementById('fileInfo').style.display = 'flex';
+    document.getElementById('fileInfo').className = 'file-loaded';
+    document.getElementById('fileInfo').innerHTML = `
+      <span class="fname">📄 ${file.name}</span>
+      <span class="fsize">${lines.toLocaleString()} lines · ${kb} KB</span>
+      <button class="clear-btn" onclick="clearFile()">✕</button>`;
+    document.getElementById('fileStatus').textContent = `${lines.toLocaleString()} lines loaded`;
+    document.getElementById('fileStatus').className = 'status ok';
+    addLog('info', `Loaded: ${file.name} (${lines} lines, ${kb} KB)`);
+    checkReady();
+    previewPatch();
+  };
+  reader.readAsText(file);
+}
+
+function clearFile() {
+  srcText = null; srcName = '';
+  document.getElementById('dropZone').style.display = '';
+  document.getElementById('fileInfo').style.display = 'none';
+  document.getElementById('fileInfo').innerHTML = '';
+  document.getElementById('fileStatus').textContent = 'no file loaded';
+  document.getElementById('fileStatus').className = 'status';
+  fileInput.value = '';
+  checkReady(); previewPatch();
+}
+
+// ─── Format selector ─────────────────────────────────────
+function setFmt(btn) {
+  document.querySelectorAll('.fmt-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  activeFmt = btn.dataset.fmt;
+  document.getElementById('fmtHint').innerHTML = FMT_HINTS[activeFmt];
+  onPatchInput();
+}
+
+// ─── Patch parsing ───────────────────────────────────────
+function parsePatch(raw) {
+  const fmt = activeFmt;
+
+  if (fmt === 'str_replace') {
+    const ops = [];
+    // Split on blank lines between blocks, but keep block content
+    const blockRe = /<<<\s*FIND\s*\n([\s\S]*?)\n===\s*\n([\s\S]*?)\n>>>\s*END/g;
+    let m;
+    while ((m = blockRe.exec(raw)) !== null) {
+      ops.push({ type: 'str_replace', find: m[1], replace: m[2] });
+    }
+    if (!ops.length) return { error: 'No valid str_replace blocks found. Format: <<< FIND … === … >>> END' };
+    return { ops };
+  }
+
+  if (fmt === 'insert_after') {
+    const m = raw.match(/<<<\s*AFTER\s*\n([\s\S]*?)\n===\s*\n([\s\S]*?)\n>>>\s*END/);
+    if (!m) return { error: 'Format: <<< AFTER … === … >>> END' };
+    return { ops: [{ type: 'insert_after', anchor: m[1], insert: m[2] }] };
+  }
+
+  if (fmt === 'line_range') {
+    const m = raw.match(/LINES\s+(\d+)-(\d+)\s*\n([\s\S]*?)\n>>>\s*END/);
+    if (!m) return { error: 'Format: LINES start-end … >>> END' };
+    return { ops: [{ type: 'line_range', start: parseInt(m[1]), end: parseInt(m[2]), replace: m[3] }] };
+  }
+
+  if (fmt === 'regex') {
+    const m = raw.match(/PATTERN\s+(\/[\s\S]+?\/[gimsuy]*)\s*\nREPLACE\s*\n([\s\S]*?)\n>>>\s*END/);
+    if (!m) return { error: 'Format: PATTERN /regex/flags … REPLACE … >>> END' };
+    return { ops: [{ type: 'regex', pattern: m[1], replace: m[2] }] };
+  }
+
+  if (fmt === 'append') {
+    if (!raw.trim()) return { error: 'Nothing to append.' };
+    return { ops: [{ type: 'append', content: raw }] };
+  }
+
+  return { error: 'Unknown format' };
+}
+
+// ─── Apply a single op to text ───────────────────────────
+function applyOp(text, op, log) {
+  if (op.type === 'str_replace') {
+    const idx = text.indexOf(op.find);
+    if (idx === -1) { log('err', `FIND block not found in file. (first 60 chars: "${op.find.slice(0,60).replace(/\n/g,'↵')}")`); return null; }
+    const count = text.split(op.find).length - 1;
+    if (count > 1) { log('warn', `FIND block matches ${count} times — applying to first occurrence only.`); }
+    const result = text.slice(0, idx) + op.replace + text.slice(idx + op.find.length);
+    const remLines = op.replace.split('\n').length;
+    const oldLines = op.find.split('\n').length;
+    log('ok', `str_replace: replaced ${oldLines} line(s) → ${remLines} line(s)`);
+    return result;
+  }
+
+  if (op.type === 'insert_after') {
+    const idx = text.indexOf(op.anchor);
+    if (idx === -1) { log('err', `AFTER anchor not found: "${op.anchor.slice(0,60).replace(/\n/g,'↵')}"`); return null; }
+    const insertAt = idx + op.anchor.length;
+    log('ok', `insert_after: inserted ${op.insert.split('\n').length} line(s)`);
+    return text.slice(0, insertAt) + '\n' + op.insert + text.slice(insertAt);
+  }
+
+  if (op.type === 'line_range') {
+    const lines = text.split('\n');
+    const s = op.start - 1, e = op.end;
+    if (s < 0 || e > lines.length) { log('err', `Line range ${op.start}-${op.end} out of bounds (file has ${lines.length} lines)`); return null; }
+    const newLines = [...lines.slice(0, s), ...op.replace.split('\n'), ...lines.slice(e)];
+    log('ok', `line_range: replaced lines ${op.start}–${op.end} (${e-s} lines → ${op.replace.split('\n').length} lines)`);
+    return newLines.join('\n');
+  }
+
+  if (op.type === 'regex') {
+    try {
+      const reStr = op.pattern.slice(1, op.pattern.lastIndexOf('/'));
+      const flags = op.pattern.slice(op.pattern.lastIndexOf('/') + 1);
+      const re = new RegExp(reStr, flags);
+      const before = text;
+      const result = text.replace(re, op.replace);
+      if (result === before) { log('warn', 'regex: pattern matched nothing — file unchanged'); }
+      else { log('ok', `regex: pattern applied`); }
+      return result;
+    } catch(e) { log('err', `Invalid regex: ${e.message}`); return null; }
+  }
+
+  if (op.type === 'append') {
+    const bodyClose = text.lastIndexOf('</body>');
+    if (bodyClose !== -1) {
+      log('ok', `append: inserted ${op.content.split('\n').length} lines before </body>`);
+      return text.slice(0, bodyClose) + op.content + '\n' + text.slice(bodyClose);
+    }
+    log('ok', `append: appended ${op.content.split('\n').length} lines at end of file`);
+    return text + '\n' + op.content;
+  }
+
+  return text;
+}
+
+// ─── Preview ─────────────────────────────────────────────
+function onPatchInput() {
+  const raw = document.getElementById('patchInput').value;
+  const parsed = parsePatch(raw);
+  const cnt = parsed.ops ? parsed.ops.length : 0;
+  const pc = document.getElementById('patchCount');
+  pc.innerHTML = cnt > 0 ? `<span class="patch-count">${cnt} op${cnt>1?'s':''}</span>` : '';
+  checkReady();
+  previewPatch();
+}
+
+function previewPatch() {
+  const el = document.getElementById('diffPreview');
+  const statusEl = document.getElementById('previewStatus');
+  const raw = document.getElementById('patchInput').value.trim();
+
+  if (!srcText || !raw) {
+    el.innerHTML = '<span class="d-empty">Load a file and paste a patch to preview changes.</span>';
+    statusEl.textContent = '—'; statusEl.className = 'status';
+    return;
+  }
+
+  const parsed = parsePatch(raw);
+  if (parsed.error) {
+    el.innerHTML = `<span class="d-empty" style="color:var(--accent4)">${parsed.error}</span>`;
+    statusEl.textContent = 'parse error'; statusEl.className = 'status err';
+    return;
+  }
+
+  // Dry-run to build diff lines
+  const diffLines = [];
+  let tempText = srcText;
+  let allOk = true;
+
+  for (const op of parsed.ops) {
+    if (op.type === 'str_replace') {
+      const idx = tempText.indexOf(op.find);
+      if (idx === -1) { diffLines.push(`<div class="d-hdr">✗ FIND block not found</div>`); allOk = false; continue; }
+      const before = tempText.slice(0, idx).split('\n');
+      const lineNum = before.length;
+      diffLines.push(`<div class="d-hdr">@@ line ~${lineNum} @@</div>`);
+      op.find.split('\n').slice(0, 6).forEach(l => diffLines.push(`<div class="d-rem">- ${esc(l)}</div>`));
+      if (op.find.split('\n').length > 6) diffLines.push(`<div class="d-ctx">  … (${op.find.split('\n').length} lines total)</div>`);
+      op.replace.split('\n').slice(0, 6).forEach(l => diffLines.push(`<div class="d-add">+ ${esc(l)}</div>`));
+      if (op.replace.split('\n').length > 6) diffLines.push(`<div class="d-ctx">  … (${op.replace.split('\n').length} lines total)</div>`);
+      tempText = tempText.slice(0, idx) + op.replace + tempText.slice(idx + op.find.length);
+    } else if (op.type === 'insert_after') {
+      const idx = tempText.indexOf(op.anchor);
+      if (idx === -1) { diffLines.push(`<div class="d-hdr">✗ AFTER anchor not found</div>`); allOk = false; continue; }
+      diffLines.push(`<div class="d-hdr">@@ insert_after anchor @@</div>`);
+      op.insert.split('\n').slice(0, 6).forEach(l => diffLines.push(`<div class="d-add">+ ${esc(l)}</div>`));
+    } else if (op.type === 'line_range') {
+      diffLines.push(`<div class="d-hdr">@@ lines ${op.start}–${op.end} @@</div>`);
+      srcText.split('\n').slice(op.start-1, op.end).slice(0,4).forEach(l => diffLines.push(`<div class="d-rem">- ${esc(l)}</div>`));
+      op.replace.split('\n').slice(0,4).forEach(l => diffLines.push(`<div class="d-add">+ ${esc(l)}</div>`));
+    } else if (op.type === 'regex') {
+      diffLines.push(`<div class="d-hdr">@@ regex: ${esc(op.pattern)} @@</div>`);
+      diffLines.push(`<div class="d-ctx">  (preview not available for regex — apply to see result)</div>`);
+    } else if (op.type === 'append') {
+      diffLines.push(`<div class="d-hdr">@@ append before &lt;/body&gt; @@</div>`);
+      op.content.split('\n').slice(0,4).forEach(l => diffLines.push(`<div class="d-add">+ ${esc(l)}</div>`));
+    }
+  }
+
+  el.innerHTML = diffLines.join('');
+  statusEl.textContent = allOk ? `${parsed.ops.length} op(s) — ready` : 'some ops failed preview';
+  statusEl.className = allOk ? 'status ok' : 'status warn';
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─── Apply ───────────────────────────────────────────────
+function applyPatch() {
+  clearLog();
+  const raw = document.getElementById('patchInput').value;
+  const parsed = parsePatch(raw);
+  if (parsed.error) { addLog('err', parsed.error); setStatus(parsed.error, 'err'); return; }
+
+  let text = srcText;
+  let allOk = true;
+
+  for (let i = 0; i < parsed.ops.length; i++) {
+    addLog('info', `Applying op ${i+1}/${parsed.ops.length} [${parsed.ops[i].type}]`);
+    const result = applyOp(text, parsed.ops[i], addLog);
+    if (result === null) { allOk = false; break; }
+    text = result;
+  }
+
+  if (!allOk) {
+    setStatus('Patch failed — see log above', 'err');
+    patchedText = null;
+    document.getElementById('dlBtn').disabled = true;
+    document.getElementById('copyBtn').disabled = true;
+    return;
+  }
+
+  patchedText = text;
+  const oldLines = srcText.split('\n').length;
+  const newLines = text.split('\n').length;
+  const delta = newLines - oldLines;
+  addLog('ok', `Done. ${oldLines} → ${newLines} lines (${delta >= 0 ? '+' : ''}${delta})`);
+  setStatus(`✓ Patch applied — ${newLines} lines (${delta >= 0 ? '+' : ''}${delta})`, 'ok');
+  document.getElementById('dlBtn').disabled = false;
+  document.getElementById('copyBtn').disabled = false;
+}
+
+// ─── Download ────────────────────────────────────────────
+function downloadResult() {
+  if (!patchedText) return;
+  // Extract APP_VERSION from patched content so filename reflects new version
+  const verMatch = patchedText.match(/const APP_VERSION\s*=\s*'([^']+)'/);
+  const base = verMatch
+    ? `FactionBudget_v${verMatch[1].replace(/\./g,'_')}`
+    : srcName.replace(/\.html?$/i, '');
+  const ts   = new Date().toISOString().slice(0,16).replace(/[T:]/g,'-').replace('T','-');
+  const name = `${base}_patched_${ts}.html`;
+  const blob = new Blob([patchedText], { type: 'text/html' });
+  const a    = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  addLog('ok', `Downloaded as: ${name}`);
+}
+
+function copyResult() {
+  if (!patchedText) return;
+  navigator.clipboard.writeText(patchedText).then(() => {
+    addLog('ok', 'Copied to clipboard');
+    setStatus('Copied!', 'ok');
+  });
+}
+
+// ─── Helpers ─────────────────────────────────────────────
+function checkReady() {
+  const hasSrc   = !!srcText;
+  const hasPatch = document.getElementById('patchInput').value.trim().length > 0;
+  document.getElementById('processBtn').disabled = !(hasSrc && hasPatch);
+  if (!hasSrc && !hasPatch) setStatus('Waiting for file + patch…', '');
+  else if (!hasSrc)  setStatus('Load a source file to continue', 'warn');
+  else if (!hasPatch) setStatus('Paste a patch to continue', 'warn');
+  else setStatus('Ready — click Apply Patch', '');
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('statusMsg');
+  el.textContent = msg;
+  el.className = cls;
+}
+
+function addLog(level, msg) {
+  const el = document.getElementById('logPanel');
+  const ts = new Date().toTimeString().slice(0,8);
+  const cls = { ok:'log-ok', warn:'log-warn', err:'log-err', info:'log-info' }[level] || 'log-muted';
+  const prefix = { ok:'✓', warn:'⚠', err:'✗', info:'ℹ' }[level] || '·';
+  if (el.querySelector('.log-muted')?.textContent.startsWith('//')) el.innerHTML = '';
+  el.innerHTML += `<div class="${cls}">[${ts}] ${prefix} ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById('logPanel').innerHTML = '';
+}
+
+function resetAll() {
+  clearFile();
+  document.getElementById('patchInput').value = '';
+  patchedText = null;
+  clearLog();
+  addLog('muted', '// patch log will appear here');
+  document.getElementById('diffPreview').innerHTML = '<span class="d-empty">Load a file and paste a patch to preview changes.</span>';
+  document.getElementById('dlBtn').disabled = true;
+  document.getElementById('copyBtn').disabled = true;
+  document.getElementById('previewStatus').textContent = '—';
+  document.getElementById('previewStatus').className = 'status';
+  document.getElementById('patchCount').innerHTML = '';
+  setStatus('Waiting for file + patch…', '');
+  fileInput.value = '';
+}
+</script>
+</body>
+</html>
