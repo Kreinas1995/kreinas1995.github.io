@@ -1155,7 +1155,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.14';
+const APP_VERSION = '2.41.15';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1220,6 +1220,9 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.15', date:'2026-04-18', notes:[
+    '[*] BUG-UPGRADE-WIPE: Removed crime_log, event_log, oc_crimes, event_ts, and items_cache from version-upgrade wipe list — these are user/derived data, not API response caches. Fixes: OC panel empty after update, deep fetch history lost after update, audit amounts $0 after first receipt parse (S.prices was empty).',
+  ]},
   { v:'2.41.14', date:'2026-04-18', notes:[
     '[*] BUG-ERRLOG-CONSOLE: clog() warn/err messages now mirror to S.errorLog and the debug Error Log panel. Previously only tGet() API errors appeared there; yellow/red console lines were invisible in the error log.',
   ]},
@@ -2200,10 +2203,14 @@ async function rateSafeGet(section, sel, extra=''){
   if(isUpgrade){
     // Wipe API cache keys only — user data (receipts, wars, paidLog etc.) untouched
     // hv_v1_last_sync intentionally kept — timestamp lets startup skip unnecessary sync
+    // Wipe only short-lived API response caches — NOT user/derived data
+    // crime_log, event_log, oc_crimes, items_cache survive version upgrades:
+    //   • crime_log = deep fetch OC history — hard to re-fetch
+    //   • event_log = full receipt/event history — lost permanently if wiped
+    //   • oc_crimes = v2 enriched crimes — safe to keep, re-enriched on next sync
+    //   • items_cache = S.prices — needed at parse time for correct mv/audit values
     ['hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache',
-     'hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_fetch_meta',
-     'hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_event_log',
-     'hv_v1_last_event_ts','hv_v1_prev_event_ts'
+     'hv_v1_attacknews_cache','hv_v1_fetch_meta'
     ].forEach(k=>localStorage.removeItem(k));
     // Store the previous version so changelog can highlight new entries
     localStorage.setItem('hv_upgrade_from', lastSeen);
