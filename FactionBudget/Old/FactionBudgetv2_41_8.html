@@ -399,6 +399,7 @@
         </div>
       </div>
       <button class="btn-danger" id="btnDisconnect" onclick="clearKey()" style="display:none;padding:6px 14px;font-size:9px;white-space:nowrap;width:100%;text-align:center;">✕ DISCONNECT</button>
+      <button id="btnReturnLogin" onclick="showAccessGate(true)" style="display:none;padding:6px 14px;font-size:9px;white-space:nowrap;width:100%;text-align:center;background:none;border:1px solid var(--accent);color:var(--accent);font-family:'Space Mono',monospace;letter-spacing:1px;cursor:pointer;">↩ RETURN TO LOGIN</button>
     </div>
   </div>
 
@@ -1061,7 +1062,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.7';
+const APP_VERSION = '2.41.8';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1126,6 +1127,10 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.8', date:'2026-04-17', notes:[
+    '[*] BUG-DISCONNECT-STUCK: Added "↩ RETURN TO LOGIN" rescue button in the header. Visible only when S.key is empty (no connected key) — hides automatically when a key connects via revealDash(). Clicking it calls showAccessGate(true) to surface the full-screen access gate. Fixes the stuck state where a prior disconnect left mainApp visible with no key and no way to reach the login screen without a hard refresh.',
+    '[*] BUG-DISCONNECT-STUCK-2: setStatus() now toggles #btnReturnLogin visibility on every call — shows when S.key is empty, hides when a key is active. Startup IIFE also explicitly shows the rescue button when no stored key is found, catching the stuck state immediately on page load without waiting for a setStatus call.',
+  ]},
   { v:'2.41.7', date:'2026-04-17', notes:[
     '[*] BUG-DISCONNECT: clearKey() now calls showAccessGate(true) instead of manually toggling apiSetup display. Previously, disconnect removed the key and showed the apiSetup panel but left mainApp visible and the access gate logic in an inconsistent state — the page appeared as a blank dashboard shell with no way to enter a new key. Now disconnect properly routes back through the access gate the same way a fresh page load with no stored key does. Confirm dialog updated to clarify that inventory counts and logs are preserved.',
   ]},
@@ -2185,6 +2190,8 @@ async function rateSafeGet(section, sel, extra=''){
   // Access gate — if key already loaded, only check access if no record (autoVerify handles it)
   // If no stored key, always run checkAccessOnLoad to show gate
   if(!k) checkAccessOnLoad();
+  // Rescue button: show immediately if no key (catches stuck state from prior bad disconnect)
+  if(!k){ const _rl=document.getElementById('btnReturnLogin'); if(_rl) _rl.style.display='block'; }
   else if(!getAccessRecord()){
     // Key stored but no access record — render stale cache immediately then verify
     const scv=restoreFromCacheStale();
@@ -2276,6 +2283,7 @@ async function saveKey(){
 
 function revealDash(){
   document.getElementById('apiSetup').style.display='none';
+  const _rl=document.getElementById('btnReturnLogin'); if(_rl) _rl.style.display='none';
   // Set version badge and page title from single APP_VERSION constant
   const _vBadge=document.getElementById('versionBadge');
   if(_vBadge) _vBadge.textContent=`v${APP_VERSION}`;
@@ -4293,6 +4301,9 @@ function renderRespect(){
 function setStatus(t,txt){
   document.getElementById('sDot').className='status-dot'+(t?' '+t:'');
   document.getElementById('sText').textContent=txt;
+  // Show rescue button whenever no key is connected
+  const _rl=document.getElementById('btnReturnLogin');
+  if(_rl) _rl.style.display=(!S.key)?'block':'none';
 }
 
 // ════════════════════════════════════════════
