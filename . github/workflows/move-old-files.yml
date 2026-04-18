@@ -1,0 +1,280 @@
+name: Move old file to Old folder when new one is uploaded
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.html'
+      - '**/manifest.json'
+
+jobs:
+  move-old-files:
+    runs-on: ubuntu-latest
+    # ─── TOGGLE ───────────────────────────────────────────────────────────────
+    # Set the Actions variable WORKFLOW_ENABLED to 'true' to enable this job.
+    # Set it to anything else (or leave it unset) to disable it.
+    # Go to: Settings → Secrets and variables → Actions → Variables tab
+    if: vars.WORKFLOW_ENABLED == 'true' && github.actor != 'github-actions[bot]'
+    # ──────────────────────────────────────────────────────────────────────────
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Move versioned files to Old/ and update current/ for every tool
+        run: |
+          set -euo pipefail
+
+          # Auto-detect every tool root: any directory that contains a current/ subdir.
+          # Excludes .git and legacy at any depth.
+          while IFS= read -r current_dir; do
+            tool_root="$(dirname "$current_dir")"
+            case "$tool_root" in */.git*|./legacy*|.) continue ;; esac
+
+            old_dir="$tool_root/Old"
+            mkdir -p "$old_dir"
+
+            # Collect all versioned HTML filenames from tool root, Old/, and current/
+            tmpfile=$(mktemp)
+            find "$tool_root" -maxdepth 1 -name '*.html' \
+              -exec basename {} \; 2>/dev/null >> "$tmpfile" || true
+            find "$old_dir" -maxdepth 1 \
+              -name '*.html' -exec basename {} \; \
+              2>/dev/null >> "$tmpfile" || true
+            find "$current_dir" -maxdepth 1 \
+              -name '*.html' -exec basename {} \; \
+              2>/dev/null >> "$tmpfile" || true
+
+            # Determine latest by numeric version tuple sort
+            latest_name=$(awk '
+              {
+                f = $0
+                if (match(f, /v([0-9]+)_([0-9]+)_([0-9]+)(_[a-zA-Z][a-zA-Z0-9]*)?\.html$/, a)) {
+                  maj = a[1]+0; min = a[2]+0; pat = a[3]+0
+                  mod = (a[4] != "") ? 1 : 0
+                  printf "%09d %09d %09d %d %s\n", maj, min, pat, mod, f
+                } else {
+                  printf "%09d %09d %09d %d %s\n", 0, 0, 0, 0, f
+                }
+              }
+            ' "$tmpfile" | sort -k1,1n -k2,2n -k3,3n -k4,4n | tail -n1 | awk '{print $NF}' || true)
+            rm -f "$tmpfile"
+
+            if [ -z "$latest_name" ]; then
+              continue
+            fi
+
+            echo "[$tool_root] Latest: $latest_name"
+
+            # Move any versioned files from the tool root (not current/ or Old/) to Old/
+            mapfile -t root_files < <(find "$tool_root" -maxdepth 1 -name '*.html' 2>/dev/null)
+            for f in "${root_files[@]+"${root_files[@]}"}"; do
+              fname=$(basename "$f")
+              mv -- "$f" "$old_dir/$fname"
+              echo "  Moved root/$fname -> Old/"
+            done
+
+            # Move non-latest versioned files from current/ to Old/
+            mapfile -t cur_files < <(find "$current_dir" -maxdepth 1 -name '*.html' 2>/dev/null)
+            for f in "${cur_files[@]+"${cur_files[@]}"}"; do
+              fname=$(basename "$f")
+              if [ "$fname" = "$latest_name" ]; then
+                echo "  Keeping current/$fname (latest)"
+                continue
+              fi
+              mv -- "$f" "$old_dir/$fname"
+              echo "  Archived current/$fname -> Old/"
+            done
+
+            # Ensure the latest is also present in Old/ (archive copy)
+            if [ ! -f "$old_dir/$latest_name" ]; then
+              cp -- "$current_dir/$latest_name" "$old_dir/$latest_name"
+              echo "  Archived copy: Old/$latest_name"
+            fi
+
+            # Ensure the latest is in current/
+            if [ ! -f "$current_dir/$latest_name" ]; then
+              cp -- "$old_dir/$latest_name" "$current_dir/$latest_name"
+              echo "  Restored: current/$latest_name"
+            fi
+
+          done < <(
+            find . -type d -name 'current' \
+              -not -path './.git/*' \
+              -not -path './legacy/*'
+          )
+
+      - name: Move old files to Old/ for non-versioned tools
+        run: |
+          while IFS= read -r current_dir; do
+            case "$current_dir" in */.git*|./legacy*) continue ;; esac
+            old_dir="$(dirname "$current_dir")/Old"
+            mkdir -p "$old_dir"
+
+            count=$(find "$current_dir" -maxdepth 1 -type f \
+              -name '*.html' \
+              -not -name 'manifest.json' | wc -l)
+
+            if [ "$count" -gt 1 ]; then
+              find "$current_dir" -maxdepth 1 -type f \
+                -name '*.html' \
+                -not -name 'manifest.json' \
+                -printf '%T@ %p\n' \
+                | sort -n \
+                | head -n -1 \
+                | awk '{print $2}' \
+                | while IFS= read -r file; do
+                    mv "$file" "$old_dir/"
+                    echo "Moved: $file -> $old_dir/"
+                  done
+            fi
+          done < <(
+            find . -type d -name 'current' \
+              -not -path './.git/*' \
+              -not -path './legacy/*'
+          )
+
+      - name: Regenerate manifest.json for every tool's current/ folder
+        run: |
+          python3 << 'EOF'
+          import json, os, re
+          from collections import Counter
+
+          def parse_version(filename):
+              m = re.search(r'v(\d+)_(\d+)_(\d+)(_[a-zA-Z][a-zA-Z0-9]*)?', filename, re.I)
+              if not m:
+                  return (0, 0, 0, 0)
+              has_mod = 1 if m.group(4) else 0
+              return (int(m.group(1)), int(m.group(2)), int(m.group(3)), has_mod)
+
+          EXCLUDE = {'.git', 'legacy'}
+
+          for root, dirs, files in os.walk('.'):
+              dirs[:] = [d for d in dirs if d not in EXCLUDE and not d.startswith('.')]
+              if os.path.basename(root) != 'current':
+                  continue
+
+              old_dir = os.path.join(os.path.dirname(root), 'Old')
+              all_files = []
+              if os.path.isdir(old_dir):
+                  all_files += [f for f in os.listdir(old_dir) if f.endswith('.html')]
+              all_files += [f for f in os.listdir(root) if f.endswith('.html')]
+
+              counts = Counter(all_files)
+              duplicates = [f for f, c in counts.items() if c > 1]
+              if duplicates:
+                  print(f'WARNING [{root}]: Duplicates removed: {duplicates}')
+              all_files = list(dict.fromkeys(all_files))
+              all_files.sort(key=parse_version)
+
+              if not all_files:
+                  continue
+
+              manifest = {'latest': all_files[-1], 'all': all_files}
+              out_path = os.path.join(root, 'manifest.json')
+              with open(out_path, 'w') as fh:
+                  json.dump(manifest, fh, indent=2)
+                  fh.write('\n')
+              print(f'Updated {out_path}: latest={manifest["latest"]}, count={len(all_files)}')
+              assert manifest['latest'] == all_files[-1], \
+                  f'ERROR [{root}]: latest field does not match newest version!'
+          EOF
+
+      - name: Sync new tools to config.json
+        run: |
+          python3 << 'EOF'
+          import json, os, re
+
+          EXCLUDE = {'.git', 'legacy'}
+          CONFIG_PATH = 'config.json'
+
+          def camel_to_words(name):
+              """PatchTool -> Patch Tool, FactionBudget -> Faction Budget"""
+              return re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name)
+
+          def folder_to_id(name):
+              """PatchTool -> patchTool"""
+              return name[0].lower() + name[1:]
+
+          def is_dev_only(current_path):
+              """
+              ./Tools/PatchTool/current -> True
+              ./FactionBudget/current   -> False
+              """
+              parts = current_path.lstrip('./').split('/')
+              return parts[0].lower() == 'tools'
+
+          # Load existing config
+          with open(CONFIG_PATH, 'r') as fh:
+              config = json.load(fh)
+
+          existing_folders = {t['currentFolder'] for t in config['tools']}
+          added = []
+
+          for root, dirs, files in os.walk('.'):
+              dirs[:] = [d for d in dirs if d not in EXCLUDE and not d.startswith('.')]
+              if os.path.basename(root) != 'current':
+                  continue
+
+              # Normalise path: strip leading ./ and ensure trailing slash
+              rel = root.lstrip('./')
+              if not rel.endswith('/'):
+                  rel += '/'
+
+              if rel in existing_folders:
+                  continue
+
+              # Derive tool name from parent folder
+              tool_folder_name = os.path.basename(os.path.dirname(root))
+              display_name = camel_to_words(tool_folder_name)
+              tool_id = folder_to_id(tool_folder_name)
+              dev_only = is_dev_only(root)
+
+              new_entry = {
+                  "id": tool_id,
+                  "name": display_name,
+                  "shortName": display_name,
+                  "description": "",
+                  "status": "In Progress",
+                  "badge": "Dev Only" if dev_only else "In Progress",
+                  "badgeStyle": "dev" if dev_only else "wip",
+                  "currentFolder": rel,
+                  "features": [],
+                  "stats": [],
+                  "heroStyle": False,
+                  "devOnly": dev_only,
+                  "progress": {"pct": 0, "label": "0% — new tool"}
+              }
+
+              config['tools'].append(new_entry)
+              existing_folders.add(rel)
+              added.append(rel)
+              print(f'Added to config.json: {rel} (devOnly={dev_only})')
+
+          if added:
+              with open(CONFIG_PATH, 'w') as fh:
+                  json.dump(config, fh, indent=2)
+                  fh.write('\n')
+              print(f'config.json updated with {len(added)} new tool(s).')
+          else:
+              print('config.json — no new tools detected.')
+          EOF
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Move old file(s) to Old [auto]"
+            git push
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
