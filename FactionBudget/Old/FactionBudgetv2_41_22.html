@@ -264,9 +264,8 @@
     #respectTbl th:nth-child(3),#respectTbl td:nth-child(3),
     #respectTbl th:nth-child(4),#respectTbl td:nth-child(4){display:none;}
 
-    /* ── OC table: hide Resp (col5) and Log link (col7) ── */
-    #ocTbl th:nth-child(5),#ocTbl td:nth-child(5),
-    #ocTbl th:nth-child(7),#ocTbl td:nth-child(7){display:none;}
+    /* ── OC table: hide Date (col1) to make room for Resp+Log ── */
+    #ocTbl th:nth-child(1),#ocTbl td:nth-child(1){display:none;}
 
     /* ── War history table: hide Mbr Payout (col6) and expand arrow (col7) ── */
     #warTbl th:nth-child(6),#warTbl td:nth-child(6),
@@ -1186,7 +1185,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.21';
+const APP_VERSION = '2.41.22';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1251,6 +1250,10 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v: '2.41.22', date: '2026-04-18', notes: [
+    'OC mobile: show Resp+Log columns, hide Date (col1) instead to save width',
+    'Fix: mainnews_cache and attacknews_cache no longer wiped on version upgrade — preserves attack/chain/war respect history across updates',
+  ]},
   { v: '2.41.21', date: '2026-04-18', notes: [
     'Mobile table compression: reduced cell padding/font on max-width:599px',
     'Respect table hides Chain/War columns on mobile (both included in Total)',
@@ -2266,8 +2269,9 @@ async function rateSafeGet(section, sel, extra=''){
     //   • event_log = full receipt/event history — lost permanently if wiped
     //   • oc_crimes = v2 enriched crimes — safe to keep, re-enriched on next sync
     //   • items_cache = S.prices — needed at parse time for correct mv/audit values
-    ['hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache',
-     'hv_v1_attacknews_cache','hv_v1_fetch_meta'
+    // mainnews_cache = S.attackNews (chain/war respect) + S.mainNews — hard to re-fetch, survives upgrade
+    // attacknews_cache = S.crimeNews (attack respect entries) — same
+    ['hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_fetch_meta'
     ].forEach(k=>localStorage.removeItem(k));
     // Store the previous version so changelog can highlight new entries
     localStorage.setItem('hv_upgrade_from', lastSeen);
