@@ -1185,7 +1185,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.22';
+const APP_VERSION = '2.41.23';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1250,6 +1250,11 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v: '2.41.23', date: '2026-04-18', notes: [
+    'War bonus: broadened regex to also catch war-win respect grants (not just rank-up format)',
+    'Test member row moved to top of Members list, highlighted with 20% neon green background',
+    'Storage inspector limit display updated from 5MB to 10MB',
+  ]},
   { v: '2.41.22', date: '2026-04-18', notes: [
     'OC mobile: show Resp+Log columns, hide Date (col1) instead to save width',
     'Fix: mainnews_cache and attacknews_cache no longer wiped on version upgrade — preserves attack/chain/war respect history across updates',
@@ -4449,11 +4454,15 @@ function renderRespect(){
   S.attackNews.forEach(ev=>{
     if(!inPeriod(ev.timestamp,period)) return;
     const n=stripHtml(ev.news||'');
-    const warRankM=n.match(/ranked up from .+ to .+ and received\s+([\d,]+)\s+bonus\s+respect/i);
-    if(warRankM){
+    // Pattern 1: rank-up bonus — "ranked up from X to Y and received N bonus respect"
+    const warRankM=n.match(/ranked up from .+? to .+? and received\s+([\d,.]+)\s+bonus\s+respect/i);
+    // Pattern 2: war-win respect — "won the war against X ... N respect" or "received N respect for winning"
+    const warWinM=!warRankM&&n.match(/(?:won(?:.{0,40}war|.{0,40}against)|for winning(?:.{0,20}war)?).{0,80}?([\d,]+(?:\.\d+)?)\s+respect/i);
+    const warMatch=warRankM||warWinM;
+    if(warMatch){
       const key=`war_${ev.timestamp}`;
       const ov=S.respectOverrides?.[key];
-      const resp=ov?ov.respect:(parseFloat(warRankM[1].replace(/,/g,''))||0);
+      const resp=ov?ov.respect:(parseFloat(warMatch[1].replace(/,/g,''))||0);
       if(!memberRespect['⚡ War Rank Bonus']) memberRespect['⚡ War Rank Bonus']={atk:0,chain:0,war:0};
       memberRespect['⚡ War Rank Bonus'].war+=resp;
       totalWar+=resp;
@@ -5620,6 +5629,9 @@ function renderMemberUsage(){
   // S._showTestMember is never persisted to localStorage (resets each page load).
   // TO REMOVE: delete this block and the toggleTestMember() function below,
   //   and remove id="testMemberToggleBtn" from the header div above.
+  // ── TEST MEMBER ─────────────────────────────────────────────────────────────
+  // Render-only test row — always first, not counted in any totals.
+  let testHtml='';
   if(S._showTestMember){
     const testCats=['Medical','Drug','Alcohol','Energy','Booster'];
     let testPills='';
@@ -5634,23 +5646,23 @@ function renderMemberUsage(){
         <span style="font-size:8px;opacity:0.85;">$1</span>
       </button>`;
     });
-    h+=`<div style="padding:10px 12px;border-bottom:1px solid var(--border);border-left:2px solid var(--accent3);
-      display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(240,192,64,0.04);">
+    testHtml=`<div style="padding:10px 12px;border-bottom:1px solid var(--border);border-left:3px solid var(--accent);
+      display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(127,255,110,0.20);">
       <div style="min-width:90px;max-width:110px;flex-shrink:0;">
-        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent3);letter-spacing:1px;">DBG</div>
-        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--muted);
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent);letter-spacing:1px;">TEST</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--accent);
           white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="[test]">[test]</div>
-        <div style="height:2px;background:var(--border);margin-top:4px;"></div>
+        <div style="height:2px;background:rgba(127,255,110,0.3);margin-top:4px;"></div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:0;">${testPills}</div>
       <div style="flex-shrink:0;text-align:right;min-width:54px;">
-        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--muted);">—</div>
+        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--accent);">—</div>
       </div>
     </div>`;
   }
   // ── END TEST MEMBER ──────────────────────────────────────────────────────────
 
-  document.getElementById('memberTbl').innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);">${h}</div>`;
+  document.getElementById('memberTbl').innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);">${testHtml}${h}</div>`;
 }
 
 // ── TEST MEMBER TOGGLE ───────────────────────────────────────────────────────
@@ -7763,11 +7775,11 @@ function adminInspectStorage(){
   // Total size summary
   const totalKB=(totalBytes/1024).toFixed(1);
   const totalMB=(totalBytes/1048576).toFixed(2);
-  const pct=((totalBytes/5242880)*100).toFixed(1); // 5MB typical localStorage limit
-  out=`=== TOTAL CACHE SIZE: ${totalKB} KB (${totalMB} MB) — ${pct}% of ~5MB limit ===\n\n`+out;
+  const pct=((totalBytes/10485760)*100).toFixed(1); // ~10MB typical localStorage limit
+  out=`=== TOTAL CACHE SIZE: ${totalKB} KB (${totalMB} MB) — ${pct}% of ~10MB limit ===\n\n`+out;
   // Update summary badge if present
   const badge=document.getElementById('cacheSizeBadge');
-  if(badge) badge.textContent=`${totalKB} KB used (${pct}% of 5MB)`;
+  if(badge) badge.textContent=`${totalKB} KB used (${pct}% of ~10MB)`;
   out+=`=== IN-MEMORY STATE ===\n`;
   out+=`S.receipts: ${S.receipts.length} (${S.receipts.filter(r=>!r.deleted).length} active)\n`;
   out+=`S.testers: ${(S.testers||[]).length}\n`;
