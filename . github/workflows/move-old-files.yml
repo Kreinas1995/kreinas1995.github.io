@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         with:
           ref: ${{ github.ref }}
 
@@ -34,9 +34,7 @@ jobs:
           # Excludes .git and legacy at any depth.
           while IFS= read -r current_dir; do
             tool_root="$(dirname "$current_dir")"
-            [[ "$tool_root" == */.git* ]] && continue
-            [[ "$tool_root" == ./legacy* ]] && continue
-            [ "$tool_root" = "." ] && continue
+            case "$tool_root" in */.git*|./legacy*|.) continue ;; esac
 
             old_dir="$tool_root/Old"
             mkdir -p "$old_dir"
@@ -114,8 +112,7 @@ jobs:
       - name: Move old files to Old/ for non-versioned tools
         run: |
           while IFS= read -r current_dir; do
-            [[ "$current_dir" == */.git* ]] && continue
-            [[ "$current_dir" == ./legacy* ]] && continue
+            case "$current_dir" in */.git*|./legacy*) continue ;; esac
             old_dir="$(dirname "$current_dir")/Old"
             mkdir -p "$old_dir"
 
@@ -158,7 +155,6 @@ jobs:
           EXCLUDE = {'.git', 'legacy'}
 
           for root, dirs, files in os.walk('.'):
-              # Skip excluded directories at any depth
               dirs[:] = [d for d in dirs if d not in EXCLUDE and not d.startswith('.')]
               if os.path.basename(root) != 'current':
                   continue
@@ -187,6 +183,86 @@ jobs:
               print(f'Updated {out_path}: latest={manifest["latest"]}, count={len(all_files)}')
               assert manifest['latest'] == all_files[-1], \
                   f'ERROR [{root}]: latest field does not match newest version!'
+          EOF
+
+      - name: Sync new tools to config.json
+        run: |
+          python3 << 'EOF'
+          import json, os, re
+
+          EXCLUDE = {'.git', 'legacy'}
+          CONFIG_PATH = 'config.json'
+
+          def camel_to_words(name):
+              """PatchTool -> Patch Tool, FactionBudget -> Faction Budget"""
+              return re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name)
+
+          def folder_to_id(name):
+              """PatchTool -> patchTool"""
+              return name[0].lower() + name[1:]
+
+          def is_dev_only(current_path):
+              """
+              ./Tools/PatchTool/current -> True
+              ./FactionBudget/current   -> False
+              """
+              parts = current_path.lstrip('./').split('/')
+              return parts[0].lower() == 'tools'
+
+          # Load existing config
+          with open(CONFIG_PATH, 'r') as fh:
+              config = json.load(fh)
+
+          existing_folders = {t['currentFolder'] for t in config['tools']}
+          added = []
+
+          for root, dirs, files in os.walk('.'):
+              dirs[:] = [d for d in dirs if d not in EXCLUDE and not d.startswith('.')]
+              if os.path.basename(root) != 'current':
+                  continue
+
+              # Normalise path: strip leading ./ and ensure trailing slash
+              rel = root.lstrip('./')
+              if not rel.endswith('/'):
+                  rel += '/'
+
+              if rel in existing_folders:
+                  continue
+
+              # Derive tool name from parent folder
+              tool_folder_name = os.path.basename(os.path.dirname(root))
+              display_name = camel_to_words(tool_folder_name)
+              tool_id = folder_to_id(tool_folder_name)
+              dev_only = is_dev_only(root)
+
+              new_entry = {
+                  "id": tool_id,
+                  "name": display_name,
+                  "shortName": display_name,
+                  "description": "",
+                  "status": "In Progress",
+                  "badge": "Dev Only" if dev_only else "In Progress",
+                  "badgeStyle": "dev" if dev_only else "wip",
+                  "currentFolder": rel,
+                  "features": [],
+                  "stats": [],
+                  "heroStyle": False,
+                  "devOnly": dev_only,
+                  "progress": {"pct": 0, "label": "0% — new tool"}
+              }
+
+              config['tools'].append(new_entry)
+              existing_folders.add(rel)
+              added.append(rel)
+              print(f'Added to config.json: {rel} (devOnly={dev_only})')
+
+          if added:
+              with open(CONFIG_PATH, 'w') as fh:
+                  json.dump(config, fh, indent=2)
+                  fh.write('\n')
+              print(f'config.json updated with {len(added)} new tool(s).')
+          else:
+              print('config.json — no new tools detected.')
           EOF
 
       - name: Commit and push changes

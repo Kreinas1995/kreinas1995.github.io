@@ -25,6 +25,7 @@
         { "label": "Status",     "value": "ACTIVE", "color": "accent" }
       ],
       "heroStyle": true,
+      "devOnly": false,
       "progress": null
     },
     {
@@ -39,6 +40,7 @@
       "features": [],
       "stats": [],
       "heroStyle": false,
+      "devOnly": false,
       "progress": { "pct": 20, "label": "20% — early build" }
     },
     {
@@ -53,6 +55,7 @@
       "features": [],
       "stats": [],
       "heroStyle": false,
+      "devOnly": false,
       "progress": { "pct": 35, "label": "35% — basic calc working" }
     }
   ]
