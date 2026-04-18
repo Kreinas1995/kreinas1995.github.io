@@ -436,6 +436,78 @@
     }
     .dev-trigger:hover { color: var(--accent3); }
 
+    /* ── PIN PAD OVERLAY */
+    #PinPad {
+      position: fixed;
+      inset: 0;
+      z-index: 9500;
+      background: rgba(7,10,13,0.96);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease;
+    }
+    #PinPad.pin-open {
+      opacity: 1;
+      pointer-events: all;
+    }
+    .pin-card {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      padding: 32px 28px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      min-width: 240px;
+    }
+    .pin-dots {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      height: 16px;
+    }
+    .pin-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1px solid var(--border2);
+      background: transparent;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .pin-dot.filled {
+      background: var(--accent3);
+      border-color: var(--accent3);
+    }
+    .pin-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .pin-btn {
+      width: 60px;
+      height: 60px;
+      background: #161c24;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .pin-btn:hover { background: #1e2630; border-color: var(--border2); }
+    .pin-btn:active { background: #252e3a; }
+    .pin-btn.pin-sym {
+      font-size: 22px;
+      color: var(--muted);
+    }
+
     /* ── DEV PANEL OVERLAY */
     #DevPanel {
       position: fixed;
@@ -572,6 +644,7 @@
       from { opacity: 0; transform: translateY(16px); }
       to   { opacity: 1; transform: translateY(0); }
     }
+
     /* ── OLD VERSIONS ARCHIVE */
     .archive-toggle {
       display: flex;
@@ -666,7 +739,7 @@
     <!-- HEADER -->
     <header>
       <div>
-        <div class="site-title">⬡ <span>Syph<button class="dev-trigger" onclick="openDevPanel()" title="Dev Tools">'</button>s</span> Tools</div>
+        <div class="site-title">⬡ <span>Syph<button class="dev-trigger" onclick="openPinPad()" title="Dev Tools">'</button>s</span> Tools</div>
         <div class="site-sub">Torn City Utilities</div>
       </div>
       <div class="header-tag">kreinas1995.github.io</div>
@@ -688,6 +761,33 @@
       <div class="archive-body" id="archive-body"></div>
     </div>
 
+    <!-- PIN PAD -->
+    <div id="PinPad">
+      <div class="pin-card">
+        <div class="pin-dots">
+          <div class="pin-dot" id="pd0"></div>
+          <div class="pin-dot" id="pd1"></div>
+          <div class="pin-dot" id="pd2"></div>
+          <div class="pin-dot" id="pd3"></div>
+          <div class="pin-dot" id="pd4"></div>
+        </div>
+        <div class="pin-grid">
+          <button class="pin-btn" onclick="handlePinInput('1')">1</button>
+          <button class="pin-btn" onclick="handlePinInput('2')">2</button>
+          <button class="pin-btn" onclick="handlePinInput('3')">3</button>
+          <button class="pin-btn" onclick="handlePinInput('4')">4</button>
+          <button class="pin-btn" onclick="handlePinInput('5')">5</button>
+          <button class="pin-btn" onclick="handlePinInput('6')">6</button>
+          <button class="pin-btn" onclick="handlePinInput('7')">7</button>
+          <button class="pin-btn" onclick="handlePinInput('8')">8</button>
+          <button class="pin-btn" onclick="handlePinInput('9')">9</button>
+          <button class="pin-btn pin-sym" onclick="handlePinInput('*')">*</button>
+          <button class="pin-btn" onclick="handlePinInput('0')">0</button>
+          <button class="pin-btn pin-sym" onclick="handlePinInput('#')">#</button>
+        </div>
+      </div>
+    </div>
+
     <!-- DEV PANEL -->
     <div id="DevPanel">
       <div class="dev-panel-inner">
@@ -695,8 +795,6 @@
           <div class="dev-header-title">// Dev Tools</div>
           <button class="dev-close" onclick="closeDevPanel()">✕ Close [Esc]</button>
         </div>
-        <div class="dev-section-label">— Public Tools</div>
-        <div id="DevPublicGrid" class="dev-grid"></div>
         <div class="dev-section-label">— Dev Only</div>
         <div id="DevOnlyGrid" class="dev-grid"></div>
       </div>
@@ -711,19 +809,12 @@
   </div>
 
   <script>
-    /**
-     * Parses a version filename like "FactionBudgetv2_37_1.html" into a
-     * sortable numeric tuple [major, minor, patch] so we can find the newest.
-     */
     function parseVersion(filename) {
       const m = filename.match(/v(\d+)[_.](\d+)[_.](\d+)/i);
       if (!m) return [0, 0, 0];
       return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
     }
 
-    /**
-     * Compares two version tuples; returns positive if a > b.
-     */
     function cmpVersion(a, b) {
       for (let i = 0; i < 3; i++) {
         if (a[i] !== b[i]) return a[i] - b[i];
@@ -731,13 +822,7 @@
       return 0;
     }
 
-    /**
-     * Given a tool's currentFolder (e.g. "FactionBudget/current/"), fetch its
-     * manifest.json and return the href for the newest versioned file.
-     * Falls back to directory-listing parse if manifest is unavailable.
-     */
     async function detectLatestVersion(tool) {
-      // Primary: manifest.json (reliable on GitHub Pages)
       try {
         const res = await fetch(tool.currentFolder + 'manifest.json');
         if (res.ok) {
@@ -746,7 +831,6 @@
         }
       } catch (e) { /* fall through */ }
 
-      // Fallback: parse directory listing (works on local dev servers)
       try {
         const res = await fetch(tool.currentFolder);
         if (!res.ok) return tool.currentFolder;
@@ -764,16 +848,12 @@
       }
     }
 
-    /**
-     * Extracts a human-readable version string like "v2.37.1" from a filename.
-     */
     function displayVersion(href) {
       const m = href.match(/v(\d+)[_.](\d+)[_.](\d+)/i);
       if (!m) return '';
       return `v${m[1]}.${m[2]}.${m[3]}`;
     }
 
-    /** Escapes HTML special characters. */
     function esc(s) {
       return String(s)
         .replace(/&/g, '&amp;')
@@ -857,7 +937,6 @@
 
         const oldFolder = tool.currentFolder.replace(/\/current\/$/, '/Old/');
 
-        // Render newest-first (reverse the sorted-oldest-first array)
         const linksHtml = [...manifest.all].reverse().map(filename => {
           const isLatest = filename === manifest.latest;
           const href = isLatest ? tool.currentFolder + filename : oldFolder + filename;
@@ -902,6 +981,39 @@
       await loadArchive(config.tools.filter(t => !t.devOnly));
     }
 
+    // ── PIN PAD ─────────────────────────────────────────────
+    const _PIN = '3739*';
+    let _pinBuffer = '';
+
+    function openPinPad() {
+      _pinBuffer = '';
+      _updatePinDots();
+      document.getElementById('PinPad').classList.add('pin-open');
+    }
+
+    function closePinPad() {
+      document.getElementById('PinPad').classList.remove('pin-open');
+      _pinBuffer = '';
+      _updatePinDots();
+    }
+
+    function handlePinInput(digit) {
+      if (_pinBuffer.length >= _PIN.length) return;
+      _pinBuffer += digit;
+      _updatePinDots();
+      if (_pinBuffer.length === _PIN.length) {
+        const correct = _pinBuffer === _PIN;
+        closePinPad();
+        if (correct) openDevPanel();
+      }
+    }
+
+    function _updatePinDots() {
+      for (let i = 0; i < _PIN.length; i++) {
+        document.getElementById('pd' + i).classList.toggle('filled', i < _pinBuffer.length);
+      }
+    }
+
     // ── DEV PANEL ──────────────────────────────────────────
     const DEV_ONLY_TOOLS = [];
 
@@ -917,36 +1029,34 @@
     }
 
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') closeDevPanel();
+      if (e.key === 'Escape') {
+        closePinPad();
+        closeDevPanel();
+      }
     });
 
     async function populateDevPanel() {
-      const publicGrid = document.getElementById('DevPublicGrid');
-      const devGrid    = document.getElementById('DevOnlyGrid');
+      const devGrid = document.getElementById('DevOnlyGrid');
 
-      // Only render once
-      if (publicGrid.dataset.populated) return;
-      publicGrid.dataset.populated = '1';
+      if (devGrid.dataset.populated) return;
+      devGrid.dataset.populated = '1';
 
-      // Public tools from config.json — same version detection as homepage
       let config;
       try {
         const res = await fetch('config.json');
         config = await res.json();
       } catch (e) {
-        publicGrid.innerHTML = '<span style="color:var(--accent4);font-size:9px;">Failed to load config.json</span>';
+        devGrid.innerHTML = '<span style="color:var(--accent4);font-size:9px;">Failed to load config.json</span>';
         return;
       }
 
       for (const tool of config.tools) {
+        if (!tool.devOnly) continue;
         const href = await detectLatestVersion(tool);
         const ver  = displayVersion(href);
-        const badgeClass = tool.devOnly ? 'badge-dev' : tool.badgeStyle === 'wip' ? 'badge-wip' : '';
-        const grid = tool.devOnly ? devGrid : publicGrid;
-        const devOnlyClass = tool.devOnly ? ' dev-only' : '';
-        grid.insertAdjacentHTML('beforeend', `
-          <a href="${esc(href)}" class="dev-tool-btn${devOnlyClass}" target="_blank">
-            <span class="dev-btn-badge ${badgeClass}">${esc(tool.badge)}</span>
+        devGrid.insertAdjacentHTML('beforeend', `
+          <a href="${esc(href)}" class="dev-tool-btn dev-only" target="_blank">
+            <span class="dev-btn-badge badge-dev">${esc(tool.badge)}</span>
             <span class="dev-btn-name">${esc(tool.shortName || tool.name)}</span>
             <span class="dev-btn-desc">${esc(tool.description)}</span>
             ${ver ? `<span class="dev-btn-version">${esc(ver)}</span>` : ''}
@@ -954,7 +1064,6 @@
           </a>`);
       }
 
-      // Hardcoded dev-only tools (not in config, e.g. single-file utilities)
       for (const tool of DEV_ONLY_TOOLS) {
         devGrid.insertAdjacentHTML('beforeend', `
           <a href="${esc(tool.href)}" class="dev-tool-btn dev-only" target="_blank">
