@@ -1155,7 +1155,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.13';
+const APP_VERSION = '2.41.14';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1220,6 +1220,9 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.14', date:'2026-04-18', notes:[
+    '[*] BUG-ERRLOG-CONSOLE: clog() warn/err messages now mirror to S.errorLog and the debug Error Log panel. Previously only tGet() API errors appeared there; yellow/red console lines were invisible in the error log.',
+  ]},
   { v:'2.41.13', date:'2026-04-17', notes:[
     '[*] UX-DEBUG-COLLAPSE: All 7 debug panel sections now start collapsed by default. Previously all were expanded on tab open, which was noisy. Sections still expand/collapse individually via dbgToggleSection().',
     '[*] DBG-RUN-ALL: "RUN ALL ENDPOINTS" now includes user/basic and all 9 user/log categories (cat=85 Item sending, 86 Shops, 18 Bazaars, 11 Item market, 15 Items incoming, 87 Travel, 88 Auctions, 94 Trades, 12 Items). Each category shows entry count, title/category distribution, and first 3 entries with structured data fields. Previously only the 8 main API endpoints were tested — log categories required manual individual button presses.',
@@ -2337,6 +2340,17 @@ function clog(msg, type='info'){
     if(el){el.innerHTML+=html;el.scrollTop=el.scrollHeight;}
   });
   document.getElementById('cWrap').style.display='block';
+  // Mirror warn/err to the debug error log so they appear in the Error Log panel
+  if(type==='warn'||type==='err'){
+    if(typeof S!=='undefined'&&S){
+      if(!S.errorLog) S.errorLog=[];
+      S.errorLog.unshift({ts:Math.floor(Date.now()/1000), code:type==='err'?'ERR':'WARN', context:'console', message:String(msg)});
+      if(S.errorLog.length>100) S.errorLog=S.errorLog.slice(0,100);
+      const badge=document.getElementById('errLogBadge');
+      if(badge){ badge.textContent=`${S.errorLog.length} errors`; badge.style.display='inline'; }
+      if(typeof renderErrorLog==='function') renderErrorLog();
+    }
+  }
 }
 function clearConsole(){
   ['cLines','cLinesPost'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='';});
