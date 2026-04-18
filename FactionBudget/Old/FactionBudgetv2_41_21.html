@@ -253,6 +253,37 @@
     .app{padding:10px;}
     .sh{flex-direction:column;align-items:flex-start;}
     .oc-form .fg:last-child{grid-column:1/-1;}
+
+    /* ── Global table compression ── */
+    table{min-width:0;}
+    thead th{padding:7px 6px;font-size:8px;letter-spacing:1px;}
+    tbody td{padding:7px 6px;font-size:10px;}
+
+    /* ── Respect table: hide Chain (col3) and War (col4) ──
+       Total already includes both; Share bar remains visible */
+    #respectTbl th:nth-child(3),#respectTbl td:nth-child(3),
+    #respectTbl th:nth-child(4),#respectTbl td:nth-child(4){display:none;}
+
+    /* ── OC table: hide Resp (col5) and Log link (col7) ── */
+    #ocTbl th:nth-child(5),#ocTbl td:nth-child(5),
+    #ocTbl th:nth-child(7),#ocTbl td:nth-child(7){display:none;}
+
+    /* ── War history table: hide Mbr Payout (col6) and expand arrow (col7) ── */
+    #warTbl th:nth-child(6),#warTbl td:nth-child(6),
+    #warTbl th:nth-child(7),#warTbl td:nth-child(7){display:none;}
+
+    /* ── All item receipts table: hide Unit MV (col6) ── */
+    #rcptTbl th:nth-child(6),#rcptTbl td:nth-child(6){display:none;}
+
+    /* ── Outgoing / personal costs table: hide Total MV (col6) ── */
+    #outgoingTbl th:nth-child(6),#outgoingTbl td:nth-child(6){display:none;}
+
+    /* ── Supply table: hide % bar (col7, or col8 when Sent By is shown) ── */
+    #supplyTbl th:nth-child(7),#supplyTbl td:nth-child(7),
+    #supplyTbl th:nth-child(8),#supplyTbl td:nth-child(8){display:none;}
+
+    /* ── Error log: hide Context (col3) ── */
+    #errLogTbl th:nth-child(3),#errLogTbl td:nth-child(3){display:none;}
   }
 
   /* DEBUG PANEL — collapsible sections */
@@ -1155,7 +1186,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.20';
+const APP_VERSION = '2.41.21';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1220,6 +1251,11 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v: '2.41.21', date: '2026-04-18', notes: [
+    'Mobile table compression: reduced cell padding/font on max-width:599px',
+    'Respect table hides Chain/War columns on mobile (both included in Total)',
+    'OC/War/Receipts/Outgoing/Supply/ErrLog drop lowest-priority columns on mobile',
+  ]},
   { v: '2.41.20', date: '2026-04-18', notes: [
     'Fixed war result: .includes() direction was backwards; flipped to factionName.includes(winnerName)',
     'Fixed vsM lookahead: added \\s+War\\b so "X vs Y War details" matches; empty factionName defaults Win',
