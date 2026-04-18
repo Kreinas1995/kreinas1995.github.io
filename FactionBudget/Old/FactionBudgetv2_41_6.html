@@ -1061,7 +1061,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.5';
+const APP_VERSION = '2.41.6';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1126,6 +1126,11 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.6', date:'2026-04-17', notes:[
+    '[*] BUG-DBG-LOG-SAMPLE: Added null guard at top of dbgRunAll() — if(typeof dbgResults===\'undefined\') window.dbgResults={} — prevents "can\'t access property log, dbgResults is undefined" crash when RUN ALL is pressed before the script block fully evaluates after a partial parse or early error.',
+    '[*] BUG-DBG-DUPLICATE-OUTGOING: renderDebugEvents() outgoing block now uses stable container id="hvOutgoingLogBlock". On each render the old element is removed before re-injection (oldOut.remove()) so re-renders replace rather than append. Previously insertAdjacentHTML appended a new block on every call (tab switch, filter input, post-sync) causing N identical sections after N triggers.',
+    '[+] DBG-INCOMING-PURCHASES: New "INCOMING PURCHASES (user/log)" debug block added below outgoing in the debug tab. Surfaces S.invPurchases and S.invSells with date/item/qty/src columns. Uses stable id="hvIncomingPurchasesBlock" — same replace-on-render pattern. Shows "No purchases tracked yet" state with prompt to hit UPDATE if empty.',
+  ]},
   { v:'2.41.5', date:'2026-04-17', notes:[
     '[*] BUG-INV-REGEX: fetchInvPurchases() bulk/single narrative regexes converted from consuming match to lookahead ((?:...) → (?=...)). Previously, the stop-word pattern consumed "at $" so ".+?" captured "Sheep Plushie at $25 each" instead of "Sheep Plushie" — causing museumNames lookup to fail and the purchase to be silently discarded. Lookahead leaves the stop-word unmatched so item name is clean. Confirmed with node: qty=1, item="Sheep Plushie" for Bits \'n\' Bobs format.',
   ]},
@@ -6634,12 +6639,12 @@ function renderDebugEvents(){
   document.getElementById('debugTbl').innerHTML=h+'</tbody></table>';
 
   // ── OUTGOING LOG SECTION (BUG-DEBUG-4)
-  // Surface fetchOutgoingLog results so they're visible and copy-able during troubleshooting
+  // Uses stable container ID so re-renders replace rather than append (fixes duplicate block bug)
   const logEntries=(S.outgoing||[]).filter(r=>r.src==='log');
   const eventEntries=(S.outgoing||[]).filter(r=>r.src!=='log');
   const allTitles=[...new Set(logEntries.map(r=>r.logTitle||'(no title)'))];
 
-  let lo=`<div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">`;
+  let lo=`<div id="hvOutgoingLogBlock" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">`;
   lo+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent5);margin-bottom:10px;font-family:'Space Mono',monospace;">OUTGOING LOG (user/log)</div>`;
 
   const lastLogTs=logEntries.reduce((mx,r)=>Math.max(mx,r.ts),0);
@@ -6674,7 +6679,40 @@ function renderDebugEvents(){
   lo+=`<button onclick="_copyText(JSON.stringify(S.outgoing||[],null,2),()=>{this.textContent='✓ COPIED';setTimeout(()=>this.textContent='COPY OUTGOING JSON',2000);clog('Outgoing state copied','ok');})" style="margin-top:10px;background:none;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1px;padding:3px 10px;cursor:pointer;border-radius:3px;">COPY OUTGOING JSON</button>`;
   lo+=`</div>`;
 
+  // ── INCOMING PURCHASES SECTION
+  // Surfaces S.invPurchases so auto-tracked buys are visible in debug tab
+  const purchases=(S.invPurchases||[]);
+  const sells=(S.invSells||[]);
+  let li=`<div id="hvIncomingPurchasesBlock" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">`;
+  li+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);margin-bottom:10px;font-family:'Space Mono',monospace;">INCOMING PURCHASES (user/log)</div>`;
+  li+=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:8px;display:flex;flex-wrap:wrap;gap:16px;">`;
+  li+=`<span>purchases tracked: <span style="color:var(--accent2)">${purchases.length}</span></span>`;
+  li+=`<span>sells/listings: <span style="color:var(--accent2)">${sells.length}</span></span>`;
+  li+=`</div>`;
+  if(purchases.length){
+    li+=`<table><thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Src</th></tr></thead><tbody>`;
+    purchases.slice(0,50).forEach(p=>{
+      li+=`<tr>
+        <td class="cm" style="font-size:9px;white-space:nowrap">${ft(p.ts)}</td>
+        <td style="font-size:9px;color:var(--accent2)">${p.item||'?'}</td>
+        <td class="cm" style="font-size:9px;">${p.qty||1}</td>
+        <td class="cm" style="font-size:8px;opacity:0.7;">${p.src||'log'}</td>
+      </tr>`;
+    });
+    if(purchases.length>50) li+=`<tr><td colspan="4" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);text-align:center;padding:6px;">+${purchases.length-50} more</td></tr>`;
+    li+='</tbody></table>';
+  } else {
+    li+=`<div style="font-size:10px;color:var(--muted2);font-family:'Space Mono',monospace;">No purchases tracked yet — hit ↻ UPDATE on the Inventory tab.</div>`;
+  }
+  li+=`</div>`;
+
+  // Replace both blocks atomically — remove old ones first, then inject fresh
   const debugTbl=document.getElementById('debugTbl');
+  const oldOut=document.getElementById('hvOutgoingLogBlock');
+  const oldIn=document.getElementById('hvIncomingPurchasesBlock');
+  if(oldOut) oldOut.remove();
+  if(oldIn) oldIn.remove();
+  if(debugTbl) debugTbl.insertAdjacentHTML('afterend', li);
   if(debugTbl) debugTbl.insertAdjacentHTML('afterend', lo);
 }
 // ════════════════════════════════════════════
@@ -6720,6 +6758,7 @@ async function dbgTest(section, sel, key){
 
 async function dbgRunAll(){
   if(!S.key){ document.getElementById('dbgOut').textContent='No API key connected.'; return; }
+  if(typeof dbgResults==='undefined') window.dbgResults={}; // guard: script interrupted before var declaration
   dbgResults={};
   const out=document.getElementById('dbgOut');
   const status=document.getElementById('dbgStatus');
