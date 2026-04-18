@@ -4,7 +4,7 @@
       "id": "factionBudget",
       "name": "Faction Budget Dashboard",
       "shortName": "Faction Budget",
-      "description": "Full financial command center for HighVibes. Tracks vault balance, member payouts, supply costs, OC income, museum set inventory, respect stats, and war funds — all from your Torn API key.",
+      "description": "Full financial command center for HighVibes. Tracks vault balance, member payouts, supply costs, OC income, museum set inventory, respect stats, and war funds \u2014 all from your Torn API key.",
       "status": "ACTIVE",
       "badge": "Live",
       "badgeStyle": "accent",
@@ -20,9 +20,19 @@
         "Member Balances"
       ],
       "stats": [
-        { "label": "Tools",      "value": "11" },
-        { "label": "API Sources","value": "8+" },
-        { "label": "Status",     "value": "ACTIVE", "color": "accent" }
+        {
+          "label": "Tools",
+          "value": "11"
+        },
+        {
+          "label": "API Sources",
+          "value": "8+"
+        },
+        {
+          "label": "Status",
+          "value": "ACTIVE",
+          "color": "accent"
+        }
       ],
       "heroStyle": true,
       "devOnly": false,
@@ -41,7 +51,10 @@
       "stats": [],
       "heroStyle": false,
       "devOnly": false,
-      "progress": { "pct": 20, "label": "20% — early build" }
+      "progress": {
+        "pct": 20,
+        "label": "20% \u2014 early build"
+      }
     },
     {
       "id": "war",
@@ -56,7 +69,28 @@
       "stats": [],
       "heroStyle": false,
       "devOnly": false,
-      "progress": { "pct": 35, "label": "35% — basic calc working" }
+      "progress": {
+        "pct": 35,
+        "label": "35% \u2014 basic calc working"
+      }
+    },
+    {
+      "id": "patchTool",
+      "name": "Patch Tool",
+      "shortName": "Patch Tool",
+      "description": "",
+      "status": "In Progress",
+      "badge": "Dev Only",
+      "badgeStyle": "dev",
+      "currentFolder": "Tools/PatchTool/current/",
+      "features": [],
+      "stats": [],
+      "heroStyle": false,
+      "devOnly": true,
+      "progress": {
+        "pct": 0,
+        "label": "0% \u2014 new tool"
+      }
     }
   ]
 }
