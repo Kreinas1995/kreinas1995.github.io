@@ -2,9 +2,12 @@ name: Move old file to Old folder when new one is uploaded
 
 on:
   push:
+    branches:
+      - main
     paths:
-      - '**/current/**'
-      - '**/*v[0-9]*_[0-9]*.html'
+      - 'FactionBudget/current/*.html'
+      - 'Training/current/*.html'
+      - 'War/current/*.html'
 
 jobs:
   move-old-files:
