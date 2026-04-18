@@ -1061,7 +1061,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.6';
+const APP_VERSION = '2.41.7';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1126,6 +1126,9 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.7', date:'2026-04-17', notes:[
+    '[*] BUG-DISCONNECT: clearKey() now calls showAccessGate(true) instead of manually toggling apiSetup display. Previously, disconnect removed the key and showed the apiSetup panel but left mainApp visible and the access gate logic in an inconsistent state — the page appeared as a blank dashboard shell with no way to enter a new key. Now disconnect properly routes back through the access gate the same way a fresh page load with no stored key does. Confirm dialog updated to clarify that inventory counts and logs are preserved.',
+  ]},
   { v:'2.41.6', date:'2026-04-17', notes:[
     '[*] BUG-DBG-LOG-SAMPLE: Added null guard at top of dbgRunAll() — if(typeof dbgResults===\'undefined\') window.dbgResults={} — prevents "can\'t access property log, dbgResults is undefined" crash when RUN ALL is pressed before the script block fully evaluates after a partial parse or early error.',
     '[*] BUG-DBG-DUPLICATE-OUTGOING: renderDebugEvents() outgoing block now uses stable container id="hvOutgoingLogBlock". On each render the old element is removed before re-injection (oldOut.remove()) so re-renders replace rather than append. Previously insertAdjacentHTML appended a new block on every call (tab switch, filter input, post-sync) causing N identical sections after N triggers.',
@@ -2325,19 +2328,22 @@ function clearSessionState(){
 }
 
 function clearKey(){
-  if(!confirm('Disconnect? Receipts and logs will be preserved.')) return;
+  if(!confirm('Disconnect? Receipts, inventory counts, and logs will be preserved.')) return;
   localStorage.removeItem('hv_key');
   S.key='';
   clearSessionState();
   localStorage.removeItem('hv_v1_prev_event_ts');
   clearInterval(rTimer);clearInterval(cTimer);
+  // Hide all dashboard panels
   ['keyBar','postConsole','statGrid','mainTabs','refreshBar'].forEach(id=>{
-    document.getElementById(id).style.display='none';
+    const el=document.getElementById(id); if(el) el.style.display='none';
   });
-  document.getElementById('rateMeterWrap').style.display='none';
-  document.getElementById('btnDisconnect').style.display='none';
-  document.getElementById('apiSetup').style.display='block';
-  document.getElementById('apiKeyInput').value='';
+  const rmw=document.getElementById('rateMeterWrap'); if(rmw) rmw.style.display='none';
+  const bd=document.getElementById('btnDisconnect'); if(bd) bd.style.display='none';
+  // Show the access gate (covers mainApp) so user lands on the key-entry screen
+  showAccessGate(true);
+  // Clear the key input inside apiSetup for a clean entry experience
+  const ki=document.getElementById('apiKeyInput'); if(ki) ki.value='';
   setStatus('','NO KEY');
 }
 
