@@ -6359,4 +6359,2493 @@ function renderOC(){
               style="background:var(--accent5);color:#000;border:none;padding:5px 14px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;">SAVE MEMBERS</button>
             ${parsedMembers.length?`<button onclick="cnClearMembers(${e.timestamp})"
               style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);padding:5px 10px;font-family:'Space Mono',monospace;font-size:9px;cursor:pointer;margin-left:6px;">CLEAR</button>`:''}
-            ${reqCnt?`<script>setTimeout(()=>ocUpdateMemberCheckboxes(${e.timestamp},
+            ${reqCnt?`<script>setTimeout(()=>ocUpdateMemberCheckboxes(${e.timestamp},${reqCnt}),0);<\/script>`:''}
+          </td>
+        </tr>`;
+      });
+      h+='</tbody></table>';
+
+      // Pagination controls
+      if(totalPages>1){
+        h+=`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;font-family:'Space Mono',monospace;font-size:10px;flex-wrap:wrap;">`;
+        h+=`<button onclick="S._ocPage=Math.max(0,S._ocPage-1);renderOC();"
+          style="background:var(--surface2);border:1px solid var(--border);color:${page>0?'var(--text)':'var(--muted2)'};padding:4px 12px;cursor:${page>0?'pointer':'default'};font-family:'Space Mono',monospace;font-size:10px;"
+          ${page===0?'disabled':''}>◀ PREV</button>`;
+        h+=`<span style="color:var(--muted);">Page ${page+1} / ${totalPages}</span>`;
+        h+=`<span style="color:var(--muted2);">(${visibleEntries.length} entries)</span>`;
+        h+=`<button onclick="S._ocPage=Math.min(${totalPages-1},S._ocPage+1);renderOC();"
+          style="background:var(--surface2);border:1px solid var(--border);color:${page<totalPages-1?'var(--text)':'var(--muted2)'};padding:4px 12px;cursor:${page<totalPages-1?'pointer':'default'};font-family:'Space Mono',monospace;font-size:10px;"
+          ${page>=totalPages-1?'disabled':''}>NEXT ▶</button>`;
+        h+=`</div>`;
+      }
+    }
+
+    document.getElementById('ocTbl').innerHTML='<div class="tw">'+h+'</div>';
+  }
+}
+function renderReceipts(){ renderOwed(); renderRcptLog(); renderOutgoing(); updateBadge(); }
+
+function renderOutgoing(){
+  const rows=(S.outgoing||[]).filter(r=>r.item); // filter any blank entries
+  const el=document.getElementById('outgoingTbl');
+  if(!el) return;
+  if(!rows.length){el.innerHTML='<div class="empty">No outgoing items tracked yet.<br>Sync events to detect items you sent.</div>';return;}
+  // Aggregate totals
+  let totalMV=0;
+  rows.forEach(r=>totalMV+=r.qty*(r.mv||0));
+  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Drug:'by',Alcohol:'by',Medical:'br',Other:'bm'};
+  let h=`<table><thead><tr><th>Date</th><th>To Member</th><th>Item</th><th>Qty</th><th>Cat</th><th>Total MV</th></tr></thead><tbody>`;
+  rows.slice(0,100).forEach(r=>{
+    const cb=catBadge[r.cat]||'bm';
+    // F-5: Live name resolution — if stored name looks like a raw ID, try faction members
+    let displayName = r.toMember||'';
+    const looksLikeId = displayName.startsWith('#') || /^\d{5,}$/.test(displayName);
+    if(looksLikeId){
+      const rawId = displayName.replace(/^#/,'');
+      displayName = S.faction?.members?.[rawId]?.name
+        || S.faction?.members?.[r.toMemberId||'']?.name
+        || displayName;
+    }
+    h+=`<tr>
+      <td class="cm" style="font-size:10px;white-space:nowrap">${ft(r.ts)}</td>
+      <td class="cn">${displayName}</td>
+      <td style="font-size:11px">${r.item}</td>
+      <td class="cm">${r.qty}</td>
+      <td><span class="badge ${cb}">${r.cat}</span></td>
+      <td class="cy">${fmt$(r.qty*(r.mv||0))}</td>
+    </tr>`;
+  });
+  h+=`</tbody></table>`;
+  if(totalMV>0) h=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);padding:8px 12px;border-bottom:1px solid var(--border);">Total MV sent out: ${fmt$(totalMV)}</div>`+h;
+  el.innerHTML=h;
+}
+
+function calcOwed(member){
+  const paidTs=lastPaidTs(member);
+  return S.receipts.filter(r=>!r.deleted&&!isExempt(r.id)&&r.member===member&&r.ts>paidTs)
+    .reduce((s,r)=>s+r.qty*r.mv*getRate(r.cat),0);
+}
+function lastPaidTs(member){
+  const lg=S.paidLog[member];
+  return lg&&lg.length?lg[lg.length-1].ts:0;
+}
+
+function renderOwed(){
+  const members={};
+  // Build LIFETIME stats (all non-deleted receipts)
+  S.receipts.filter(r=>!r.deleted).forEach(r=>{
+    if(!members[r.member]) members[r.member]={name:r.member,memberId:r.memberId||'',cats:{},count:0,unpaidCats:{},unpaidCount:0};
+    members[r.member].cats[r.cat]=(members[r.member].cats[r.cat]||0)+r.qty;
+    members[r.member].count+=r.qty;
+    if(r.memberId&&r.memberId!=='0') members[r.member].memberId=r.memberId;
+  });
+  Object.entries(S.donations||{}).forEach(([id,d])=>{
+    const nm=S.faction?.members?.[id]?.name||d.name||'';
+    if(nm&&members[nm]&&!members[nm].memberId) members[nm].memberId=id;
+  });
+  Object.entries(S.faction?.members||{}).forEach(([id,m])=>{
+    if(m.name&&members[m.name]&&!members[m.name].memberId) members[m.name].memberId=id;
+  });
+
+  // Build unpaid cats — items received SINCE last MARK PAID
+  Object.values(members).forEach(m=>{
+    const paidTs=lastPaidTs(m.name);
+    S.receipts.filter(r=>!r.deleted&&r.member===m.name&&r.ts>paidTs).forEach(r=>{
+      m.unpaidCats[r.cat]=(m.unpaidCats[r.cat]||0)+r.qty;
+      m.unpaidCount+=r.qty;
+    });
+  });
+
+  const entries=Object.values(members);
+  if(!entries.length){document.getElementById('owedGrid').innerHTML='<div class="empty">No item receipts yet.<br>Click SYNC EVENTS to load.</div>';return;}
+
+  // Split owed vs paid
+  const owedEntries=[], paidEntries=[];
+  let totalOwed=0;
+  entries.sort((a,b)=>calcOwed(b.name)-calcOwed(a.name)).forEach(m=>{
+    const owed=calcOwed(m.name);
+    if(owed>=1){ owedEntries.push(m); totalOwed+=owed; }
+    else paidEntries.push(m);
+  });
+
+  let html='';
+
+  // Owed cards
+  owedEntries.forEach(m=>{
+    const owed=calcOwed(m.name);
+    const paidTs=lastPaidTs(m.name);
+    // Card body: UNPAID items only (since last MARK PAID)
+    const unpaidCatsDisplay=Object.entries(m.unpaidCats).map(([c,q])=>`${q}x ${c}`).join(' · ');
+    const amtInt=Math.round(owed);
+    const vaultUrl=m.memberId&&m.memberId!=='0'
+      ? `https://www.torn.com/factions.php?step=your#tab=controls&to=${m.memberId}&amount=${amtInt}`
+      : `https://www.torn.com/factions.php?step=your`;
+    const vaultBtn=`<a href="${vaultUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:6px 10px;text-decoration:none;letter-spacing:1px;text-transform:uppercase;transition:all 0.2s;" onmouseover="this.style.background='rgba(126,184,255,0.1)'" onmouseout="this.style.background='transparent'">⇒ PAY ${ff$(owed)}</a>`;
+
+    // A-2: newCats = unpaidCats (already computed above — items since last MARK PAID)
+    const newCats=m.unpaidCats;
+    const hasNew=Object.keys(newCats).length>0;
+    const catsDisplay=unpaidCatsDisplay+(hasNew&&paidTs?' <span style="color:var(--accent3);font-size:10px;" title="New items since last payment">●</span>':'');
+
+    // A-1: Unique ID for the stats panel
+    const statsId='ms_'+m.name.replace(/[^a-z0-9]/gi,'_');
+
+    // A-1: Lifetime stats rows in $ panel with A-2 new-item highlighting
+    const statsRows=Object.entries(m.cats).map(([c,q])=>{
+      const newQty=newCats[c]||0;
+      const isNew=newQty>0;
+      const newLabel=isNew?` <span style="color:var(--accent3);font-size:8px;">(+${newQty} unpaid)</span>`:'';
+      const rowBg=isNew?'background:rgba(240,192,64,0.08);padding:2px 6px;margin:0 -6px;':'padding:2px 0;';
+      return `<div style="${rowBg}">${q}x ${c}${newLabel}</div>`;
+    }).join('');
+
+    html+=`<div class="oc" style="position:relative;">
+      <button onclick="toggleMemberStats('${statsId}')" title="Lifetime stats"
+        style="position:absolute;top:8px;right:8px;background:var(--surface2);border:1px solid var(--border);
+        color:var(--accent3);font-family:'Space Mono',monospace;font-size:9px;padding:4px 8px;cursor:pointer;
+        letter-spacing:1px;transition:all 0.2s;z-index:1;"
+        onmouseover="this.style.borderColor='var(--accent3)'"
+        onmouseout="this.style.borderColor='var(--border)'">$</button>
+      <div class="oc-name">${m.name}${m.memberId&&m.memberId!=='0'?`<span style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-left:6px;">#${m.memberId}</span>`:''}</div>
+      <div class="oc-amt">${ff$(owed)}</div>
+      <div class="oc-sub">${catsDisplay||'&nbsp;'}${paidTs?'<br>Last paid: '+fd(paidTs):''}</div>
+      <div class="oc-actions">
+        <button class="btn-paid" onclick="markPaid('${m.name.replace(/'/g,"\\'")}',${owed})">✓ MARK PAID</button>
+        ${vaultBtn}
+        <button class="btn-viewlog" onclick="switchTab('receipts');filterRcptMember('${m.name.replace(/'/g,"\\'")}')">VIEW LOG</button>
+      </div>
+      <div id="${statsId}" style="display:none;margin-top:10px;padding-top:10px;
+        border-top:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);">
+        <div style="color:var(--accent3);font-size:9px;letter-spacing:1px;margin-bottom:6px;">── LIFETIME STATS ──</div>
+        ${statsRows}
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text);">Lifetime total: ${m.count} items</div>
+      </div>
+    </div>`;
+  });
+
+  // Paid members — collapsed as a single row, tap to expand
+  if(paidEntries.length){
+    const paidId='paidCollapse_'+Date.now();
+    html+=`<div style="grid-column:1/-1;">
+      <div onclick="document.getElementById('${paidId}').style.display=document.getElementById('${paidId}').style.display==='none'?'grid':'none'"
+        style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:4px;user-select:none;">
+        <span style="color:var(--accent2)">▸</span>
+        <span>${paidEntries.length} paid member${paidEntries.length!==1?'s':''} — all clear</span>
+        <span style="margin-left:auto;font-size:9px;opacity:0.6">tap to expand</span>
+      </div>
+      <div id="${paidId}" style="display:none;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:8px;">`;
+    paidEntries.forEach(m=>{
+      const paidTs=lastPaidTs(m.name);
+      const statsId='ms_'+m.name.replace(/[^a-z0-9]/gi,'_');
+      const statsRows=Object.entries(m.cats).map(([c,q])=>`<div style="padding:2px 0;">${q}x ${c}</div>`).join('');
+      html+=`<div class="oc paid-card" style="opacity:0.55;position:relative;">
+        <button onclick="toggleMemberStats('${statsId}')" title="Lifetime stats"
+          style="position:absolute;top:8px;right:8px;background:var(--surface2);border:1px solid var(--border);
+          color:var(--accent3);font-family:'Space Mono',monospace;font-size:9px;padding:4px 8px;cursor:pointer;
+          letter-spacing:1px;transition:all 0.2s;z-index:1;"
+          onmouseover="this.style.borderColor='var(--accent3)'"
+          onmouseout="this.style.borderColor='var(--border)'">$</button>
+        <div class="oc-name" style="font-size:13px;">${m.name}</div>
+        <div class="oc-amt zero" style="font-size:16px;">$0</div>
+        <div class="oc-sub">${paidTs?'Last paid: '+fd(paidTs):'No payment recorded'}</div>
+        <div class="oc-actions"><span class="badge bg">PAID ✓</span>
+          <button class="btn-viewlog" onclick="switchTab('receipts');filterRcptMember('${m.name.replace(/'/g,"\\'")}')">VIEW LOG</button>
+        </div>
+        <div id="${statsId}" style="display:none;margin-top:10px;padding-top:10px;
+          border-top:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);">
+          <div style="color:var(--accent3);font-size:9px;letter-spacing:1px;margin-bottom:6px;">── LIFETIME STATS ──</div>
+          ${statsRows}
+          <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text);">Lifetime total: ${m.count} items</div>
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  }
+
+  document.getElementById('owedGrid').innerHTML=html||'<div class="empty">No outstanding balances.</div>';
+  document.getElementById('cOwed').textContent=fmt$(totalOwed);
+}
+
+function markPaid(member, amount){
+  if(!confirm(`Mark ${member} as PAID ${ff$(amount)}?\n\nBalance will clear. All log entries are preserved.`)) return;
+  if(!S.paidLog[member]) S.paidLog[member]=[];
+  S.paidLog[member].push({ts:Math.floor(Date.now()/1000),amount});
+  try{localStorage.setItem('hv_v1_paid',JSON.stringify(S.paidLog));}catch(e){}
+  clog(`Marked ${member} PAID — ${ff$(amount)}`,'ok');
+  renderReceipts(); renderCards();
+}
+
+function toggleMemberStats(id){
+  const el=document.getElementById(id);
+  if(!el) return;
+  el.style.display=el.style.display==='none'?'block':'none';
+}
+
+function renderRcptLog(){
+  const search=(document.getElementById('rcptSearch')?.value||'').toLowerCase();
+  const statusFilter=(document.getElementById('rcptStatusFilter')?.value||'all');
+  let rows=S.receipts.filter(r=>!r.deleted);
+  if(search) rows=rows.filter(r=>r.member.toLowerCase().includes(search)||r.item.toLowerCase().includes(search));
+  // Apply status filter
+  rows=rows.filter(r=>{
+    const paidTs=lastPaidTs(r.member), isPaid=r.ts<=paidTs;
+    const exempt=isExempt(r.id);
+    if(statusFilter==='owed') return !isPaid&&!exempt;
+    if(statusFilter==='paid') return isPaid;
+    if(statusFilter==='exempt') return exempt;
+    return true;
+  });
+  if(!rows.length){document.getElementById('rcptTbl').innerHTML='<div class="empty">No receipts found.</div>';return;}
+  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Drug:'by',Alcohol:'by',Medical:'br'};
+  let h=`<table><thead><tr><th>Date/Time</th><th>Member</th><th>Item</th><th>Qty</th><th>Cat</th><th>Unit MV</th><th>Owed</th><th>Status</th><th></th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    const paidTs=lastPaidTs(r.member), isPaid=r.ts<=paidTs;
+    const exempt=isExempt(r.id);
+    const owed=exempt?0:r.qty*r.mv*getRate(r.cat);
+    const cb=catBadge[r.cat]||'bm';
+    let statusBadge;
+    if(exempt) statusBadge='<span class="badge be">EXEMPT</span>';
+    else if(isPaid) statusBadge='<span class="badge bg">PAID</span>';
+    else statusBadge='<span class="badge by">OWED</span>';
+    h+=`<tr>
+      <td class="cm" style="font-size:11px;white-space:nowrap">${ft(r.ts)}</td>
+      <td class="cn">${r.member}</td>
+      <td style="font-size:12px;color:var(--text)">${r.item}</td>
+      <td class="cm">${r.qty}</td>
+      <td><span class="badge ${cb}">${r.cat}</span></td>
+      <td class="cm">${fmt$(r.mv)}</td>
+      <td class="${exempt||isPaid?'cm':'cy'}">${exempt?'—':ff$(owed)}</td>
+      <td>${statusBadge}</td>
+      <td style="display:flex;gap:3px;align-items:center;">
+        <button class="${exempt?'btn-unexempt':'btn-exempt'}" title="${exempt?'Remove exempt':'Mark exempt — no payout needed'}" onclick="toggleExempt('${r.id}')">${exempt?'↩ UNEXEMPT':'EXEMPT'}</button>
+        <button class="del-btn" title="Delete entry" onclick="delReceipt('${r.id}')">✕</button>
+      </td>
+    </tr>`;
+  });
+  document.getElementById('rcptTbl').innerHTML=h+'</tbody></table>';
+}
+
+function filterRcptMember(name){
+  const el=document.getElementById('rcptSearch');
+  if(el){el.value=name;renderRcptLog();}
+}
+
+function delReceipt(id){
+  const r=S.receipts.find(x=>x.id===id);
+  if(!r) return;
+  if(!confirm(`Delete receipt:\n${r.qty}x ${r.item} from ${r.member}\n\nThis cannot be undone.`)) return;
+  r.deleted=true; saveReceipts(); renderReceipts();
+  clog(`Receipt deleted: ${r.qty}x ${r.item} from ${r.member}`,'warn');
+}
+
+function updateBadge(){
+  const members=new Set(S.receipts.filter(r=>!r.deleted).map(r=>r.member));
+  let n=0; members.forEach(m=>{if(calcOwed(m)>0)n++;});
+  const el=document.getElementById('tabRcpt');
+  if(el) el.innerHTML=n>0?`Items <span class="tbadge">${n}</span>`:'Items';
+}
+
+// ── ARMORY LOG
+function renderArmoryLog(){
+  const search=(document.getElementById('logSearch')?.value||'').toLowerCase();
+  let entries=S.armoryNews.filter(e=>!search||(e.news||'').toLowerCase().includes(search)).slice(0,100);
+  if(!entries.length){document.getElementById('logTbl').innerHTML='<div class="empty">No log entries.</div>';return;}
+  // dir: 'in' = gave back/deposit (green +), 'out' = took/withdrew (red −), 'loan' = loan (yellow LOAN), 'return' = returned (yellow RET)
+  let h=`<table><thead><tr><th>Time</th><th>Dir</th><th>Member</th><th>Qty</th><th>Item</th></tr></thead><tbody>`;
+  entries.forEach(e=>{
+    const p=parseArm(e);
+    let lbl,cls,prefix;
+    if(p.dir==='in'){       lbl='+ DEP';  cls='bg'; prefix='color:var(--accent2)';}
+    else if(p.dir==='out'){ lbl='− WD';   cls='br'; prefix='color:var(--accent4)';}
+    else if(p.dir==='loan'){lbl='LOAN';   cls='by'; prefix='color:var(--accent3)';}
+    else if(p.dir==='return'){lbl='RET';  cls='by'; prefix='color:var(--accent3)';}
+    else{                   lbl='?';      cls='bm'; prefix='';}
+    h+=`<tr><td class="cm" style="font-size:11px;white-space:nowrap">${ft(e.timestamp)}</td>
+      <td><span class="badge ${cls}" style="${prefix}">${lbl}</span></td>
+      <td class="cn" style="font-size:12px">${p.member}</td>
+      <td class="cm">${p.qty>0?p.qty:'—'}</td>
+      <td style="font-size:11px;color:var(--muted);max-width:400px">${p.item||e.news||''}</td></tr>`;
+  });
+  document.getElementById('logTbl').innerHTML=h+'</tbody></table>';
+}
+
+// ── CARD PERIOD HELPERS
+// [CARD_PERIOD_ORDER moved to top — TDZ fix]
+function cycleCardPeriod(card){
+  const current=S.cardPeriods[card]||'30d';
+  const idx=CARD_PERIOD_ORDER.indexOf(current);
+  const next=CARD_PERIOD_ORDER[(idx+1)%CARD_PERIOD_ORDER.length];
+  S.cardPeriods[card]=next;
+  try{localStorage.setItem('hv_v1_card_periods',JSON.stringify(S.cardPeriods));}catch(e){}
+  // Update matching pill
+  const container=document.getElementById(card+'PeriodPills');
+  if(container) container.querySelectorAll('.period-pill').forEach(p=>{
+    const txt=p.textContent.trim().toLowerCase();
+    const map={'1d':'1d','7d':'7d','30d':'30d','90d':'90d','1y':'1y','all':'all'};
+    p.classList.toggle('on',map[txt]===next);
+  });
+  renderCards();
+  if(card==='supply'){renderSupply();renderMemberUsage();}
+  if(card==='oc'){renderOC();}
+  if(card==='pnl'){/* P&L recalculated in renderCards */}
+}
+
+function setCardPeriod(card, period, el){
+  S.cardPeriods[card]=period;
+  try{localStorage.setItem('hv_v1_card_periods',JSON.stringify(S.cardPeriods));}catch(e){}
+  const container=el?.closest('.period-pills');
+  if(container) container.querySelectorAll('.period-pill').forEach(p=>p.classList.toggle('on',p===el));
+  renderCards();
+  if(card==='supply'){renderSupply();renderMemberUsage();}
+  if(card==='oc'){renderOC();}
+  if(card==='pnl'){/* P&L recalculated in renderCards */}
+}
+
+function restoreCardPeriodPills(){
+  ['supply','oc','pnl'].forEach(card=>{
+    const period=S.cardPeriods[card]||'30d';
+    const container=document.getElementById(card+'PeriodPills');
+    if(!container) return;
+    container.querySelectorAll('.period-pill').forEach(p=>{
+      const txt=p.textContent.trim().toLowerCase();
+      const map={'1d':'1d','7d':'7d','30d':'30d','90d':'90d','1y':'1y','all':'all','lifetime':'all'};
+      p.classList.toggle('on',map[txt]===period);
+    });
+  });
+}
+
+function periodToSeconds(period){
+  const now=Date.now()/1000;
+  if(period==='1d') return now-86400;
+  if(period==='7d') return now-7*86400;
+  if(period==='30d') return now-30*86400;
+  if(period==='90d') return now-90*86400;
+  if(period==='1y') return now-365*86400;
+  return 0; // 'all'
+}
+
+// ── STAT CARDS
+function renderCards(){
+  const vault=S.faction?.money||0;
+  let mT=0; Object.values(S.donations).forEach(d=>{mT+=d.money_balance||0;});
+  const net=vault-mT;
+  const vtEl=document.getElementById('cVaultTotal');
+  const vEl=document.getElementById('cVault');
+  if(vtEl) vtEl.textContent=vault>0?fmt$(vault):'---';
+  if(vEl) vEl.textContent=vault>0?fmt$(net):'---';
+
+  // Supply cost — filtered by card period
+  const supplyPeriod=S.cardPeriods.supply||'30d';
+  const supplyFrom=periodToSeconds(supplyPeriod);
+  const armParsed=S.armoryNews.filter(e=>e.timestamp>supplyFrom).map(parseArm).filter(e=>e.dir==='out'||e.dir==='loan');
+  let supply=0;
+  armParsed.forEach(e=>{
+    const it=lookupItem(e.item);
+    if(it&&isConsumable(it.type)) supply+=e.qty*(it.mv||0);
+  });
+  // If personal send tracking is on, add outgoing personal sends to supply cost
+  if(S.trackConsumablesSent){
+    // F-6: Only count sends to faction members — exclude sends to non-members
+    const _fmIds=new Set(Object.keys(S.faction?.members||{}));
+    const _fmNames=new Set(Object.values(S.faction?.members||{}).map(m=>m.name));
+    (S.outgoing||[]).filter(r=>r.ts>supplyFrom && (_fmIds.has(r.toMemberId||'') || _fmNames.has(r.toMember||''))).forEach(r=>{
+      const it=lookupItem(r.item);
+      if(it&&isConsumable(it.type)) supply+=r.qty*(it.mv||0);
+    });
+  }
+  document.getElementById('cSupply').textContent=fmt$(supply);
+  const supplySubEl=document.getElementById('cSupplySub');
+  if(supplySubEl) supplySubEl.textContent=`consumables · ${supplyPeriod}`;
+
+  // Faction Income card — OC override rewards + war payouts, filtered by card period
+  const ocPeriod=S.cardPeriods.oc||'30d';
+  const ocFrom=periodToSeconds(ocPeriod);
+  // OC income: sum oc_<ts> reward overrides in period (set via ✎ edit on crimenews rows)
+  const _ocOverrides=S.ocOverrides||{};
+  const ocOverrideIncome=Object.keys(_ocOverrides)
+    .filter(k=>/^oc_\d+$/.test(k)&&parseInt(k.slice(3))>ocFrom)
+    .reduce((s,k)=>s+Number(_ocOverrides[k]?.reward||0),0);
+  // War income: faction CUT (totalPot × factionCutPct%) — not member payout
+  const ocFromMs=ocFrom*1000;
+  const warIncome=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=ocFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
+  const factionIncome=ocOverrideIncome+warIncome;
+  document.getElementById('cOC').textContent=fmt$(factionIncome);
+  const ocSubEl=document.getElementById('cOCSub');
+  if(ocSubEl) ocSubEl.textContent=`OC ${fmt$(ocOverrideIncome)} + war ${fmt$(warIncome)} · ${ocPeriod}`;
+
+  // P&L — own period selector, formula: (OC overrides + war) − supply
+  const pnlPeriod=S.cardPeriods.pnl||'30d';
+  const pnlFrom=periodToSeconds(pnlPeriod);
+  const pnlFromMs=pnlFrom*1000;
+  const _pnlOverrides=S.ocOverrides||{};
+  const pnlOC=Object.keys(_pnlOverrides)
+    .filter(k=>/^oc_\d+$/.test(k)&&parseInt(k.slice(3))>pnlFrom)
+    .reduce((s,k)=>s+Number(_pnlOverrides[k]?.reward||0),0);
+  const pnlWar=(S.wars||[]).filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return d>=pnlFromMs; }).reduce((s,w)=>s+warFactionCut(w),0);
+  const pnlIncome=pnlOC+pnlWar;
+  // Supply cost over pnl period
+  const pnlArmParsed=S.armoryNews.filter(e=>e.timestamp>pnlFrom).map(parseArm).filter(e=>e.dir==='out'||e.dir==='loan');
+  let pnlSupply=0;
+  pnlArmParsed.forEach(e=>{const it=lookupItem(e.item);if(it&&isConsumable(it.type))pnlSupply+=e.qty*(it.mv||0);});
+  if(S.trackConsumablesSent){
+    // F-6: Only count sends to faction members — exclude sends to non-members
+    const _fmIds2=new Set(Object.keys(S.faction?.members||{}));
+    const _fmNames2=new Set(Object.values(S.faction?.members||{}).map(m=>m.name));
+    (S.outgoing||[]).filter(r=>r.ts>pnlFrom && (_fmIds2.has(r.toMemberId||'') || _fmNames2.has(r.toMember||''))).forEach(r=>{
+      const it=lookupItem(r.item);
+      if(it&&isConsumable(it.type)) pnlSupply+=r.qty*(it.mv||0);
+    });
+  }
+  const pnl=pnlIncome-pnlSupply;
+  const pEl=document.getElementById('cPnL');
+  if(pEl){ pEl.textContent=fmt$(pnl); pEl.style.color=pnl>=0?'var(--accent)':'var(--accent4)'; }
+  const pnlSubEl=document.getElementById('cPnLSub');
+  if(pnlSubEl) pnlSubEl.textContent=`OC+war ${fmt$(pnlIncome)} − supply ${fmt$(pnlSupply)} · ${pnlPeriod}`;
+
+  const mbs=new Set(S.receipts.filter(r=>!r.deleted).map(r=>r.member));
+  let owed=0; mbs.forEach(m=>{owed+=calcOwed(m);});
+  document.getElementById('cOwed').textContent=fmt$(owed);
+}
+
+// ════════════════════════════════════════════
+// TABS / FILTERS
+// ════════════════════════════════════════════
+function switchTab(name){
+  // Match tabs by their onclick content, not position (position-based was broken with inventory)
+  document.querySelectorAll('.tab').forEach(t=>{
+    const onclick=t.getAttribute('onclick')||'';
+    const match=onclick.match(/switchTab\('([^']+)'\)/);
+    t.classList.toggle('active', match?match[1]===name:false);
+  });
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  const panel=document.getElementById('panel-'+name);
+  if(panel) panel.classList.add('active');
+  S.tab=name;
+  if(name==='debug') { renderDebugEvents(); renderErrorLog(); }
+  if(name==='receipts') renderReceipts();
+  if(name==='log') renderArmoryLog();
+  if(name==='respect') renderRespect();
+  if(name==='war') renderWarPanel();
+  if(name==='inventory') renderInventory();
+  if(name==='admin') { adminInspectStorage(); updateDeepFetchEldest(); }
+}
+
+function renderErrorLog(){
+  const el=document.getElementById('errLogTbl');
+  if(!el) return;
+  const errors=S.errorLog||[];
+  if(!errors.length){ el.innerHTML='<div class="empty">No errors logged.</div>'; return; }
+  let h=`<table><thead><tr><th>Time</th><th>Code</th><th>Context</th><th>Message</th></tr></thead><tbody>`;
+  errors.forEach(e=>{
+    const codeColor = e.code===16?'var(--accent3)':e.code===7?'var(--muted)':'var(--accent4)';
+    h+=`<tr>
+      <td class="cm" style="font-size:10px;white-space:nowrap">${ft(e.ts)}</td>
+      <td style="font-family:'Space Mono',monospace;font-size:10px;color:${codeColor};">[${e.code}]</td>
+      <td style="font-family:'Space Mono',monospace;font-size:10px;color:var(--text);">${e.context}</td>
+      <td style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">${e.message}</td>
+    </tr>`;
+  });
+  el.innerHTML=h+'</tbody></table>';
+}
+
+function clearErrorLog(){
+  S.errorLog=[];
+  const el=document.getElementById('errLogTbl');
+  if(el) el.innerHTML='<div class="empty">No errors.</div>';
+  const badge=document.getElementById('errLogBadge');
+  if(badge) badge.style.display='none';
+}
+
+function copyErrorLog(){
+  const errs=S.errorLog||[];
+  if(!errs.length) return;
+  const txt=errs.map(e=>`[${new Date(e.ts*1000).toLocaleString()}] [${e.code}] ${e.context} — ${e.message}`).join('\n');
+  navigator.clipboard.writeText(txt).then(()=>{
+    const b=document.getElementById('errCopyBtn');
+    const prev=b.textContent; b.textContent='✓ COPIED';
+    setTimeout(()=>b.textContent=prev,1500);
+  }).catch(()=>{});
+}
+
+function renderDebugEvents(){
+  const search=(document.getElementById('debugSearch')?.value||'').toLowerCase();
+  // Use persistent eventLog if available, fall back to S.events
+  let events = (S.eventLog&&S.eventLog.length) ? S.eventLog : (S.events||[]);
+  // _prevEventTs = high-water mark before last sync (set by mergeEventLog)
+  // lastEventTs  = current high-water mark (after last sync)
+  const prevTs = S._prevEventTs||0;
+
+  if(S.deltaFilterOn) events = events.filter(e=>e.timestamp > prevTs);
+  if(search) events = events.filter(e=>(e.event||e.news||'').toLowerCase().includes(search));
+
+  const total=events.length;
+  const logSize = (S.eventLog||[]).length;
+  document.getElementById('debugCount').textContent =
+    logSize > (S.events||[]).length
+      ? `${total} shown · ${logSize} in log`
+      : `${total} events`;
+
+  if(!events.length){
+    document.getElementById('debugTbl').innerHTML =
+      S.deltaFilterOn
+        ? '<div class="empty">No new events since last sync.</div>'
+        : '<div class="empty">No events loaded. Hit Sync or run Initialize.</div>';
+    return;
+  }
+
+  let h=`<table><thead><tr><th>Time</th><th>Status</th><th>Raw Event Text</th></tr></thead><tbody>`;
+  events.slice(0,500).forEach(ev=>{
+    const text=ev.event||ev.news||'';
+    const ts=ev.timestamp;
+    const clean=stripHtml(text);
+    const isNew = prevTs>0 && ts > prevTs;
+    const parsed=S.receipts.find(r=>r.ts===ev.timestamp);
+    const isOutgoing=(S.outgoing||[]).find(r=>r.ts===ev.timestamp&&r.src==='events');
+    const matched=
+      /You were sent\s+(\d+x?|some|an?)\s+/i.test(clean)||
+      /\w+\s+sent\s+(\d+x?|an?|some)\s+.+to\s+you/i.test(clean)||
+      /has\s+(sent|given)\s+you\s+/i.test(clean);
+    const isItemLike=/sent|given|plushie|flower|xanax|heather|dahlia|wolverine|teddy|sheep|edelweiss|crocus/i.test(clean);
+    let badge,rowStyle;
+    if(isOutgoing){
+      badge=`<span class="badge bb">OUTGOING</span><span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-left:4px;">${isOutgoing.qty}x ${isOutgoing.item} → ${isOutgoing.toMember}</span>`;
+      rowStyle='background:rgba(126,184,255,0.04)';
+    } else if(parsed){
+      badge=`<span class="badge bg">PARSED</span><span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-left:4px;">${parsed.qty}x ${parsed.item} ← ${parsed.member}</span>`;
+      rowStyle='background:rgba(127,255,110,0.04)';
+    } else if(matched){
+      badge='<span class="badge by">MATCHED</span>';
+      rowStyle='background:rgba(240,192,64,0.04)';
+    } else if(isItemLike){
+      badge='<span class="badge bm">POSSIBLE</span>';
+      rowStyle='';
+    } else {
+      badge='<span class="badge bm" style="opacity:0.25">—</span>';
+      rowStyle='';
+    }
+    const newTag = isNew ? `<span style="font-family:'Space Mono',monospace;font-size:8px;color:var(--accent2);margin-left:4px;letter-spacing:1px;">NEW</span>` : '';
+    if(isNew) rowStyle='background:rgba(127,255,110,0.06)';
+    h+=`<tr style="${rowStyle}">
+      <td class="cm" style="font-size:10px;white-space:nowrap">${ft(ts)}${newTag}</td>
+      <td style="white-space:nowrap">${badge}</td>
+      <td style="font-size:10px;color:var(--text);word-break:break-word">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+    </tr>`;
+  });
+  if(total>500) h+=`<tr><td colspan="3" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);text-align:center;padding:8px;">Showing 500 of ${total} events</td></tr>`;
+  document.getElementById('debugTbl').innerHTML=h+'</tbody></table>';
+
+  // ── OUTGOING LOG SECTION (BUG-DEBUG-4)
+  // Uses stable container ID so re-renders replace rather than append (fixes duplicate block bug)
+  const logEntries=(S.outgoing||[]).filter(r=>r.src==='log');
+  const eventEntries=(S.outgoing||[]).filter(r=>r.src!=='log');
+  const allTitles=[...new Set(logEntries.map(r=>r.logTitle||'(no title)'))];
+
+  let lo=``;
+  lo+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent5);margin-bottom:10px;font-family:'Space Mono',monospace;">OUTGOING LOG (user/log)</div>`;
+
+  const lastLogTs=logEntries.reduce((mx,r)=>Math.max(mx,r.ts),0);
+  lo+=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:8px;display:flex;flex-wrap:wrap;gap:16px;">`;
+  lo+=`<span>log-sourced: <span style="color:var(--accent2)">${logEntries.length}</span></span>`;
+  lo+=`<span>event-sourced: <span style="color:var(--accent2)">${eventEntries.length}</span></span>`;
+  lo+=`<span>last log ts: <span style="color:var(--text)">${lastLogTs>0?ft(lastLogTs):'none'}</span></span>`;
+  lo+=`</div>`;
+
+  if(allTitles.length){
+    lo+=`<div style="font-size:9px;color:var(--muted);margin-bottom:6px;font-family:'Space Mono',monospace;">LOG TITLES MATCHED:</div>`;
+    lo+=`<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent3);margin-bottom:10px;line-height:1.8;">${allTitles.map(t=>`• ${t}`).join('<br>')}</div>`;
+  } else {
+    lo+=`<div style="font-size:10px;color:var(--muted2);margin-bottom:10px;font-family:'Space Mono',monospace;">No log-sourced entries yet — fetchOutgoingLog hasn't matched any sends, or user/log key permission missing.</div>`;
+  }
+
+  if(logEntries.length){
+    lo+=`<table><thead><tr><th>Date</th><th>To</th><th>Item</th><th>Qty</th><th>Title</th></tr></thead><tbody>`;
+    logEntries.slice(0,50).forEach(r=>{
+      lo+=`<tr>
+        <td class="cm" style="font-size:9px;white-space:nowrap">${ft(r.ts)}</td>
+        <td style="font-size:9px;">${r.toMember||'?'}</td>
+        <td style="font-size:9px;color:var(--accent3)">${r.item||'?'}</td>
+        <td class="cm" style="font-size:9px;">${r.qty||1}</td>
+        <td class="cm" style="font-size:8px;opacity:0.7;">${r.logTitle||'—'}</td>
+      </tr>`;
+    });
+    if(logEntries.length>50) lo+=`<tr><td colspan="5" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);text-align:center;padding:6px;">+${logEntries.length-50} more</td></tr>`;
+    lo+='</tbody></table>';
+  }
+
+  // ── INCOMING PURCHASES SECTION
+  // Surfaces S.invPurchases so auto-tracked buys are visible in debug tab
+  const purchases=(S.invPurchases||[]);
+  const sells=(S.invSells||[]);
+  let li=``;
+  li+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);margin-bottom:10px;font-family:'Space Mono',monospace;">INCOMING PURCHASES (user/log)</div>`;
+  li+=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:8px;display:flex;flex-wrap:wrap;gap:16px;">`;
+  li+=`<span>purchases tracked: <span style="color:var(--accent2)">${purchases.length}</span></span>`;
+  li+=`<span>sells/listings: <span style="color:var(--accent2)">${sells.length}</span></span>`;
+  li+=`</div>`;
+  if(purchases.length){
+    li+=`<table><thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Src</th></tr></thead><tbody>`;
+    purchases.slice(0,50).forEach(p=>{
+      li+=`<tr>
+        <td class="cm" style="font-size:9px;white-space:nowrap">${ft(p.ts)}</td>
+        <td style="font-size:9px;color:var(--accent2)">${p.item||'?'}</td>
+        <td class="cm" style="font-size:9px;">${p.qty||1}</td>
+        <td class="cm" style="font-size:8px;opacity:0.7;">${p.src||'log'}</td>
+      </tr>`;
+    });
+    if(purchases.length>50) li+=`<tr><td colspan="4" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);text-align:center;padding:6px;">+${purchases.length-50} more</td></tr>`;
+    li+='</tbody></table>';
+  } else {
+    li+=`<div style="font-size:10px;color:var(--muted2);font-family:'Space Mono',monospace;">No purchases tracked yet — hit ↻ UPDATE on the Inventory tab or use Item Tracking → Re-fetch Purchases above.</div>`;
+  }
+
+  // Write into permanent containers (no re-injection needed)
+  const outBlock = document.getElementById('hvOutgoingLogBlock');
+  const inBlock  = document.getElementById('hvIncomingPurchasesBlock');
+  if(outBlock) outBlock.innerHTML = lo;
+  if(inBlock)  inBlock.innerHTML  = li;
+}
+// ════════════════════════════════════════════
+// DEBUG PANEL — COLLAPSIBLE SECTIONS
+// ════════════════════════════════════════════
+
+function dbgToggleSection(id){
+  const body  = document.getElementById('dbgBody-'+id);
+  const caret = document.getElementById('dbgCaret-'+id);
+  if(!body) return;
+  const collapsed = body.classList.toggle('collapsed');
+  if(caret) caret.classList.toggle('collapsed', collapsed);
+}
+
+// ── Fetch a single user/log category and display raw results
+async function dbgTestLogCat(catId){
+  const out    = document.getElementById('dbgOut');
+  const status = document.getElementById('dbgStatus');
+  if(!S.key){ out.textContent='No API key connected.'; return; }
+  status.textContent = `Fetching user/log cat=${catId}…`;
+  out.textContent    = `Fetching user/log?cat=${catId}…\n`;
+  try{
+    const url = `https://api.torn.com/user/?selections=log&cat=${catId}&key=${S.key}`;
+    trackApiCall();
+    const r = await fetch(url); const d = await r.json();
+    if(d.error){ out.textContent += `ERROR [${d.error.code}]: ${d.error.error}\n`; status.textContent='Error'; return; }
+    const entries = Object.entries(d.log||{}).map(([id,e])=>({...e,_id:id}));
+    // Title + category distribution
+    const dist = {};
+    entries.forEach(e=>{ const k=`${e.category||'?'} / ${e.title||'?'}`; dist[k]=(dist[k]||0)+1; });
+    out.textContent += `Total entries: ${entries.length}\n\n`;
+    out.textContent += `=== CATEGORY/TITLE DISTRIBUTION ===\n`;
+    Object.entries(dist).sort((a,b)=>b[1]-a[1]).forEach(([k,n])=>{ out.textContent += `  ${n}x  ${k}\n`; });
+    if(entries.length){
+      out.textContent += `\n=== FIRST 3 ENTRIES (raw) ===\n`;
+      entries.slice(0,3).forEach((e,i)=>{ out.textContent += `[${i}] ${JSON.stringify(e,null,2)}\n\n`; });
+    }
+    status.textContent = `✓ cat=${catId}: ${entries.length} entries`;
+  }catch(e){ out.textContent += `Fetch error: ${e.message}`; status.textContent='Error'; }
+}
+
+// ── State snapshot functions — each prints a section to #dbgStateOut
+function _dbgShowStateOut(text){
+  const el = document.getElementById('dbgStateOut');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent   = text;
+  // Ensure State section is expanded
+  const body = document.getElementById('dbgBody-state');
+  if(body && body.classList.contains('collapsed')) dbgToggleSection('state');
+}
+
+function dbgSnapState(){
+  const mc   = S.manualCounts||{};
+  const mcEntries = Object.entries(mc).map(([k,v])=>`  ${k}: qty=${typeof v==='object'?v.qty:v}${typeof v==='object'&&v.savedAt?' savedAt='+ft(v.savedAt):''}`).join('\n')||'  (empty)';
+  const lines = [
+    '=== LIVE STATE SNAPSHOT ===',
+    `APP_VERSION     : ${APP_VERSION}`,
+    `S.key           : ${S.key?S.key.slice(0,4)+'…****':'(none)'}`,
+    `S.player        : ${S.player||'?'} [${S.playerId||'?'}]`,
+    `S.factionName   : ${S.factionName||'?'}`,
+    '',
+    '--- SYNC ---',
+    `lastEventTs     : ${S.lastEventTs?ft(S.lastEventTs):'not set'}`,
+    `_prevEventTs    : ${S._prevEventTs?ft(S._prevEventTs):'not set'}`,
+    `invDeltaTs      : ${S.invDeltaTs?ft(S.invDeltaTs):'not set'}`,
+    '',
+    '--- COUNTS ---',
+    `S.events        : ${(S.events||[]).length}`,
+    `S.eventLog      : ${(S.eventLog||[]).length}`,
+    `S.receipts      : ${(S.receipts||[]).length} total / ${(S.receipts||[]).filter(r=>!r.deleted).length} active`,
+    `S.outgoing      : ${(S.outgoing||[]).length}`,
+    `S.invPurchases  : ${(S.invPurchases||[]).length}`,
+    `S.invSells      : ${(S.invSells||[]).length}`,
+    `S.armoryNews    : ${(S.armoryNews||[]).length}`,
+    `S.attackNews    : ${(S.attackNews||[]).length}`,
+    `S.crimeNews     : ${(S.crimeNews||[]).length}`,
+    `S._crimeLog     : ${(S._crimeLog||[]).length}`,
+    `S._ocCrimes     : ${(S._ocCrimes||[]).length}`,
+    `S.ocRaw         : ${(S.ocRaw||[]).length}`,
+    `S.wars          : ${(S.wars||[]).length}`,
+    `S.prices        : ${Object.keys(S.prices||{}).length} items`,
+    '',
+    '--- MANUAL COUNTS ---',
+    mcEntries,
+  ];
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapInventory(){
+  const delta = calcInvDelta();
+  const mc    = S.manualCounts||{};
+  const museumSet = [...PLUSHIE_SET, ...FLOWER_SET];
+  const lines = ['=== INVENTORY DELTA ===', ''];
+  lines.push('Item                        Manual  Delta   Adjusted');
+  lines.push('─'.repeat(54));
+  museumSet.forEach(name=>{
+    const mcEntry = mc[name];
+    const base    = typeof mcEntry==='object' ? (mcEntry.qty||0) : (typeof mcEntry==='number' ? mcEntry : 0);
+    const d       = delta[name]||0;
+    const adj     = base + d;
+    const savedAt = typeof mcEntry==='object' && mcEntry.savedAt ? ' (saved '+ft(mcEntry.savedAt)+')' : '';
+    lines.push(`${name.padEnd(28)}${String(base).padStart(4)}    ${(d>=0?'+':'')+d}    ${adj}${savedAt}`);
+  });
+  lines.push('');
+  lines.push(`S.invPurchases: ${(S.invPurchases||[]).length} entries`);
+  lines.push(`S.invSells    : ${(S.invSells||[]).length} entries`);
+  lines.push(`S.outgoing    : ${(S.outgoing||[]).length} entries`);
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapReceipts(){
+  const active  = (S.receipts||[]).filter(r=>!r.deleted);
+  const deleted = (S.receipts||[]).filter(r=>r.deleted);
+  const lines   = ['=== RECEIPTS SNAPSHOT ===',''];
+  lines.push(`Active: ${active.length}  Deleted: ${deleted.length}  Total: ${(S.receipts||[]).length}`);
+  lines.push('');
+  if(active.length){
+    lines.push('Recent 20 active:');
+    active.slice(0,20).forEach((r,i)=>{
+      lines.push(`  [${i}] ${ft(r.ts)} | ${r.qty}x ${r.item} → ${r.member} [${r.cat||'?'}]`);
+    });
+  } else {
+    lines.push('  (no active receipts)');
+  }
+  lines.push('');
+  lines.push(`Outgoing tracked: ${(S.outgoing||[]).length}`);
+  const byMember = {};
+  active.forEach(r=>{ byMember[r.member]=(byMember[r.member]||0)+1; });
+  const top = Object.entries(byMember).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  if(top.length){ lines.push(''); lines.push('Top recipients:'); top.forEach(([m,n])=>lines.push(`  ${m}: ${n} receipts`)); }
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapOC(){
+  const lines = ['=== OC STATE ===',''];
+  lines.push(`S.ocRaw         : ${(S.ocRaw||[]).length} entries`);
+  lines.push(`S._crimeLog     : ${(S._crimeLog||[]).length} entries`);
+  lines.push(`S._ocCrimes     : ${(S._ocCrimes||[]).length} v2 crimes`);
+  lines.push(`S._ocV2Running  : ${S._ocV2Running||false}`);
+  if((S._ocCrimes||[]).length){
+    const paid = S._ocCrimes.filter(c=>(c._totalPaid||0)>0);
+    lines.push(`Crimes w/ payouts: ${paid.length}`);
+    const total = S._ocCrimes.reduce((s,c)=>s+(c._totalPaid||0),0);
+    lines.push(`Total OC paid   : ${fmt$(total)}`);
+    lines.push('');
+    lines.push('First v2 crime fields: '+Object.keys(S._ocCrimes[0]).join(', '));
+  }
+  if((S._crimeLog||[]).length){
+    lines.push('');
+    lines.push('Recent 5 crime log entries:');
+    S._crimeLog.slice(0,5).forEach((e,i)=>{
+      lines.push(`  [${i}] ts=${e.timestamp} | ${(e.news||'').slice(0,80)}`);
+    });
+  }
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapWar(){
+  const lines = ['=== WAR STATE ===',''];
+  lines.push(`Wars loaded: ${(S.wars||[]).length}`);
+  (S.wars||[]).forEach((w,i)=>{
+    const pot  = warTotalPot(w);
+    const cut  = warFactionCut(w);
+    lines.push('');
+    lines.push(`[${i}] ${w.name||'?'}`);
+    lines.push(`  Date    : ${w.date||'?'}  Result: ${w.result||'?'}`);
+    lines.push(`  Pot     : ${fmt$(pot)}  Faction cut: ${w.factionCutPct||20}% = ${fmt$(cut)}`);
+    lines.push(`  Members : ${(w.members||[]).length}`);
+  });
+  if(!(S.wars||[]).length) lines.push('  (no wars imported)');
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+function dbgSnapSync(){
+  const meta = (() => { try{ return JSON.parse(localStorage.getItem('hv_v1_fetch_meta')||'{}'); }catch(e){ return {}; } })();
+  const lines = ['=== SYNC TIMESTAMPS ===',''];
+  lines.push(`lastEventTs     : ${S.lastEventTs?ft(S.lastEventTs)+' ('+S.lastEventTs+')':'not set'}`);
+  lines.push(`_prevEventTs    : ${S._prevEventTs?ft(S._prevEventTs)+' ('+S._prevEventTs+')':'not set'}`);
+  lines.push(`invDeltaTs      : ${S.invDeltaTs?ft(S.invDeltaTs)+' ('+S.invDeltaTs+')':'not set'}`);
+  const lsSync = localStorage.getItem('hv_v1_last_sync');
+  lines.push(`last_sync (ms)  : ${lsSync?new Date(parseInt(lsSync)).toLocaleString():'not set'}`);
+  lines.push('');
+  lines.push('Fetch meta (per-category freshness):');
+  if(Object.keys(meta).length){
+    Object.entries(meta).sort((a,b)=>b[1]-a[1]).forEach(([cat,ts])=>{
+      lines.push(`  ${cat.padEnd(18)}: ${ft(ts)} (${ts})`);
+    });
+  } else {
+    lines.push('  (empty)');
+  }
+  lines.push('');
+  lines.push('Key invPurchases/Sells watermarks:');
+  const pMax = (S.invPurchases||[]).reduce((m,p)=>Math.max(m,p.ts),0);
+  const sMax = (S.invSells||[]).reduce((m,p)=>Math.max(m,p.ts),0);
+  lines.push(`  invPurchases newest: ${pMax?ft(pMax):'none'}`);
+  lines.push(`  invSells newest    : ${sMax?ft(sMax):'none'}`);
+  _dbgShowStateOut(lines.join('\n'));
+}
+
+// ════════════════════════════════════════════
+// API DEBUG PANEL
+// ════════════════════════════════════════════
+var dbgResults = {}; // var (not let) — avoids TDZ when dbgRunAll() is called early
+
+async function dbgTest(section, sel, key){
+  if(!S.key){ document.getElementById('dbgOut').textContent='No API key connected.'; return; }
+  document.getElementById('dbgStatus').textContent=`Fetching ${section}/${sel}…`;
+  const out = document.getElementById('dbgOut');
+  try{
+    const url=`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}`;
+    const r=await fetch(url);
+    const d=await r.json();
+    if(d.error){ out.textContent=`ERROR [${d.error.code}]: ${d.error.error}`; dbgResults[key]={error:d.error}; return; }
+    // Store result
+    dbgResults[key]=d;
+    // Show summary + first few entries
+    const topKey=Object.keys(d).find(k=>typeof d[k]==='object'&&d[k]!==null)||Object.keys(d)[0];
+    const topVal=d[topKey];
+    let preview='';
+    if(sel==='currency'||sel==='money'){
+      preview=`\n\nmoney: ${d.money!=null?'$'+Number(d.money).toLocaleString():'not found'}\npoints: ${d.points||0}\nAll keys: ${Object.keys(d).join(', ')}`;
+    } else if(sel==='items'||sel==='inventory'){
+      const raw=d.items||d.inventory||d;
+      const items=typeof raw==='object'?Object.values(raw).filter(i=>i&&typeof i==='object'&&(i.name||i.item_name)):[];
+      const sample=items.slice(0,3);
+      const fields=sample[0]?Object.keys(sample[0]).join(', '):'(no items)';
+      preview=`\n\n--- INVENTORY RAW STRUCTURE ---\nTop-level keys: ${Object.keys(d).join(', ')}\nWrapper key used: ${d.inventory?'d.inventory':'d (flat)'}\nTotal item stacks: ${items.length}\nFields on first item: ${fields}\n\nFirst 3 items:\n${JSON.stringify(sample,null,2)}\n\n--- PARSED STATE ---\nS.inventory.length: ${S.inventory.length}\n${S.inventory.length?'First parsed: '+JSON.stringify(S.inventory[0]):'(empty — name field detected: '+(sample[0]?Object.keys(sample[0]).filter(k=>k.toLowerCase().includes('name')).join(',')||'none matching':'no items')+')'}`;
+    } else if(topVal&&typeof topVal==='object'){
+      const entries=Object.values(topVal).slice(0,3);
+      preview=`\n\n--- First 3 entries of "${topKey}" ---\n`+JSON.stringify(entries,null,2);
+    }
+    const summary=`✓ ${section}/${sel}\nKeys: ${Object.keys(d).join(', ')}\nTop key "${topKey}": ${Array.isArray(topVal)?topVal.length+' items':typeof topVal==='object'?Object.keys(topVal).length+' entries':topVal}${preview}`;
+    out.textContent=summary;
+    document.getElementById('dbgStatus').textContent=`✓ ${section}/${sel} — OK`;
+  }catch(e){
+    out.textContent='Fetch failed: '+e.message;
+    document.getElementById('dbgStatus').textContent='Error: '+e.message;
+  }
+}
+
+async function dbgRunAll(){
+  if(!S.key){ document.getElementById('dbgOut').textContent='No API key connected.'; return; }
+  if(typeof dbgResults==='undefined') window.dbgResults={}; // guard: script interrupted before var declaration
+  dbgResults={};
+  const out=document.getElementById('dbgOut');
+  const status=document.getElementById('dbgStatus');
+  const tests=[
+    ['user','basic','userbasic'],
+    ['user','events','events'],
+    ['faction','basic','basic'],
+    ['faction','currency','money'],
+    ['faction','donations','donations'],
+    ['faction','armorynews','armorynews'],
+    ['faction','mainnews','mainnews'],
+    ['faction','attacknews','attacknews'],
+    ['faction','crimenews','crimenews'],
+  ];
+  // user/log categories — fetched separately since API only accepts one cat= per call
+  const LOG_CATS = [
+    [85, 'Item sending'],
+    [86, 'Shops'],
+    [18, 'Bazaars'],
+    [11, 'Item market'],
+    [15, 'Items incoming'],
+    [87, 'Travel'],
+    [88, 'Auctions'],
+    [94, 'Trades'],
+    [12, 'Items'],
+  ];
+  let report='=== HIGHVIBES API DEBUG REPORT ===\n\n';
+  for(const [section,sel,key] of tests){
+    status.textContent=`Testing ${section}/${sel}…`;
+    try{
+      const r=await fetch(`https://api.torn.com/${section}/?selections=${sel}&key=${S.key}`);
+      const d=await r.json();
+      if(d.error){
+        report+=`[FAIL] ${section}/${sel}: [${d.error.code}] ${d.error.error}\n`;
+        dbgResults[key]={error:d.error};
+        continue;
+      }
+      dbgResults[key]=d;
+      // Special-case faction/currency: flat {money, points} response — no object wrapper
+      if(sel==='currency'){
+        report+=`[OK]   ${section}/${sel} — money: ${fmt$(d.money||0)}${d.points!=null?' | points: '+d.points:''}\n\n`;
+        continue;
+      }
+      // Get the main data key
+      const mainKey=Object.keys(d).find(k=>typeof d[k]==='object'&&d[k]!==null&&k!=='_metadata');
+      const mainVal=mainKey?d[mainKey]:null;
+      const count=mainVal?(Array.isArray(mainVal)?mainVal.length:Object.keys(mainVal).length):'?';
+      report+=`[OK]   ${section}/${sel} — "${mainKey}": ${count} entries\n`;
+      // For events and news sections, show first 100 raw entries
+      if(key==='events'||key==='attacknews'||key==='crimenews'||key==='armorynews'||key==='mainnews'){
+        const entries=Object.values(mainVal||{}).slice(0,100);
+        entries.forEach((e,i)=>{
+          const txt=e.event||e.news||JSON.stringify(e).slice(0,180);
+          report+=`  [${i}] ts=${e.timestamp} | ${txt}\n`;
+        });
+        if(Object.keys(mainVal||{}).length>25) report+=`  … (${Object.keys(mainVal||{}).length-25} more entries not shown — use paginated init for full data)\n`;
+      }
+      report+='\n';
+    }catch(e){
+      report+=`[ERR]  ${section}/${sel}: ${e.message}\n\n`;
+    }
+  }
+
+  // ── user/log per-category tests ──────────────────────────────────────────
+  report+=`\n=== USER LOG — BY CATEGORY ===\n\n`;
+  for(const [catId, catLabel] of LOG_CATS){
+    status.textContent=`Testing user/log cat=${catId} (${catLabel})…`;
+    try{
+      trackApiCall();
+      const r=await fetch(`https://api.torn.com/user/?selections=log&cat=${catId}&key=${S.key}`);
+      const d=await r.json();
+      if(d.error){
+        report+=`[FAIL] user/log cat=${catId} (${catLabel}): [${d.error.code}] ${d.error.error}\n`;
+        continue;
+      }
+      const entries=Object.entries(d.log||{}).map(([id,e])=>({...e,_id:id}));
+      report+=`[OK]   user/log cat=${catId} (${catLabel}): ${entries.length} entries\n`;
+      // Title distribution
+      const titleCounts={};
+      entries.forEach(e=>{ const t=`${e.category||'?'} / ${e.title||'?'}`; titleCounts[t]=(titleCounts[t]||0)+1; });
+      Object.entries(titleCounts).sort((a,b)=>b[1]-a[1]).forEach(([t,n])=>{ report+=`  ${n}x  ${t}\n`; });
+      // First 3 entries raw
+      entries.slice(0,3).forEach((e,i)=>{
+        report+=`  [${i}] ts=${e.timestamp} | title="${e.title}" | cat="${e.category}" | data=${JSON.stringify(e.data||{}).slice(0,120)}\n`;
+      });
+      report+='\n';
+    }catch(e){
+      report+=`[ERR]  user/log cat=${catId} (${catLabel}): ${e.message}\n\n`;
+    }
+  }
+  // Item receipt summary
+  report+=`\n=== ITEM RECEIPT PARSE RESULTS ===\n`;
+  report+=`Events loaded: ${S.events.length}\n`;
+  report+=`Receipts parsed: ${S.receipts.filter(r=>!r.deleted).length} active (${S.receipts.length} total)\n`;
+  report+=`Outgoing items: ${(S.outgoing||[]).length}\n`;
+  if(S._unmatchedEvents&&S._unmatchedEvents.length){
+    report+=`Unmatched item-like events (${S._unmatchedEvents.length}):\n`;
+    S._unmatchedEvents.slice(0,10).forEach(e=>{ report+=`  ${e}\n`; });
+  } else {
+    report+=`No unmatched events.\n`;
+  }
+  report+=`\n=== OUTGOING ITEM DIAGNOSTICS ===\n`;
+  report+=`Outgoing items tracked: ${(S.outgoing||[]).length}\n`;
+  report+=`  - from armory news: ${(S.outgoing||[]).filter(r=>r.src==='armory').length}\n`;
+  report+=`  - from user events: ${(S.outgoing||[]).filter(r=>r.src==='events').length}\n`;
+  report+=`  - from user/log:    ${(S.outgoing||[]).filter(r=>r.src==='log').length}\n`;
+  // Scan all loaded events for any "You sent" patterns to see what exists
+  const sentEvents=(S.events||[]).filter(e=>{
+    const t=stripHtml(e.event||e.news||'');
+    return /you (?:sent|gave)\s+/i.test(t);
+  });
+  report+=`Events matching "You sent/gave": ${sentEvents.length}\n`;
+  sentEvents.slice(0,10).forEach((e,i)=>{
+    report+=`  [${i}] ts=${e.timestamp} | ${stripHtml(e.event||e.news||'').slice(0,100)}\n`;
+  });
+  if(!sentEvents.length){
+    report+=`  NOTE: "You sent X to Y" events are only visible to the RECEIVER in Torn's API.\n`;
+    report+=`  Outgoing tracking now uses user/log (item send category) as primary source.\n`;
+    report+=`  If user/log shows 0 and key has log access, run Debug → user/log sample to inspect.\n`;
+  }
+  // Show recent user/log outgoing entries
+  const logOut=(S.outgoing||[]).filter(r=>r.src==='log');
+  if(logOut.length){
+    report+=`Recent user/log sends (last 5):\n`;
+    logOut.slice(0,5).forEach((e,i)=>{ report+=`  [${i}] ${e.ts} | ${e.qty}x ${e.item} → ${e.toMember}\n`; });
+  } else {
+    report+=`user/log sends: 0 (key may lack log access — run torn/logcategories to verify)\n`;
+  }
+  // Check specifically for Xanax in checkbox-enabled tracking
+  const xanaxOut=(S.outgoing||[]).filter(r=>/xanax/i.test(r.item));
+  report+=`Outgoing Xanax entries: ${xanaxOut.length}\n`;
+  xanaxOut.slice(0,5).forEach((e,i)=>{ report+=`  [${i}] ${e.ts} | ${e.qty}x ${e.item} → ${e.toMember} (src:${e.src})\n`; });
+  // Show any item types that were skipped by isConsumable
+  const skipped=window._skippedTypes||{};
+  const skippedList=Object.keys(skipped);
+  if(skippedList.length){
+    report+=`Items skipped (non-consumable type):\n`;
+    skippedList.forEach(k=>{ report+=`  ${k}\n`; });
+  } else {
+    report+=`No items skipped by isConsumable filter.\n`;
+  }
+
+
+  report+=`attacknews (S.crimeNews): ${S.crimeNews.length} entries\n`;
+  report+=`mainnews respect entries (S.attackNews): ${S.attackNews.length}\n`;
+  if(S.crimeNews.length>0){
+    report+=`First 3 attack entries:\n`;
+    S.crimeNews.slice(0,3).forEach((e,i)=>{
+      report+=`  [${i}] ${stripHtml(e.news||'').slice(0,100)}\n`;
+    });
+  }
+  report+=`\n=== OC / VAULT ===\n`;
+  if(S._ocV2Running) report+=`NOTE: OC v2 fetch is still running — re-run report in 30s\n`;
+  report+=`OC vault entries (S.ocRaw): ${S.ocRaw.length}\n`;
+  report+=`Crime log entries (S._crimeLog): ${(S._crimeLog||[]).length}\n`;
+  report+=`OC v2 enriched crimes (S._ocCrimes): ${(S._ocCrimes||[]).length}\n`;
+  if(S._ocCrimes&&S._ocCrimes.length>0){
+    const totalPaid=S._ocCrimes.reduce((s,c)=>s+(c._totalPaid||0),0);
+    report+=`OC v2 total paid: ${fmt$(totalPaid)}\n`;
+    report+=`First crime fields: ${Object.keys(S._ocCrimes[0]).join(', ')}\n`;
+  }
+  if(S.ocRaw.length>0){
+    report+=`First OC entry: ${(S.ocRaw[0]?.news||'').slice(0,100)}\n`;
+  }
+  report+=`\n=== EVENT LOG ===\n`;
+  report+=`Session events (S.events): ${(S.events||[]).length}\n`;
+  report+=`Persistent log (S.eventLog): ${(S.eventLog||[]).length} entries (cap 2000)\n`;
+  report+=`Last sync baseline (S._prevEventTs): ${S._prevEventTs?new Date(S._prevEventTs*1000).toLocaleString():'not set'}\n`;
+  report+=`Current high-water (S.lastEventTs): ${S.lastEventTs?new Date(S.lastEventTs*1000).toLocaleString():'not set'}\n`;
+  const newSinceSync = S._prevEventTs ? (S.eventLog||[]).filter(e=>e.timestamp>S._prevEventTs).length : 0;
+  report+=`New since last sync: ${newSinceSync}\n`;
+  report+=`\n=== WAR FUNDS ===\n`;
+  report+=`Wars imported: ${S.wars.length}\n`;
+  S.wars.forEach(w=>{ const pot=warTotalPot(w); const cut=warFactionCut(w); report+=`  ${w.name} | ${w.result||'?'} | ${w.date} | pot:$${pot.toLocaleString()} | cut:${w.factionCutPct||20}% ($${cut.toLocaleString()}) | members:$${(w.memberPayout||w.grossPayout||0).toLocaleString()} | ${w.members.length} members\n`; });
+  out.textContent=report;
+  status.textContent='✓ All tests complete — copy report and share';
+}
+
+// ── Robust clipboard helper — works in file://, http, and https contexts
+// onOk/onFail are optional callbacks receiving no args
+function _copyText(text, onOk, onFail){
+  // Try modern async API first (requires secure context or user gesture)
+  if(navigator.clipboard&&typeof navigator.clipboard.writeText==='function'){
+    navigator.clipboard.writeText(text).then(()=>{
+      if(onOk) onOk();
+    }).catch(()=>{
+      _copyTextFallback(text, onOk, onFail);
+    });
+  } else {
+    _copyTextFallback(text, onOk, onFail);
+  }
+}
+function _copyTextFallback(text, onOk, onFail){
+  try{
+    const ta=document.createElement('textarea');
+    ta.value=text;
+    ta.style.cssText='position:fixed;top:-9999px;left:-9999px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    const ok=document.execCommand('copy');
+    document.body.removeChild(ta);
+    if(ok){ if(onOk) onOk(); }
+    else   { if(onFail) onFail(); }
+  }catch(e){ if(onFail) onFail(); }
+}
+
+function dbgCopy(){
+  const txt=document.getElementById('dbgOut').textContent;
+  const statusEl=document.getElementById('dbgStatus');
+  _copyText(txt,
+    ()=>{ if(statusEl) statusEl.textContent='✓ Copied to clipboard'; },
+    ()=>{
+      // Last resort: select text in element so user can Ctrl+C
+      const el=document.getElementById('dbgOut');
+      if(el){ const r=document.createRange(); r.selectNodeContents(el); window.getSelection().removeAllRanges(); window.getSelection().addRange(r); }
+      if(statusEl) statusEl.textContent='Selected — press Ctrl+C or long-press Copy';
+    }
+  );
+}
+
+// ════════════════════════════════════════════
+// ADMIN PANEL
+// ════════════════════════════════════════════
+
+// ── EXPORT
+function adminExport(type){
+  let data, filename;
+  const ts=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  if(type==='all'){
+    data={
+      _meta:{exported:new Date().toISOString(),version:'hv-dashboard-v3'},
+      receipts:S.receipts,
+      paidLog:S.paidLog,
+      rates:S.rates,
+      wars:S.wars,
+      outgoing:S.outgoing||[],
+      cardPeriods:S.cardPeriods,
+      events_count:S.events.length,
+      faction_name:S.faction?.name||'',
+      ocOverrides:S.ocOverrides||{},
+      respectOverrides:S.respectOverrides||{},
+      exemptReceipts:[...(S.exemptReceipts||new Set())],
+      testers:S.testers||[],
+      factionWhitelist:S.factionWhitelist||[],
+    };
+    filename=`highvibes-backup-${ts}.json`;
+  } else if(type==='wars'){
+    data={wars:S.wars};
+    filename=`highvibes-wars-${ts}.json`;
+  } else if(type==='receipts'){
+    data={receipts:S.receipts};
+    filename=`highvibes-receipts-${ts}.json`;
+  } else if(type==='paidlog'){
+    data={paidLog:S.paidLog};
+    filename=`highvibes-paidlog-${ts}.json`;
+  } else if(type==='rates'){
+    data={rates:S.rates};
+    filename=`highvibes-rates-${ts}.json`;
+  } else if(type==='rawevents'){
+    data={events:S.events,armoryNews:S.armoryNews,ocRaw:S.ocRaw,attackNews:S.attackNews,crimeNews:S.crimeNews};
+    filename=`highvibes-rawevents-${ts}.json`;
+  }
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  const el=document.getElementById('adminExportStatus');
+  el.style.display='block'; el.textContent=`✓ Downloaded ${filename}`;
+  setTimeout(()=>{el.style.display='none';},4000);
+}
+
+function adminExportDebugHtml(){
+  const ts=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  // Build a standalone HTML debug report with all current state
+  let eventsHtml='<tr><th>Time</th><th>Raw Event</th><th>Parsed Member</th><th>Item</th><th>Qty</th><th>Cat</th></tr>';
+  S.events.slice(0,200).forEach(ev=>{
+    const raw=ev.event||ev.news||'';
+    const clean=raw.replace(/<a[^>]*>([^<]*)<\/a>/gi,'$1').replace(/<[^>]+>/g,'').trim();
+    // Try to find matching receipt
+    const match=S.receipts.find(r=>r.ts===ev.timestamp);
+    const esc=clean.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    eventsHtml+=`<tr><td>${ft(ev.timestamp)}</td><td style="font-size:10px;word-break:break-all;max-width:300px">${esc}</td><td>${match?match.member:'—'}</td><td>${match?match.item:'—'}</td><td>${match?match.qty:'—'}</td><td>${match?match.cat:'—'}</td></tr>`;
+  });
+  let receiptsHtml='<tr><th>Time</th><th>Member</th><th>Item</th><th>Qty</th><th>Cat</th><th>MV</th><th>Owed</th><th>Deleted</th></tr>';
+  S.receipts.forEach(r=>{
+    receiptsHtml+=`<tr style="${r.deleted?'opacity:0.4':''}"><td>${ft(r.ts)}</td><td>${r.member}</td><td>${r.item}</td><td>${r.qty}</td><td>${r.cat}</td><td>${fmt$(r.mv)}</td><td>${ff$(r.qty*r.mv*(S.rates[r.cat]||98)/100)}</td><td>${r.deleted?'YES':''}</td></tr>`;
+  });
+  const css=`body{font-family:monospace;background:#0a0d0f;color:#e8edf2;padding:20px}h2{color:#7fff6e;margin:20px 0 10px}table{border-collapse:collapse;width:100%;margin-bottom:30px}th{background:#181d22;color:#5a6a7a;padding:8px 12px;text-align:left;font-size:11px;letter-spacing:2px;text-transform:uppercase}td{padding:8px 12px;border-bottom:1px solid #1e2530;font-size:11px}tr:hover td{background:rgba(127,255,110,0.03)}`;
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>HV Debug ${ts}</title><style>${css}</style></head><body>
+<h1 style="color:#7fff6e">⬡ HIGHVIBES DEBUG REPORT</h1>
+<p style="color:#5a6a7a;font-size:11px">Generated: ${new Date().toISOString()} | Faction: ${S.faction?.name||'N/A'} | Events: ${S.events.length} | Receipts: ${S.receipts.length}</p>
+<h2>USER EVENTS (last 200)</h2><table>${eventsHtml}</table>
+<h2>ALL RECEIPTS (${S.receipts.length})</h2><table>${receiptsHtml}</table>
+  </div><!-- /mainApp -->
+</body></html>`;
+  const blob=new Blob([html],{type:'text/html'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`highvibes-debug-${ts}.html`; a.click();
+  const el=document.getElementById('adminExportStatus');
+  el.style.display='block'; el.textContent=`✓ Debug HTML downloaded`;
+  setTimeout(()=>{el.style.display='none';},4000);
+}
+
+// ── IMPORT
+function adminImport(evt){
+  const file=evt.target.files[0];
+  if(!file) return;
+  const status=document.getElementById('adminImportStatus');
+  status.textContent='Reading file…';
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      let added=0, skipped=0;
+      // Import receipts
+      if(data.receipts&&Array.isArray(data.receipts)){
+        const existing=new Set(S.receipts.map(r=>r.id));
+        data.receipts.forEach(r=>{
+          if(!existing.has(r.id)){S.receipts.push(r);added++;} else skipped++;
+        });
+        saveReceipts();
+      }
+      // Import paid log (merge)
+      if(data.paidLog&&typeof data.paidLog==='object'){
+        Object.entries(data.paidLog).forEach(([mem,entries])=>{
+          if(!S.paidLog[mem]) S.paidLog[mem]=[];
+          const existing=new Set(S.paidLog[mem].map(e=>e.ts));
+          entries.forEach(e=>{ if(!existing.has(e.ts)) S.paidLog[mem].push(e); });
+        });
+        try{localStorage.setItem('hv_v1_paid',JSON.stringify(S.paidLog));}catch(ex){}
+      }
+      // Import rates
+      if(data.rates&&typeof data.rates==='object'){
+        S.rates={...S.rates,...data.rates};
+        try{localStorage.setItem('hv_v1_rates',JSON.stringify(S.rates));}catch(ex){}
+        loadRateInputs();
+      }
+      // Import wars (merge by URL) — normalize old records to new schema
+      if(data.wars&&Array.isArray(data.wars)){
+        const existingUrls=new Set(S.wars.map(w=>w.url));
+        let warsAdded=0;
+        data.wars.forEach(w=>{
+          // Normalize old war records that only had grossPayout
+          if(!w.memberPayout && w.grossPayout) w.memberPayout=w.grossPayout;
+          if(w.factionCutPct===undefined) w.factionCutPct=20;
+          if(!w.result) w.result='Unknown';
+          if(!existingUrls.has(w.url)){S.wars.push(w);warsAdded++;}
+        });
+        if(warsAdded>0) try{localStorage.setItem('hv_v1_wars',JSON.stringify(S.wars));}catch(ex){}
+        if(warsAdded) clog(`Imported ${warsAdded} war(s)`,'ok');
+      }
+      // Import outgoing (merge by ID)
+      if(data.outgoing&&Array.isArray(data.outgoing)){
+        if(!S.outgoing) S.outgoing=[];
+        const existingOut=new Set(S.outgoing.map(r=>r.id));
+        data.outgoing.forEach(r=>{ if(!existingOut.has(r.id)) S.outgoing.push(r); });
+        try{localStorage.setItem('hv_v1_outgoing',JSON.stringify(S.outgoing));}catch(ex){}
+      }
+      // Import ocOverrides (merge)
+      if(data.ocOverrides&&typeof data.ocOverrides==='object'){
+        S.ocOverrides=Object.assign(S.ocOverrides||{},data.ocOverrides);
+        try{localStorage.setItem('hv_v1_oc_overrides',JSON.stringify(S.ocOverrides));}catch(ex){}
+      }
+      // Import respectOverrides (merge)
+      if(data.respectOverrides&&typeof data.respectOverrides==='object'){
+        S.respectOverrides=Object.assign(S.respectOverrides||{},data.respectOverrides);
+        try{localStorage.setItem('hv_v1_respect_overrides',JSON.stringify(S.respectOverrides));}catch(ex){}
+      }
+      // Import testers (merge by name)
+      if(data.testers&&Array.isArray(data.testers)){
+        if(!S.testers) S.testers=[];
+        const existingT=new Set(S.testers.map(t=>t.name));
+        data.testers.forEach(t=>{ if(!existingT.has(t.name)) S.testers.push(t); });
+        try{localStorage.setItem('hv_v1_testers',JSON.stringify(S.testers));}catch(ex){}
+      }
+      // Import factionWhitelist (merge by id)
+      if(data.factionWhitelist&&Array.isArray(data.factionWhitelist)){
+        if(!S.factionWhitelist) S.factionWhitelist=[];
+        const existingW=new Set(S.factionWhitelist.map(w=>String(w.id)));
+        data.factionWhitelist.forEach(w=>{ if(!existingW.has(String(w.id))) S.factionWhitelist.push(w); });
+        try{localStorage.setItem('hv_v1_faction_whitelist',JSON.stringify(S.factionWhitelist));}catch(ex){}
+      }
+      // Import exemptReceipts (merge)
+      if(data.exemptReceipts&&Array.isArray(data.exemptReceipts)){
+        if(!S.exemptReceipts) S.exemptReceipts=new Set();
+        data.exemptReceipts.forEach(id=>S.exemptReceipts.add(id));
+        try{localStorage.setItem('hv_v1_exempt_receipts',JSON.stringify([...S.exemptReceipts]));}catch(ex){}
+      }
+      renderReceipts(); renderCards(); updateBadge(); renderWarPanel();
+      status.style.color='var(--accent2)';
+      status.textContent=`✓ Import complete — ${added} receipts added, ${skipped} already existed`;
+      clog(`Admin import: +${added} receipts, ${skipped} dupes skipped`,'ok');
+    }catch(ex){
+      status.style.color='var(--accent4)';
+      status.textContent='✗ Parse error: '+ex.message;
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ── MANUAL RECEIPT
+function adminAddManualReceipt(){
+  const member=(document.getElementById('mr_member').value||'').trim();
+  const item=(document.getElementById('mr_item').value||'').trim();
+  const qty=parseInt(document.getElementById('mr_qty').value)||0;
+  const cat=document.getElementById('mr_cat').value;
+  const status=document.getElementById('manualRcptStatus');
+  if(!member||!item||!qty){
+    status.style.display='block';status.style.color='var(--accent4)';
+    status.textContent='✗ Member, item, and qty are required'; return;
+  }
+  const iData=lookupItem(item);
+  const mv=iData?.mv||0;
+  const ts=Math.floor(Date.now()/1000);
+  const id=`r_manual_${ts}_${member.replace(/\W/g,'')}_${item.replace(/\W/g,'').toLowerCase()}`;
+  if(S.receipts.find(r=>r.id===id)){
+    status.style.display='block';status.style.color='var(--accent3)';
+    status.textContent='⚠ Duplicate entry — already exists'; return;
+  }
+  S.receipts.push({id,member,memberId:'0',item,qty,mv,cat,pct:S.rates[cat]||98,ts,deleted:false,manual:true});
+  S.receipts.sort((a,b)=>b.ts-a.ts);
+  saveReceipts(); renderReceipts(); renderCards(); updateBadge();
+  status.style.display='block';status.style.color='var(--accent2)';
+  status.textContent=`✓ Added ${qty}x ${item} from ${member} (MV: ${fmt$(mv)}, owed: ${ff$(qty*mv*(S.rates[cat]||98)/100)})`;
+  document.getElementById('mr_member').value='';
+  document.getElementById('mr_item').value='';
+  document.getElementById('mr_qty').value='';
+  clog(`Manual receipt added: ${qty}x ${item} from ${member}`,'ok');
+}
+
+// ── STORAGE INSPECTOR
+function adminInspectStorage(){
+  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'];
+  let totalBytes=0;
+  let out='=== LOCALSTORAGE ===\n\n';
+  keys.forEach(k=>{
+    const v=localStorage.getItem(k);
+    if(!v){out+=`[${k}]: (empty)\n\n`;return;}
+    if(k==='hv_key'){out+=`[${k}]: ${v.slice(0,4)}••••••••${v.slice(-2)} (${v.length} chars)\n\n`;totalBytes+=v.length;return;}
+    totalBytes+=v.length;
+    try{
+      const parsed=JSON.parse(v);
+      if(Array.isArray(parsed)) out+=`[${k}]: Array(${parsed.length})\n`;
+      else if(typeof parsed==='object') out+=`[${k}]: Object {${Object.keys(parsed).join(', ')}}\n`;
+      else out+=`[${k}]: ${parsed}\n`;
+      // Byte size
+      out+=`  Size: ${(v.length/1024).toFixed(1)} KB\n\n`;
+    }catch(e){ out+=`[${k}]: ${v.slice(0,80)}…\n\n`; }
+  });
+  // Total size summary
+  const totalKB=(totalBytes/1024).toFixed(1);
+  const totalMB=(totalBytes/1048576).toFixed(2);
+  const pct=((totalBytes/5242880)*100).toFixed(1); // 5MB typical localStorage limit
+  out=`=== TOTAL CACHE SIZE: ${totalKB} KB (${totalMB} MB) — ${pct}% of ~5MB limit ===\n\n`+out;
+  // Update summary badge if present
+  const badge=document.getElementById('cacheSizeBadge');
+  if(badge) badge.textContent=`${totalKB} KB used (${pct}% of 5MB)`;
+  out+=`=== IN-MEMORY STATE ===\n`;
+  out+=`S.receipts: ${S.receipts.length} (${S.receipts.filter(r=>!r.deleted).length} active)\n`;
+  out+=`S.testers: ${(S.testers||[]).length}\n`;
+  out+=`S.factionWhitelist: ${(S.factionWhitelist||[]).length}\n`;
+  out+=`S.outgoing: ${(S.outgoing||[]).length}\n`;
+  out+=`S.wars: ${S.wars.length}\n`;
+  out+=`S.events: ${S.events.length} (session)\n`;
+  out+=`S.eventLog: ${(S.eventLog||[]).length} (persistent, capped 2000)\n`;
+  out+=`S.lastEventTs: ${S.lastEventTs?new Date(S.lastEventTs*1000).toLocaleString():'not set'}\n`;
+  out+=`S.armoryNews: ${S.armoryNews.length}\n`;
+  out+=`S.ocRaw: ${S.ocRaw.length}\n`;
+  out+=`S.attackNews: ${S.attackNews.length}\n`;
+  out+=`S.crimeNews: ${S.crimeNews.length}\n`;
+  out+=`S.prices: ${Object.keys(S.prices).length} items\n`;
+  out+=`S.lastSync: ${S.lastSync?new Date(S.lastSync).toLocaleTimeString():'never'}\n`;
+  const el=document.getElementById('adminStorageOut');
+  el.style.display='block'; el.textContent=out;
+}
+
+function adminClearKey(key){
+  if(!confirm(`Clear localStorage key "${key}"?\n\nThis cannot be undone.`)) return;
+  localStorage.removeItem(key);
+  if(key==='hv_v1_rcpts'){S.receipts=[];renderReceipts();renderCards();}
+  if(key==='hv_v1_paid'){S.paidLog={};renderReceipts();}
+  clog(`Admin: cleared ${key}`,'warn');
+  adminInspectStorage();
+}
+
+function adminCheckWipeInput(){
+  const val=(document.getElementById('wipeConfirmInput')?.value||'').trim().toUpperCase();
+  const btn=document.getElementById('btnWipeAll');
+  if(!btn) return;
+  if(val==='WIPE'){
+    btn.disabled=false; btn.style.opacity='1'; btn.style.cursor='pointer';
+    btn.style.background='rgba(255,107,107,0.15)';
+  } else {
+    btn.disabled=true; btn.style.opacity='0.4'; btn.style.cursor='not-allowed';
+    btn.style.background='rgba(255,107,107,0.08)';
+  }
+}
+
+function adminClearAll(){
+  const val=(document.getElementById('wipeConfirmInput')?.value||'').trim().toUpperCase();
+  if(val!=='WIPE'){ alert('Type WIPE in the confirmation box first.'); return; }
+  const rcptCount=S.receipts.length;
+  const paidCount=Object.keys(S.paidLog).length;
+  const warCount=S.wars.length;
+  if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• ${warCount} war payout record(s)\n• All payout rates & card settings\n• Sync settings\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
+  ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'].forEach(k=>localStorage.removeItem(k));
+  S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98}; S.refundedPayments=new Set(); S.testers=[]; S.factionWhitelist=[];
+  S.cardPeriods={supply:'30d',oc:'30d',pnl:'30d'}; RMINS=15;
+  S.pointPrice=0; S.pointPriceHistory=[];
+  clearSessionState();
+  loadRateInputs(); buildSyncSelector(); restoreCardPeriodPills();
+  renderReceipts(); renderCards(); updateBadge(); renderWarPanel();
+  clog(`Admin: WIPED all data (${rcptCount} receipts, ${warCount} wars)`,'err');
+  const inp=document.getElementById('wipeConfirmInput');
+  if(inp) inp.value='';
+  adminCheckWipeInput(); adminInspectStorage();
+  alert('✓ All data wiped. API key preserved.');
+}
+
+// ── AUDIT TABLE
+function adminRenderAudit(){
+  const tbl=document.getElementById('adminAuditTbl');
+  tbl.style.display='block';
+  if(!S.receipts.length){tbl.innerHTML='<div class="empty">No receipts in memory.</div>';return;}
+  const catBadge={Plushie:'bb',Flower:'bg',Xanax:'by',Drug:'by',Alcohol:'by',Medical:'br'};
+  let h=`<table><thead><tr><th>Date</th><th>Member</th><th>ID</th><th>Item</th><th>Qty</th><th>Cat</th><th>MV</th><th>Owed</th><th>Status</th><th></th></tr></thead><tbody>`;
+  [...S.receipts].sort((a,b)=>b.ts-a.ts).forEach(r=>{
+    const owed=r.qty*r.mv*(S.rates[r.cat]||98)/100;
+    const paidTs=lastPaidTs(r.member); const isPaid=r.ts<=paidTs;
+    const cb=catBadge[r.cat]||'bm';
+    const rowStyle=r.deleted?'opacity:0.4;background:rgba(255,107,107,0.04)':'';
+    h+=`<tr style="${rowStyle}">
+      <td class="cm" style="font-size:10px;white-space:nowrap">${ft(r.ts)}</td>
+      <td class="cn" style="font-size:11px">${r.member}</td>
+      <td class="cm" style="font-size:9px">${r.memberId||'—'}</td>
+      <td style="font-size:11px">${r.item}${r.manual?'<span class="badge bm" style="margin-left:4px">MANUAL</span>':''}</td>
+      <td class="cm">${r.qty}</td>
+      <td><span class="badge ${cb}">${r.cat}</span></td>
+      <td class="cm">${fmt$(r.mv)}</td>
+      <td class="${isPaid?'cm':'cy'}">${ff$(owed)}</td>
+      <td>${r.deleted?'<span class="badge br">DELETED</span>':isPaid?'<span class="badge bg">PAID</span>':'<span class="badge by">OWED</span>'}</td>
+      <td>${r.deleted
+        ?`<button class="del-btn" style="color:var(--accent2)" title="Restore" onclick="adminRestoreOne('${r.id}')">↩</button>`
+        :`<button class="del-btn" title="Delete" onclick="delReceipt('${r.id}');adminRenderAudit()">✕</button>`
+      }</td>
+    </tr>`;
+  });
+  tbl.innerHTML=h+'</tbody></table>';
+}
+
+function adminRestoreOne(id){
+  const r=S.receipts.find(x=>x.id===id);
+  if(r){r.deleted=false;saveReceipts();renderReceipts();renderCards();updateBadge();adminRenderAudit();clog(`Receipt restored: ${r.qty}x ${r.item} from ${r.member}`,'ok');}
+}
+
+function adminRestoreDeleted(){
+  const count=S.receipts.filter(r=>r.deleted).length;
+  if(!count){alert('No deleted receipts to restore.');return;}
+  if(!confirm(`Restore ${count} deleted receipt(s)?`)) return;
+  S.receipts.forEach(r=>{r.deleted=false;});
+  saveReceipts(); renderReceipts(); renderCards(); updateBadge(); adminRenderAudit();
+  clog(`Admin: restored ${count} deleted receipts`,'ok');
+}
+
+// ════════════════════════════════════════════
+// WAR FUNDS
+// ════════════════════════════════════════════
+function toggleWarPaste(){
+  const area=document.getElementById('warPasteArea');
+  const btn=document.getElementById('warPasteToggle');
+  const open=area.style.display==='none';
+  area.style.display=open?'block':'none';
+  btn.textContent=open?'▲ HIDE MANUAL PASTE':'▼ PASTE PAGE SOURCE MANUALLY';
+}
+
+async function importWarUrl(){
+  const url=(document.getElementById('warUrlInput')?.value||'').trim();
+  const status=document.getElementById('warImportStatus');
+  if(!url||!url.includes('tc-armasync')){
+    status.style.display='block';status.style.color='var(--accent4)';
+    status.textContent='✗ Paste a valid TC ArmaSync payout URL'; return;
+  }
+  if(S.wars.find(w=>w.url===url)){
+    status.style.display='block';status.style.color='var(--accent3)';
+    status.textContent='⚠ This war has already been imported'; return;
+  }
+
+  // Try proxy chain: corsproxy.io → thingproxy.freeboard.io → reveal manual paste
+  const proxies=[
+    {fn: u=>`https://corsproxy.io/?${encodeURIComponent(u)}`, label:'corsproxy.io', raw:true},
+    {fn: u=>`https://thingproxy.freeboard.io/fetch/${encodeURIComponent(u)}`, label:'thingproxy', raw:true},
+  ];
+  const extractHtml = async (proxyUrl, isRaw) => {
+    const r=await fetch(proxyUrl,{signal:AbortSignal.timeout(10000)});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    if(isRaw) return await r.text();
+    const json=await r.json(); return json.contents||'';
+  };
+
+  for(let i=0;i<proxies.length;i++){
+    const {fn, label, raw}=proxies[i];
+    status.style.display='block';status.style.color='var(--muted)';
+    status.textContent=`Fetching via ${label}… (attempt ${i+1}/${proxies.length})`;
+    try{
+      const html=await extractHtml(fn(url), raw);
+      if(!html) continue;
+      const war=parseArmaSync(html,url);
+      if(!war){
+        status.style.color='var(--accent4)';
+        status.textContent='✗ Could not parse member data — page may still be loading. Try again or use manual paste.';
+        return;
+      }
+      S.wars.push(war);
+      try{localStorage.setItem('hv_v1_wars',JSON.stringify(S.wars));}catch(e){}
+      status.style.color='var(--accent2)';
+      status.textContent=`✓ Imported via ${label}: ${war.name} — ${war.members.length} members, ${fmt$(war.grossPayout)} gross`;
+      document.getElementById('warUrlInput').value='';
+      renderWarPanel();
+      clog(`War imported: ${war.name} (${fmt$(war.grossPayout)})`,'ok');
+      return;
+    }catch(e){
+      clog(`War proxy ${label} failed: ${e.message}`,'warn');
+    }
+  }
+
+  // All proxies failed — auto-reveal manual paste
+  status.style.color='var(--accent4)';
+  status.textContent='✗ All proxies blocked. Use manual paste below ↓';
+  // Ensure import body is open
+  const importBody=document.getElementById('warImportBody');
+  const importArr=document.getElementById('warImportArr');
+  if(importBody){ importBody.style.display='block'; }
+  if(importArr){ importArr.textContent='▾'; }
+  // Pre-fill URL hint and open paste area
+  const hint=document.getElementById('warPasteUrlHint');
+  if(hint) hint.value=url;
+  const area=document.getElementById('warPasteArea');
+  const btn=document.getElementById('warPasteToggle');
+  if(area){ area.style.display='block'; }
+  if(btn){ btn.textContent='▲ HIDE MANUAL PASTE'; }
+  clog('War import: all proxies failed — manual paste shown','warn');
+}
+
+function importWarPaste(){
+  const html=(document.getElementById('warPasteInput')?.value||'').trim();
+  const urlHint=(document.getElementById('warPasteUrlHint')?.value||'').trim();
+  const status=document.getElementById('warImportStatus');
+  status.style.display='block';
+  if(!html){
+    status.style.color='var(--accent4)';
+    status.textContent='✗ Nothing pasted — copy the page source and paste it above'; return;
+  }
+  const url=urlHint||`manual_${Date.now()}`;
+  if(urlHint&&S.wars.find(w=>w.url===urlHint)){
+    status.style.color='var(--accent3)';
+    status.textContent='⚠ This war has already been imported'; return;
+  }
+  const war=parseArmaSync(html,url);
+  if(!war){
+    status.style.color='var(--accent4)';
+    status.textContent='✗ Could not parse member data from pasted source. Ensure you copied the full page source.'; return;
+  }
+  S.wars.push(war);
+  try{localStorage.setItem('hv_v1_wars',JSON.stringify(S.wars));}catch(e){}
+  status.style.color='var(--accent2)';
+  status.textContent=`✓ Imported from paste: ${war.name} — ${war.members.length} members, ${fmt$(war.grossPayout)} gross`;
+  document.getElementById('warPasteInput').value='';
+  // Collapse paste area
+  const area=document.getElementById('warPasteArea');
+  const btn=document.getElementById('warPasteToggle');
+  if(area) area.style.display='none';
+  if(btn) btn.textContent='▼ PASTE PAGE SOURCE MANUALLY';
+  renderWarPanel();
+  clog(`War imported (manual paste): ${war.name} (${fmt$(war.grossPayout)})`,'ok');
+}
+
+function parseArmaSync(html, url){
+  // Strip HTML tags and normalize whitespace
+  const txt=html.replace(/<[^>]+>/g,' ')
+    .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+    .replace(/\s+/g,' ').trim();
+
+  // War name — stop at "Shared on" or "Payout Results" to avoid trailing junk
+  const vsM=txt.match(/([A-Za-z0-9_\-. ]+)\s+vs\s+([A-Z0-9_\-. ]+?)(?:\s+Shared|\s+Payout|\s*$)/);
+  const name=vsM?vsM[0].replace(/\s+(?:Shared|Payout).*/i,'').trim().slice(0,60):'Unknown War';
+
+  // Gross payout — appears as "Gross Payout $344,000,000"
+  const grossM=txt.match(/Gross Payout\s*\$\s*([\d,]+)/i);
+  const grossPayout=grossM?parseInt(grossM[1].replace(/,/g,'')):0;
+
+  // Our attacks — "Our Attacks 467"
+  const atkM=txt.match(/Our Attacks\s+([\d,]+)/i)||txt.match(/Total War Attacks\s+([\d,]+)/i);
+  const totalAtk=atkM?parseInt(atkM[1].replace(/,/g,'')):0;
+
+  // Shared date — "Shared on Apr 5, 2026"
+  const dateM=txt.match(/Shared on ([A-Za-z]+ \d+,?\s*\d{4})/i);
+  const date=dateM?dateM[1].trim():new Date().toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});
+
+  // Parse members by splitting on "Total Payout $NNN"
+  // The text before each "Total Payout" contains: "MemberName Level N N total hits N.N respect"
+  const members=[];
+  const payParts=txt.split(/Total Payout\s*\$\s*([\d,]+)/);
+  // payParts[0]=header, payParts[1]=first payout amount, payParts[2]=text before 2nd payout, etc.
+  for(let i=0;i<payParts.length-1;i+=2){
+    const payoutStr=payParts[i+1];
+    const payout=parseInt(payoutStr.replace(/,/g,''))||0;
+    const before=payParts[i];
+
+    // Find "MemberName Level N N total hits N.N respect" — confirmed real format
+    const mM=before.match(/([A-Za-z0-9_\-]+)\s+Level\s+\d+\s+\d+\s+total\s+hits?\s+[\d.]+\s+respect/i);
+    // Fallback: just "Name Level N"
+    const mFallback=before.match(/([A-Za-z0-9_\-]+)\s+Level\s+\d+/gi);
+    const mName=mM?mM[1].trim():mFallback?mFallback[mFallback.length-1].replace(/\s+Level\s+\d+/i,'').trim():null;
+
+    if(!mName||members.find(x=>x.name===mName)||payout===0) continue;
+
+    // War hits from within 500 chars before this payout
+    const ctx=before.slice(-500);
+    const wH=ctx.match(/War Hits\s+(\d+)/i);
+    const warHits=wH?parseInt(wH[1]):0;
+
+    // Respect from "N.N respect" or "Respect N.N"
+    const respM=ctx.match(/([\d.]+)\s+respect/i)||ctx.match(/Respect[:\s]+([\d.]+)/i);
+    const respect=respM?parseFloat(respM[1]):0;
+
+    members.push({name:mName,payout,warHits,respect});
+  }
+
+  // Win/Loss detection
+  const winM=txt.match(/\b(Win|Loss|Won|Lost)\b/i);
+  const result = winM ? (/(win|won)/i.test(winM[1]) ? 'Win' : 'Loss') : 'Unknown';
+
+  // Total pot — ArmaSync shows "Gross Payout" as the member-side payout.
+  // The user confirmed: 430m war, 20% faction cut → 344m to members.
+  // So totalPot = grossPayout / (1 - factionCutPct/100). We store grossPayout as memberPayout.
+  // Default faction cut stored per war, adjustable via UI.
+  const memberPayout = grossPayout; // what members received
+
+  if(!members.length||!memberPayout) return null;
+  const opponent = vsM ? vsM[2].trim() : 'Unknown';
+  return{url,name,date,result,opponent,totalPot:0,memberPayout,grossPayout:memberPayout,factionCutPct:20,totalAtk,members,importedAt:Date.now()};
+  // Note: totalPot is computed as memberPayout/(1-factionCutPct/100) at render time,
+  // or can be overridden. factionCutPct defaults to 20 and is editable per war.
+}
+
+// Compute war financials — factionCutPct is stored per war (default 20)
+// memberPayout = what ArmaSync shows as "Gross Payout" (already after faction cut)
+// totalPot = memberPayout / (1 - factionCutPct/100)
+// factionCut = totalPot - memberPayout
+function warTotalPot(w){
+  const pct = Number(w.factionCutPct !== undefined ? w.factionCutPct : 20);
+  const memberPay = Number(w.memberPayout || w.grossPayout || 0);
+  if(!isFinite(pct) || pct >= 100) return memberPay;
+  if(!isFinite(memberPay)) return 0;
+  const result = Math.round(memberPay / (1 - pct/100));
+  return isFinite(result) ? result : memberPay;
+}
+function warFactionCut(w){
+  const memberPay = Number(w.memberPayout || w.grossPayout || 0);
+  const pot = warTotalPot(w);
+  const cut = pot - memberPay;
+  return isFinite(cut) ? cut : 0;
+}
+
+function saveWarFactionCut(idx, pct){
+  if(!S.wars[idx]) return;
+  S.wars[idx].factionCutPct = Math.max(0, Math.min(99, parseFloat(pct)||0));
+  try{localStorage.setItem('hv_v1_wars',JSON.stringify(S.wars));}catch(e){}
+  renderWarPanel();
+  renderCards();
+}
+
+function setWarPeriod(el, period){
+  S.warPeriod=period;
+  document.querySelectorAll('#panel-war .pill').forEach(p=>p.classList.remove('on'));
+  el.classList.add('on');
+  renderWarPanel();
+}
+
+function clearWarData(){
+  if(!confirm(`Clear all ${S.wars.length} imported war(s)?`)) return;
+  S.wars=[];
+  try{localStorage.removeItem('hv_v1_wars');}catch(e){}
+  renderWarPanel();
+  clog('War data cleared','warn');
+}
+
+function renderWarPanel(){
+  const empty=document.getElementById('warEmpty');
+  const summaryCards=document.getElementById('warSummaryCards');
+  const memberGrid=document.getElementById('warMemberGrid');
+  const warTbl=document.getElementById('warTbl');
+  if(!empty) return;
+
+  if(!S.wars.length){
+    empty.style.display='block';
+    if(summaryCards) summaryCards.style.display='none';
+    if(memberGrid) memberGrid.innerHTML='';
+    if(warTbl) warTbl.style.display='none';
+    return;
+  }
+  empty.style.display='none';
+
+  // Filter by period (use actual war date)
+  const period=S.warPeriod||'all';
+  const msAgo={'30d':30,'90d':90,'1y':365}[period];
+  const fromMs=msAgo?Date.now()-msAgo*86400*1000:0;
+  const filtered=S.wars.filter(w=>{ const d=w.date?new Date(w.date).getTime():0; return fromMs===0||d>=fromMs; });
+
+  if(!filtered.length){
+    empty.style.display='block';
+    empty.innerHTML=`No wars in this period. Try LIFETIME.`;
+    if(summaryCards) summaryCards.style.display='none';
+    if(memberGrid) memberGrid.innerHTML='';
+    return;
+  }
+
+  // Summary totals across filtered wars
+  let grandPot=0, grandCut=0, grandMemberPayout=0, grandAtk=0;
+  filtered.forEach(w=>{
+    grandPot+=warTotalPot(w);
+    grandCut+=warFactionCut(w);
+    grandMemberPayout+=(w.memberPayout||w.grossPayout||0);
+    grandAtk+=w.totalAtk||0;
+  });
+
+  if(summaryCards){
+    summaryCards.style.display='block';
+  }
+
+  // Member payout — collapsed into a single tappable "Lifetime Payouts" bar
+  const memberTotals={};
+  filtered.forEach(w=>{
+    w.members.forEach(m=>{
+      if(!memberTotals[m.name]) memberTotals[m.name]={name:m.name,payout:0,warHits:0,respect:0,wars:0};
+      memberTotals[m.name].payout+=m.payout;
+      memberTotals[m.name].warHits+=m.warHits||0;
+      memberTotals[m.name].respect+=m.respect||0;
+      memberTotals[m.name].wars++;
+    });
+  });
+  const sorted=Object.values(memberTotals).sort((a,b)=>b.payout-a.payout);
+  if(memberGrid){
+    const listId='warLifetimeList';
+    memberGrid.innerHTML=`
+      <div onclick="(function(){var el=document.getElementById('${listId}');var arr=document.getElementById('${listId}Arr');el.style.display=el.style.display==='none'?'block':'none';arr.textContent=el.style.display==='none'?'▸':'▾';})()"
+        style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;user-select:none;margin-bottom:0;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="${listId}Arr" style="font-size:12px;color:var(--muted)">▸</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);">Lifetime Payouts</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);">${sorted.length} members</span>
+        </div>
+        <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent3);font-weight:700;">${fmt$(sorted.reduce((s,m)=>s+m.payout,0))}</span>
+      </div>
+      <div id="${listId}" style="display:none;border:1px solid var(--border);border-top:none;background:var(--surface);">
+        ${sorted.map(m=>`
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 14px;border-bottom:1px solid var(--border);">
+            <div>
+              <span style="font-family:'Syne',sans-serif;font-weight:600;font-size:12px;color:var(--text);">${m.name}</span>
+              <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-left:8px;">${m.warHits} hits · ${m.wars} war${m.wars!==1?'s':''}</span>
+            </div>
+            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent3);font-weight:700;">${fmt$(m.payout)}</span>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  // War history table — always shown, with per-war details
+  if(warTbl){
+    warTbl.style.display='block';
+    let h=`<table><thead><tr>
+      <th>War vs</th>
+      <th>Result</th>
+      <th>Total Pot</th>
+      <th style="white-space:nowrap;">Faction %</th>
+      <th>Faction Cut</th>
+      <th>Mbr Payout</th>
+      <th></th>
+      <th></th>
+    </tr></thead><tbody>`;
+
+    [...filtered].reverse().forEach((w,ri)=>{
+      const wIdx=S.wars.indexOf(w);
+      const pot=warTotalPot(w);
+      const cut=warFactionCut(w);
+      const mpay=w.memberPayout||w.grossPayout||0;
+      const result=w.result||'Unknown';
+      const resultColor=result==='Win'?'var(--accent2)':result==='Loss'?'var(--accent4)':'var(--muted)';
+      const resultIcon=result==='Win'?'🏆 Win':result==='Loss'?'✗ Loss':result;
+      const opponent=w.opponent||'—';
+      const memberRowId=`warMembers_${wIdx}`;
+      h+=`<tr style="cursor:pointer;" onclick="(function(){var el=document.getElementById('${memberRowId}');el.style.display=el.style.display==='none'?'table-row':'none';})()">
+        <td class="cn" style="font-size:11px">${opponent}</td>
+        <td style="font-size:11px;font-weight:700;color:${resultColor}">${resultIcon}</td>
+        <td class="cy">${fmtM(pot)}</td>
+        <td style="font-size:10px;white-space:nowrap;">
+          <input type="number" value="${w.factionCutPct!==undefined?w.factionCutPct:20}" min="0" max="99" step="1"
+            onclick="event.stopPropagation()"
+            onchange="saveWarFactionCut(${wIdx},this.value)"
+            style="width:44px;background:var(--bg);border:1px solid var(--border);color:var(--accent3);font-family:'Space Mono',monospace;font-size:10px;padding:2px 4px;text-align:center;">%
+        </td>
+        <td class="cy">${fmtM(cut)}</td>
+        <td class="cm">${fmtM(mpay)}</td>
+        <td style="font-size:9px;color:var(--muted)">▸</td>
+        <td><button class="del-btn" title="Remove" onclick="event.stopPropagation();removeWar(${wIdx})">✕</button></td>
+      </tr>
+      <tr id="${memberRowId}" style="display:none;background:rgba(127,255,110,0.02);">
+        <td colspan="8" style="padding:8px 12px;">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">${opponent} — ${w.date} — ${w.members.length} members</div>
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            ${w.members.sort((a,b)=>b.payout-a.payout).map(m=>`
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:var(--surface2);gap:8px;">
+                <span style="font-family:'Syne',sans-serif;font-weight:600;font-size:11px;color:var(--text);">${m.name}</span>
+                <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent3);">${fmt$(m.payout)}</span>
+              </div>`).join('')}
+          </div>
+        </td>
+      </tr>`;
+    });
+
+    // Summary footer row
+    h+=`<tr style="border-top:2px solid var(--border);background:rgba(127,255,110,0.02);">
+      <td style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;color:var(--muted);letter-spacing:1px;" colspan="2">TOTALS (${filtered.length} war${filtered.length!==1?'s':''})</td>
+      <td class="cy" style="font-weight:700;">${fmtM(grandPot)}</td>
+      <td></td>
+      <td class="cy" style="font-weight:700;">${fmtM(grandCut)}</td>
+      <td class="cm" style="font-weight:700;">${fmtM(grandMemberPayout)}</td>
+      <td colspan="2"></td>
+    </tr>`;
+
+    warTbl.innerHTML=h+'</tbody></table>';
+  }
+}
+
+function removeWar(idx){
+  if(!S.wars[idx]) return;
+  if(!confirm(`Remove war: ${S.wars[idx].name}?`)) return;
+  S.wars.splice(idx,1);
+  try{localStorage.setItem('hv_v1_wars',JSON.stringify(S.wars));}catch(e){}
+  renderWarPanel();
+  clog(`War removed`,'warn');
+}
+
+// ════════════════════════════════════════════
+// OUTGOING ITEMS (items YOU sent to faction members)
+// ════════════════════════════════════════════
+// ════════════════════════════════════════
+// PERSISTENT EVENT LOG — delta tracking
+// ════════════════════════════════════════
+// Merges S.events into S.eventLog (keyed by timestamp).
+// Tracks the highest ts seen before this merge as S.lastEventTs
+// so renderDebugEvents can badge truly new entries.
+function mergeEventLog(){
+  if(!S.events||!S.events.length) return;
+
+  // Record the previous high-water mark before merging
+  const prevMax = S.lastEventTs||0;
+
+  if(!S.eventLog) S.eventLog=[];
+  const seen = new Set(S.eventLog.map(e=>e.timestamp));
+  let added=0;
+  S.events.forEach(e=>{
+    if(!seen.has(e.timestamp)){
+      S.eventLog.push(e);
+      seen.add(e.timestamp);
+      added++;
+    }
+  });
+
+  if(added>0){
+    S.eventLog.sort((a,b)=>b.timestamp-a.timestamp);
+    // Cap at 2000 entries to keep localStorage reasonable (~400KB max)
+    try{ localStorage.setItem('hv_v1_event_log', JSON.stringify(S.eventLog)); }catch(e){}
+  }
+
+  // Update high-water mark:
+  // Save prevMax as the "last seen before this sync" marker so delta display works.
+  // Then advance S.lastEventTs to newMax so next sync compares against current.
+  const newMax = S.eventLog.length ? S.eventLog[0].timestamp : 0;
+  if(newMax > 0){
+    // Store prevMax as the delta baseline (what was seen before this sync)
+    S._prevEventTs = prevMax;
+    try{ localStorage.setItem('hv_v1_prev_event_ts', String(prevMax)); }catch(e){}
+    // Advance the stored high-water mark to current
+    S.lastEventTs = newMax;
+    try{ localStorage.setItem('hv_v1_last_event_ts', String(newMax)); }catch(e){}
+  }
+
+  // Update new-event badge in debug panel — use _prevEventTs as baseline
+  const deltaBase = S._prevEventTs||0;
+  const newCount = deltaBase>0 ? S.eventLog.filter(e=>e.timestamp > deltaBase).length : 0;
+  const badge = document.getElementById('debugNewBadge');
+  if(badge){
+    if(newCount>0){
+      badge.textContent = `+${newCount} new`;
+      badge.style.display='inline';
+    } else {
+      badge.style.display='none';
+    }
+  }
+}
+
+function toggleDeltaFilter(){
+  S.deltaFilterOn = !S.deltaFilterOn;
+  const btn = document.getElementById('btnDeltaOnly');
+  if(btn) btn.style.borderColor = S.deltaFilterOn ? 'var(--accent2)' : '';
+  if(btn) btn.style.color = S.deltaFilterOn ? 'var(--accent2)' : '';
+  renderDebugEvents();
+}
+
+function parseOutgoing(){
+  // "You sent X to Y" appears in your events ONLY when YOU are the sender (personal trade).
+  // It does NOT appear when you send from faction armory — those show in armorynews.
+  // The debug "You sent/gave: 3" entries were all self-loans from faction armory (correctly skipped).
+  // Real personal sends (Xanax, flowers, etc.) will appear here when they exist in loaded events.
+
+  const seen=new Set((S.outgoing||[]).map(r=>r.id));
+  let added=0;
+  if(!S.outgoing) S.outgoing=[];
+
+  // Armory news NOT used for personal outgoing — armory loans are faction weapons/armor
+  // Personal inventory sends appear in user/events as 'You sent X to Y' (Source 2 below)
+
+  // Source 2: user events — all "You sent/gave" formats from real Torn logs:
+  // "You sent 20x Bottle of Beer to DanTheHighMan"
+  // "You sent an Edelweiss to DanTheHighMan"          (singular "an")
+  // "You sent a Crocus to DanTheHighMan"              (singular "a")
+  // "You sent some Xanax to DanTheHighMan"            (qty unknown → 1)
+  S.events.forEach(ev=>{
+    const raw=ev.event||ev.news||'';
+    if(!raw) return;
+    const n=stripHtml(raw);
+
+    let qty=0, item='', toMember='';
+
+    // "You sent/gave NNx Item to Name"
+    const pQty=n.match(/^You (?:sent|gave)\s+(\d+)x?\s+(.+?)\s+to\s+(.+?)\.?$/i);
+    // "You sent/gave an/a Item to Name"
+    const pSingA=n.match(/^You (?:sent|gave)\s+an?\s+(.+?)\s+to\s+(.+?)\.?$/i);
+    // "You sent/gave some Item to Name"
+    const pSome=n.match(/^You (?:sent|gave)\s+some\s+(.+?)\s+to\s+(.+?)\.?$/i);
+
+    if(pQty){
+      qty=parseInt(pQty[1])||1; item=pQty[2].trim().replace(/[.!,]$/,''); toMember=pQty[3].trim();
+    } else if(pSingA){
+      qty=1; item=pSingA[1].trim().replace(/[.!,]$/,''); toMember=pSingA[2].trim();
+    } else if(pSome){
+      qty=1; item=pSome[1].trim().replace(/[.!,]$/,''); toMember=pSome[2].trim();
+    } else {
+      return;
+    }
+
+    // Strip any trailing HTML link from toMember (e.g. "to <a>Name</a>")
+    toMember=toMember.replace(/<[^>]+>/g,'').trim();
+
+    const id=`out_${ev.timestamp}_${item.replace(/\W/g,'').toLowerCase()}_${toMember.replace(/\W/g,'')}`;
+    if(!seen.has(id)){
+      const iData=lookupItem(item);
+      const mv=iData?.mv||0;
+      const cat=detectCat(item)||'Other';
+      S.outgoing.push({id,toMember,item,qty,mv,cat,ts:ev.timestamp,src:'events'});
+      seen.add(id);
+      added++;
+    }
+  });
+
+  if(added>0){
+    S.outgoing.sort((a,b)=>b.ts-a.ts);
+    try{localStorage.setItem('hv_v1_outgoing',JSON.stringify(S.outgoing));}catch(e){}
+    clog(`Outgoing: ${added} new entries tracked`,'ok');
+  } else {
+    clog(`Outgoing: 0 new (${S.outgoing.length} stored)`,'info');
+  }
+}
+
+async function manualOCRefresh(){
+  const btn=event.target; btn.disabled=true; btn.textContent='↻ FETCHING…';
+  const status=document.getElementById('ocV2Status');
+  if(status) status.textContent='Trying v2 OC…';
+  const fromTs=periodToSeconds(S.cardPeriods.oc||'30d');
+  await refreshOCv2(fromTs);
+  renderOC();
+  const count=(S._ocCrimes||[]).filter(c=>(c._totalPaid||0)>0).length;
+  if(status){
+    if(count>0) status.textContent=`✓ v2 active — ${count} crimes with payouts`;
+    else status.textContent='v2 unavailable (key needs faction/crimes access) — showing OC 1.0';
+  }
+  btn.disabled=false; btn.textContent='↻ TRY OC v2';
+}
+
+async function ocRawDiag(){
+  const out=document.getElementById('ocRawOut');
+  if(!S.key){ out.style.display='block'; out.textContent='No API key connected.'; return; }
+  out.style.display='block'; out.textContent='Fetching raw v2 responses…\n\n';
+  const fromTs=Math.floor(Date.now()/1000)-30*86400;
+  const toTs=Math.floor(Date.now()/1000);
+
+  // 1. Crimes
+  try{
+    const url=`https://api.torn.com/v2/faction/crimes?cat=completed&filter=executed_at&from=${fromTs}&to=${toTs}&sort=DESC&limit=2&key=${S.key}`;
+    trackApiCall();
+    const r=await fetch(url); const d=await r.json();
+    out.textContent+=`=== v2/faction/crimes (limit=2) ===\n`;
+    if(d.error){ out.textContent+=`ERROR [${d.error.code}]: ${d.error.error}\n\n`; }
+    else{
+      out.textContent+=`Top-level keys: ${Object.keys(d).join(', ')}\n`;
+      const items=d.crimes||d.data||[];
+      out.textContent+=`Array key used: ${d.crimes?'crimes':d.data?'data':'NEITHER'}\n`;
+      out.textContent+=`Count: ${items.length}\n`;
+      if(items[0]) out.textContent+=`First crime keys: ${Object.keys(items[0]).join(', ')}\nFirst crime:\n${JSON.stringify(items[0],null,2)}\n\n`;
+    }
+  }catch(e){ out.textContent+=`FETCH ERROR: ${e.message}\n\n`; }
+
+  await rateSleep();
+
+  // 2. depositFunds news
+  try{
+    const url=`https://api.torn.com/v2/faction/news?cat=depositFunds&sort=DESC&from=${fromTs}&to=${toTs}&limit=2&key=${S.key}`;
+    trackApiCall();
+    const r=await fetch(url); const d=await r.json();
+    out.textContent+=`=== v2/faction/news?cat=depositFunds (limit=2) ===\n`;
+    if(d.error){ out.textContent+=`ERROR [${d.error.code}]: ${d.error.error}\n\n`; }
+    else{
+      out.textContent+=`Top-level keys: ${Object.keys(d).join(', ')}\n`;
+      const items=d.news||d.data||[];
+      out.textContent+=`Array key used: ${d.news?'news':d.data?'data':'NEITHER'}\n`;
+      out.textContent+=`Count: ${items.length}\n`;
+      if(items[0]) out.textContent+=`First entry keys: ${Object.keys(items[0]).join(', ')}\nFirst entry:\n${JSON.stringify(items[0],null,2)}\n\n`;
+    }
+  }catch(e){ out.textContent+=`FETCH ERROR: ${e.message}\n\n`; }
+
+  out.textContent+='=== DONE — Use field names above to fix attributeOCPayouts() ===';
+}
+
+function filterType(el,type){
+  document.querySelectorAll('#typePills .pill').forEach(p=>p.classList.remove('on'));
+  el.classList.add('on'); S.typeFilter=type; renderSupply();
+}
+
+function toggleTrackConsumables(checked){
+  S.trackConsumablesSent=checked;
+  try{localStorage.setItem('hv_v1_track_consumables',String(checked));}catch(e){}
+  const status=document.getElementById('trackConsumablesStatus');
+  if(status) status.textContent=checked?'✓ Tracking active — items you sent deduct from supply totals':'';
+  renderSupply();
+}
+
+
+// ════════════════════════════════════════════
+// ACCESS CONTROL — Token-gated entry
+// Users pay 1x Xanax OR $1,000,000 for 7-day access
+// Verified by checking the key-owner's received events for matching payment
+// ════════════════════════════════════════════
+// [ACCESS_KEY/FACTION_ID/OWNER constants moved to top — TDZ fix]
+function getAccessRecord(){
+  try{ return JSON.parse(localStorage.getItem(ACCESS_KEY)||'null'); }catch(e){ return null; }
+}
+function setAccessRecord(record){
+  try{ localStorage.setItem(ACCESS_KEY, JSON.stringify(record)); }catch(e){}
+}
+function isAccessValid(){
+  const r = getAccessRecord();
+  if(!r) return false;
+  if(r.lifetime) return true;                    // lifetime never expires
+  if(r.method === 'faction') return true;        // faction checked separately
+  if(r.expiry) return Date.now() < r.expiry;     // explicit expiry timestamp
+  return (Date.now() - r.grantedAt) < ACCESS_DURATION_MS; // legacy fallback
+}
+function accessExpiresIn(){
+  const r = getAccessRecord();
+  if(!r) return 0;
+  return Math.max(0, r.grantedAt + ACCESS_DURATION_MS - Date.now());
+}
+
+// Check user/log entries for DashboardAccess payment sent TO Sypharius
+// Uses structured log data — no text parsing, no qty-word ambiguity, full history scan
+// item id 206 = Xanax. Accumulates ALL qualifying sends so stacked/old payments work.
+// [XANAX_ITEM_ID moved to top — TDZ fix]
+function checkAccessPaymentLog(logEntries){
+  const UNIT_DAYS = 7;
+  const LIFETIME_THRESHOLD = 100;
+  const MONEY_UNIT = 1000000;
+  const REQUIRED_MSG = 'dashboardaccess';
+  let totalXanax = 0, totalMoneyUnits = 0;
+  let from = '', firstTs = 0;
+
+  for(const entry of logEntries){
+    const title = (entry.title||'').toLowerCase();
+    const data  = entry.data || {};
+    const msg   = (data.message||'').toLowerCase();
+
+    if(!msg.includes(REQUIRED_MSG)) continue;
+
+    // Item send — receiver must be Sypharius, item must be Xanax (id 206)
+    if(title === 'item send'){
+      const receiver = String(data.receiver || '');
+      if(receiver !== OWNER_ID) continue;
+      const items = Array.isArray(data.items) ? data.items : [];
+      const xanaxQty = items.filter(i=>String(i.id)===String(XANAX_ITEM_ID)).reduce((s,i)=>s+(i.qty||1),0);
+      if(xanaxQty > 0){
+        totalXanax += xanaxQty;
+        if(!from){ from='Xanax sender'; firstTs=entry.timestamp||0; }
+      }
+    }
+
+    // Money send — recipient must be Sypharius
+    if(title === 'money send'){
+      const recipient = String(data.recipient || data.receiver || '');
+      if(recipient !== OWNER_ID) continue;
+      const amount = parseInt(data.amount||0);
+      const units = Math.floor(amount / MONEY_UNIT);
+      if(units >= 1){
+        totalMoneyUnits += units;
+        if(!from){ from='Money sender'; firstTs=entry.timestamp||0; }
+      }
+    }
+  }
+
+  if(totalXanax === 0 && totalMoneyUnits === 0) return null;
+
+  // Combined total — 1 Xanax = 1 unit, $1M = 1 unit. 100 combined units = LIFETIME.
+  const combinedUnits = totalXanax + totalMoneyUnits;
+  const lifetime = combinedUnits >= LIFETIME_THRESHOLD;
+  const totalDays = lifetime ? Infinity : combinedUnits * UNIT_DAYS;
+  const method = totalXanax > 0 ? 'xanax' : 'money';
+  return { method, qty:totalXanax, units:totalMoneyUnits, days:totalDays, lifetime, from, ts:firstTs };
+}
+
+async function verifyAndGrantAccess(){
+  const btn = document.getElementById('btnVerifyAccess');
+  const status = document.getElementById('accessStatus');
+  const progress = document.getElementById('accessProgress');
+  const keyVal = document.getElementById('accessKeyInput').value.trim();
+  if(!keyVal){ status.textContent = '✗ Enter your Torn API key first.'; return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spin"></div>VERIFYING…';
+  progress.style.display = 'block';
+  status.textContent = 'Checking identity…';
+
+  try{
+    // Step 1: Get visitor's player ID and name
+    const basicUrl = `https://api.torn.com/user/?selections=basic&key=${keyVal}`;
+    trackApiCall();
+    const br = await fetch(basicUrl); const bd = await br.json();
+    if(bd.error) throw new Error(`[${bd.error.code}] ${bd.error.error}`);
+    const playerId = String(bd.player_id);
+    const playerName = bd.name || 'Unknown';
+    status.textContent = `Identified as ${playerName} [${playerId}] — checking faction…`;
+
+    // Step 2: Check if player is in HighVibes faction (ID 50825)
+    // Use their own key to fetch faction/basic — works with any AA key or public data
+    await rateSleep();
+    const facUrl = `https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${keyVal}`;
+    trackApiCall();
+    const fr = await fetch(facUrl); const fd2 = await fr.json();
+
+    if(!fd2.error && fd2.members && fd2.members[playerId]){
+      // Player IS a faction member — grant permanent access (re-verified on each load)
+      const record = { grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true };
+      setAccessRecord(record);
+      // Store their key for dashboard use
+      S.key = keyVal;
+      localStorage.setItem('hv_key', keyVal);
+      btn.innerHTML = '✓ VERIFIED';
+      progress.style.display = 'none';
+      showInitPanel(playerName, 'FACTION MEMBER · PERMANENT ACCESS', fd2.name||'');
+      return;
+    }
+
+    // Step 3: Not a faction member — deep scan user/log for all payments to Sypharius
+    // Structured data (not text events) — pages through full history, stacks all qualifying sends
+    status.textContent = `Not a faction member — scanning payment log…`;
+    const allEntries = [];
+    let offset = 0;
+    const limit = 100;
+    let pgN = 0;
+    const maxPg = 50; // up to 5000 entries — years of history
+    while(pgN < maxPg){
+      await rateSleep();
+      const url = `https://api.torn.com/user/?selections=log&key=${keyVal}&limit=${limit}&offset=${offset}`;
+      trackApiCall();
+      const r = await fetch(url); const d = await r.json();
+      if(d.error){ clog(`Log scan [${d.error.code}]: ${d.error.error}`,'warn'); break; }
+      const entries = Object.values(d.log||{});
+      if(!entries.length) break;
+      allEntries.push(...entries);
+      status.textContent = `Scanned ${allEntries.length} log entries…`;
+      if(entries.length < limit) break;
+      offset += limit;
+      pgN++;
+    }
+
+    const found = checkAccessPaymentLog(allEntries);
+
+    if(found){
+      const expiry = found.lifetime ? null : Date.now() + found.days * 86400000;
+      const record = { grantedAt: Date.now(), expiry, method: found.method, from: playerName, playerId, lifetime: found.lifetime };
+      setAccessRecord(record);
+      S.key = keyVal;
+      localStorage.setItem('hv_key', keyVal);
+      let label;
+      if(found.lifetime){
+        label = found.method==='xanax'
+          ? `${found.qty}x Xanax total — LIFETIME access granted`
+          : `${found.units} × $1M total — LIFETIME access granted`;
+      } else {
+        label = found.method==='xanax'
+          ? `${found.qty}x Xanax → ${found.days} days`
+          : `${found.units} × $1M → ${found.days} days`;
+      }
+      status.innerHTML = `<span style="color:var(--accent2)">✓ ${label}</span>`;
+      btn.innerHTML = '✓ VERIFIED';
+      progress.style.display = 'none';
+      const accessDays = found.lifetime ? 'LIFETIME ACCESS' : `ACCESS VALID ${found.days} DAYS`;
+      showInitPanel(playerName, accessDays);
+    } else {
+      status.innerHTML = `<span style="color:var(--accent4)">✗ No qualifying payment found in ${allEntries.length} log entries.<br><span style="color:var(--muted)">Send 1x Xanax or $1,000,000 to <strong style="color:var(--text)">Sypharius</strong> in Torn<br>with message: <strong style="color:var(--accent3)">DashboardAccess</strong></span></span>`;
+      btn.disabled = false;
+      btn.innerHTML = '↻ RETRY VERIFICATION';
+    }
+  }catch(e){
+    S.key = '';
+    status.innerHTML = `<span style="color:var(--accent4)">✗ Error: ${e.message}</span>`;
+    btn.disabled = false;
+    btn.innerHTML = '↻ RETRY';
+  }
+}
+
+// Show the INITIALIZE panel after successful verify
+function showInitPanel(playerName, accessLabel, factionName=''){
+  // Populate and show full-screen enter overlay
+  const overlay = document.getElementById('hvEnterOverlay');
+  if(overlay){
+    const fEl = document.getElementById('overlayFaction');
+    const pEl = document.getElementById('overlayPlayer');
+    const aEl = document.getElementById('overlayAccess');
+    if(fEl) fEl.textContent = factionName ? `⬡ ${factionName.toUpperCase()}` : '⬡ HIGHVIBES';
+    if(pEl) pEl.textContent = (playerName||'').toUpperCase();
+    if(aEl) aEl.textContent = accessLabel;
+    overlay.style.display = 'flex';
+  }
+  // Also update inline panel as fallback
+  const panel = document.getElementById('gateInitPanel');
+  const nameEl = document.getElementById('gateInitName');
+  const statusEl = document.getElementById('gateInitStatus');
+  if(!panel) return;
+  if(nameEl) nameEl.textContent = `⬡ WELCOME, ${(playerName||'').toUpperCase()}`;
+  if(statusEl) statusEl.innerHTML =
+    `Identity confirmed<br>${accessLabel}<br><span style="color:var(--accent3);">System ready — press INITIALIZE to boot dashboard</span>`;
+  panel.style.display = 'block';
+}
+
+// Called by INITIALIZE SYSTEM button
+function gateLaunchDashboard(){
+  const btn = document.querySelector('.gate-btn-init');
+  if(btn){ btn.textContent = '⬡ LOADING…'; btn.disabled = true; }
+  showAccessGate(false);
+
+  const wasInit = localStorage.getItem('hv_initialized')==='true';
+  document.getElementById('apiSetup').style.display='none';
+  document.getElementById('hvEnterOverlay').style.display='none';
+
+  if(wasInit){
+    // Returning user — skip full init, straight to dashboard
+    revealDash(); fetchAll(); startCycle();
+    return;
+  }
+
+  // First time — show initScreen only, keep dashboard elements hidden
+  // User selects lookback period then clicks INITIALIZE DASHBOARD
+  ['keyBar','postConsole','statGrid','mainTabs','refreshBar','rateMeterWrap'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.style.display='none';
+  });
+  // Hide all tab panels so they don't bleed through during init
+  document.querySelectorAll('.panel').forEach(el=>el.classList.remove('active'));
+  document.getElementById('btnDisconnect').style.display='none';
+  document.getElementById('initScreen').style.display='block';
+  setStatus('loading','CONNECTING');
+  const rec = getAccessRecord();
+  if(rec?.from) document.getElementById('initPlayerName').textContent = rec.from;
+}
+
+function showAccessGate(show){
+  const gate = document.getElementById('accessGate');
+  const app = document.getElementById('mainApp');
+  if(gate) gate.style.display = show ? 'flex' : 'none';
+  if(app) app.style.display = show ? 'none' : 'block';
+}
+
+// Auto-verify a stored API key to skip the access gate on page reload.
+// If the key confirms faction membership, grant access silently and proceed.
+// Only shows the gate if the key is invalid or user is not in faction.
+async function autoVerifyStoredKey(keyVal){
+  try{
+    trackApiCall();
+    const br = await fetch(`https://api.torn.com/user/?selections=basic&key=${keyVal}`);
+    const bd = await br.json();
+    if(bd.error){ showAccessGate(true); return; }
+    const playerId = String(bd.player_id);
+    const playerName = bd.name || 'Unknown';
+    await rateSleep();
+    trackApiCall();
+    const fr = await fetch(`https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${keyVal}`);
+    const fd = await fr.json();
+    if(!fd.error && fd.members && fd.members[playerId]){
+      // Confirmed faction member — grant access and proceed
+      setAccessRecord({ grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true });
+      showAccessGate(false);
+      clog(`Auto-verified: ${playerName} — faction member access granted`,'ok');
+      // Key is already stored; dashboard init already ran or will run via the stored-key path
+      if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
+    } else {
+      // Not in faction or API error — show gate normally
+      showAccessGate(true);
+    }
+  }catch(e){
+    // Network error — show gate to avoid locking out
+    showAccessGate(true);
+  }
+}
+
+function checkAccessOnLoad(){
+  // Dev bypass: localStorage.setItem('hv_access_bypass','true')
+  if(localStorage.getItem('hv_access_bypass')==='true') return;
+  const r = getAccessRecord();
+  if(!r){
+    const storedKey = localStorage.getItem('hv_key');
+    if(storedKey){ autoVerifyStoredKey(storedKey); return; }
+    showAccessGate(true); return;
+  }
+  // Faction members: re-verify on each load (their membership could change)
+  // But to avoid a blocking API call, trust the stored record if it's fresh (< 24h)
+  // and re-verify silently in background after dashboard loads
+  if(r.method === 'faction'){
+    showAccessGate(false);
+    // Silent re-verify in background after 3s
+    setTimeout(()=> silentFactionRecheck(r), 3000);
+    const rem = Date.now() - r.grantedAt;
+    clog(`Faction member ${r.from} — access active (last verified ${Math.floor(rem/3600000)}h ago)`,'ok');
+    return;
+  }
+  // Payment-based: check 7-day timer
+  if(isAccessValid()){
+    showAccessGate(false);
+    const rem = accessExpiresIn();
+    const days = Math.floor(rem/86400000);
+    const hrs = Math.floor((rem%86400000)/3600000);
+    if(r.lifetime){
+      clog(`Access LIFETIME — granted via ${r.method} from ${r.from}`,'ok');
+    } else {
+      const rem = r.expiry ? r.expiry - Date.now() : accessExpiresIn();
+      const days = Math.floor(rem/86400000);
+      const hrs = Math.floor((rem%86400000)/3600000);
+      clog(`Access valid — ${days}d ${hrs}h remaining (via ${r.method} from ${r.from})`,'ok');
+    }
+  } else {
+    // UPGRADE-6: Lapsed membership — show specific expired message on gate
+    clog('Access expired — showing gate','warn');
+    const r2 = getAccessRecord();
+    const lapsedMsg = r2?.from
+      ? `<span style="color:var(--accent4)">⚠ Access expired</span><br><span style="color:var(--muted);font-size:9px;">Previous access was granted to <strong style="color:var(--text)">${r2.from}</strong>.<br>Send 1x Xanax or $1,000,000 to <strong style="color:var(--text)">Sypharius</strong><br>with message: <strong style="color:var(--accent3)">DashboardAccess</strong> to renew.</span>`
+      : `<span style="color:var(--accent4)">⚠ Access expired</span><br><span style="color:var(--muted);font-size:9px;">Send 1x Xanax or $1,000,000 to <strong style="color:var(--text)">Sypharius</strong><br>with message: <strong style="color:var(--accent3)">DashboardAccess</strong></span>`;
+    const statusEl = document.getElementById('accessStatus');
+    if(statusEl) statusEl.innerHTML = lapsedMsg;
+    showAccessGate(true);
+  }
+}
+
+async function silentFactionRecheck(r){
+  // Re-verify faction membership silently — revoke if member was kicked
+  if(!S.key) return;
+  try{
+    const url = `https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${S.key}`;
+    trackApiCall();
+    const res = await fetch(url); const d = await res.json();
+    if(d.error) return; // API error — keep access, don't punish for network issues
+    if(d.members && !d.members[r.playerId]){
+      // No longer in faction
+      clog(`${r.from} no longer in faction — access revoked`,'warn');
+      localStorage.removeItem(ACCESS_KEY);
+      showAccessGate(true);
+    } else if(d.members && d.members[r.playerId]){
+      // Still in faction — refresh timestamp
+      setAccessRecord({...r, grantedAt: Date.now()});
+    }
+  }catch(e){ /* silent */ }
+}
+
+// ── LOG CATEGORY DIAGNOSTICS
+async function dbgLogCategories(){
+  const el=document.getElementById('dbgOut');
+  if(!S.key){el.textContent='No key connected.';return;}
+  el.textContent='Fetching torn/logcategories…\n';
+  try{
+    const url=`https://api.torn.com/torn/?selections=logcategories&key=${S.key}`;
+    trackApiCall();
+    const r=await fetch(url); const d=await r.json();
+    if(d.error){el.textContent+=`ERROR [${d.error.code}]: ${d.error.error}`;return;}
+    const cats=d.logcategories||d.log_categories||d;
+    el.textContent+='=== LOG CATEGORIES ===\n';
+    Object.entries(cats).forEach(([id,name])=>{
+      el.textContent+=`  ${id}: ${name}\n`;
+    });
+    el.textContent+='\nLook for: "Item sending", "Item received", "Money sending", "Money received"';
+  }catch(e){el.textContent+=`Error: ${e.message}`;}
+}
+
+async function dbgUserLog(){
+  const el=document.getElementById('dbgOut');
+  if(!S.key){el.textContent='No key connected.';return;}
+  el.textContent='Fetching user/log…\n';
+  try{
+    const url=`https://api.torn.com/user/?selections=log&key=${S.key}`;
+    trackApiCall();
+    const r=await fetch(url); const d=await r.json();
+    if(d.error){el.textContent+=`ERROR [${d.error.code}]: ${d.error.error}\n`;return;}
+    const log=d.log||d;
+    const entries=Object.values(log);
+    el.textContent+=`Top-level keys: ${Object.keys(d).join(', ')}\n`;
+    el.textContent+=`Total entries: ${entries.length}\n\n`;
+
+    // Title distribution
+    const titleCounts={};
+    entries.forEach(e=>{ const t=e.title||'(no title)'; titleCounts[t]=(titleCounts[t]||0)+1; });
+    el.textContent+=`=== TITLE DISTRIBUTION (${Object.keys(titleCounts).length} unique) ===\n`;
+    Object.entries(titleCounts).sort((a,b)=>b[1]-a[1]).forEach(([t,n])=>{
+      el.textContent+=`  ${n}x  ${t}\n`;
+    });
+
+    // Send candidates — anything matching fetchOutgoingLog regex
+    const sendCandidates=entries.filter(e=>
+      /item.{0,15}send|send.{0,15}item|gave.{0,10}item|item.{0,10}gave|sent.{0,10}to|trade.{0,10}sent/i.test(e.title||'')||
+      /^sent\b/i.test(e.title||'')||
+      (e.log_type&&[3,4,5,6].includes(Number(e.log_type)))
+    );
+    el.textContent+=`\n=== SEND CANDIDATES (${sendCandidates.length} matched regex) ===\n`;
+    sendCandidates.slice(0,5).forEach((e,i)=>{
+      el.textContent+=`[${i}] ${JSON.stringify(e,null,2)}\n\n`;
+    });
+    if(!sendCandidates.length){
+      el.textContent+=`None matched — check title distribution above and report exact titles\n`;
+      el.textContent+=`First 3 raw entries for reference:\n`;
+      entries.slice(0,3).forEach((e,i)=>{ el.textContent+=`[${i}] ${JSON.stringify(e,null,2)}\n\n`; });
+    }
+  }catch(e){el.textContent+=`Error: ${e.message}`;}
+}
+
+// ── Member tooltip controller
+// Desktop: hover opens/closes via mouseenter/mouseleave
+// Mobile:  tap toggles; tap outside (or on another tip) closes all others
+// CSS :hover rule removed — JS drives all visibility via .tip-open class
+
+let _isTouchDevice=false;
+
+document.addEventListener('touchstart',()=>{ _isTouchDevice=true; },{once:true,passive:true});
+
+// Wire mouseenter/mouseleave on existing and dynamically-added tips
+function _bindTipHover(el){
+  el.addEventListener('mouseenter',()=>{ if(!_isTouchDevice) el.classList.add('tip-open'); });
+  el.addEventListener('mouseleave',()=>{ if(!_isTouchDevice) el.classList.remove('tip-open'); });
+}
+// Observe DOM for new .mem-tip elements and bind hover
+(new MutationObserver(muts=>{
+  muts.forEach(m=>m.addedNodes.forEach(n=>{
+    if(n.nodeType!==1) return;
+    if(n.classList&&n.classList.contains('mem-tip')) _bindTipHover(n);
+    n.querySelectorAll&&n.querySelectorAll('.mem-tip').forEach(_bindTipHover);
+  }));
+})).observe(document.body,{childList:true,subtree:true});
+
+function _closeAllTips(){
+  document.querySelectorAll('.mem-tip.tip-open').forEach(el=>el.classList.remove('tip-open'));
+}
+function _closeTipsExcept(tgt){
+  document.querySelectorAll('.mem-tip.tip-open').forEach(el=>{
+    if(el!==tgt) el.classList.remove('tip-open');
+  });
+}
+
+// Click: toggle tapped tip, close all others; close if clicking outside
+document.addEventListener('click',function(e){
+  const tip=e.target.closest('.mem-tip');
+  document.querySelectorAll('.mem-tip.tip-open').forEach(el=>{
+    if(el!==tip) el.classList.remove('tip-open');
+  });
+  if(tip){
+    e.stopPropagation();
+    tip.classList.toggle('tip-open');
+  }
+});
+</script>
+
+<!-- Post-verify Enter Dashboard overlay -->
+<div id="hvEnterOverlay" style="display:none;position:fixed;inset:0;z-index:500;background:var(--bg);flex-direction:column;align-items:center;justify-content:center;gap:20px;">
+  <div style="text-align:center;">
+    <div style="font-size:11px;font-family:'Space Mono',monospace;letter-spacing:3px;color:var(--muted2);text-transform:uppercase;margin-bottom:8px;" id="overlayFaction"></div>
+    <div style="font-size:28px;font-weight:800;color:var(--accent);letter-spacing:-1px;" id="overlayPlayer"></div>
+    <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);margin-top:6px;" id="overlayAccess"></div>
+  </div>
+  <button class="gate-btn-init" onclick="gateLaunchDashboard();document.getElementById('hvEnterOverlay').style.display='none';" style="max-width:320px;">
+    ⬡ ENTER DASHBOARD
+  </button>
+</div>
+
+</body>
+          </html>
