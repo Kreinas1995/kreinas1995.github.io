@@ -1155,7 +1155,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.19';
+const APP_VERSION = '2.41.20';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1220,6 +1220,10 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v: '2.41.20', date: '2026-04-18', notes: [
+    'Fixed war result: .includes() direction was backwards; flipped to factionName.includes(winnerName)',
+    'Fixed vsM lookahead: added \\s+War\\b so "X vs Y War details" matches; empty factionName defaults Win',
+  ]},
   { v: '2.41.19', date: '2026-04-18', notes: [
     'Fixed war result always showing Loss due to member stat "Lost N" matching win/loss regex before result field',
     'Fixed opponent showing Unknown — now falls back to non-winner side of ArmaSync Winner field',
@@ -7949,8 +7953,9 @@ function parseArmaSync(html, url){
     .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
     .replace(/\s+/g,' ').trim();
 
-  // War name — stop at "Shared on" or "Payout Results" to avoid trailing junk
-  const vsM=txt.match(/([A-Za-z0-9_\-. ]+)\s+vs\s+([A-Z0-9_\-. ]+?)(?:\s+Shared|\s+Payout|\s*$)/);
+  // War name — stop at "Shared on", "Payout", or "War" (ArmaSync: "X vs Y War details")
+  // Allow lowercase in opponent group — ROMAN EMPIRE is all-caps but other factions may not be
+  const vsM=txt.match(/([A-Za-z0-9_\-. ]+)\s+vs\s+([A-Za-z0-9_\-. ]+?)(?:\s+Shared|\s+Payout|\s+War\b|\s*$)/);
   const name=vsM?vsM[0].replace(/\s+(?:Shared|Payout).*/i,'').trim().slice(0,60):'Unknown War';
 
   // Gross payout — appears as "Gross Payout $344,000,000"
@@ -7999,13 +8004,17 @@ function parseArmaSync(html, url){
   // Do NOT use free-text \b(Win|Lost)\b — member stats contain "Lost N" which fires first.
   const winnerM=txt.match(/Winner\s*([A-Za-z0-9_\-. ]+?)(?:\s{2,}|\s+Duration|\s+War\s)/i);
   const winnerName=winnerM?winnerM[1].trim():'';
-  // Derive faction name from vsM[1] (left side of "X vs Y")
-  const factionName=vsM?vsM[1].replace(/.*\s+vs\s+.*vs\s+/i,'').trim():'';
+  // factionName: full vsM[1] text always contains our faction name as a substring
+  const factionName=vsM?vsM[1].trim():'';
   let result='Unknown';
   if(winnerName){
-    result=(factionName && winnerName.toLowerCase().includes(factionName.toLowerCase()))?'Win':'Loss';
-    // Fallback: if factionName parse failed, check winner against known non-opponent patterns
-    if(result==='Unknown'&&winnerName) result='Win'; // winner field present → we are the importing faction
+    if(!factionName){
+      // vsM failed (SPA shell) — Winner field present, assume we won (importing faction)
+      result='Win';
+    } else {
+      // factionName is long left-side string; winnerName is short — check containment correctly
+      result=factionName.toLowerCase().includes(winnerName.toLowerCase())?'Win':'Loss';
+    }
   }
 
   // Total pot — ArmaSync shows "Gross Payout" as the member-side payout.
@@ -8015,14 +8024,14 @@ function parseArmaSync(html, url){
   const memberPayout = grossPayout; // what members received
 
   if(!members.length||!memberPayout) return null;
-  // Opponent: prefer explicit "HighVibes vs ROMAN EMPIRE" parse; fall back to non-winner side of Winner field
+  // Opponent: vsM[2] is right side of "X vs Y" — reliable when vsM matched
   let opponent = vsM ? vsM[2].trim() : 'Unknown';
-  if(opponent==='Unknown'&&winnerName&&factionName){
-    // If we can determine winner, opponent is the other side — try to extract from "X vs Y" in txt
+  if(opponent==='Unknown'&&winnerName){
+    // vsM failed — try any "X vs Y"; opponent is whichever side isn't the winner
     const vsAny=txt.match(/([A-Za-z0-9_\-. ]+)\s+vs\s+([A-Za-z0-9_\-. ]+)/i);
     if(vsAny){
       const a=vsAny[1].trim(), b=vsAny[2].trim();
-      opponent=winnerName.toLowerCase().includes(a.toLowerCase())?b:a;
+      opponent=a.toLowerCase().includes(winnerName.toLowerCase())?b:a;
     }
   }
   return{url,name,date,result,opponent,totalPot:0,memberPayout,grossPayout:memberPayout,factionCutPct:20,totalAtk,members,importedAt:Date.now()};
