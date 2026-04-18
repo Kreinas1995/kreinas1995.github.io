@@ -1155,7 +1155,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.17';
+const APP_VERSION = '2.41.18';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1220,6 +1220,9 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.18', date:'2026-04-18', notes:[
+    '[*] BUG-MAINNEWS-LOSS: Cache now stores full mainNews array — previously only respect/OC-filtered subsets were persisted, causing non-matching entries to be permanently dropped on every re-sync and after deep fetch.',
+  ]},
   { v:'2.41.17', date:'2026-04-18', notes:[
     '[*] BUG-DEEPFETCH-UPGRADE: armory/mainnews/attacknews/crimenews getArr() now seeds from localStorage on cache miss — fixes skipping after version upgrade wipe.',
     '[*] BUG-DEEPFETCH-EXHAUSTED: Removed premature <25-entry page break. Page cap raised 50→200.',
@@ -2104,7 +2107,7 @@ let RMINS = 15; // default
 
 let S = {
   key:'', faction:null, donations:{}, armoryNews:[], events:[],
-  prices:{}, ocRaw:[], attackNews:[], crimeNews:[],
+  prices:{}, ocRaw:[], attackNews:[], mainNews:[], crimeNews:[],
   receipts:[], paidLog:{}, rates:{Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98},
   lastSync:null, loading:false, tab:'vault', typeFilter:'all',
   eventLog:[], // persistent full event log (merged across syncs)
@@ -2483,7 +2486,7 @@ function checkExpiryWarning(){
 // Centralised session state reset — called by clearKey and adminClearAll
 function clearSessionState(){
   S.faction=null; S.donations={}; S.armoryNews=[]; S.events=[]; S.prices={};
-  S.ocRaw=[]; S.attackNews=[]; S.crimeNews=[]; S.outgoing=[]; S.wars=[];
+  S.ocRaw=[]; S.attackNews=[]; S.mainNews=[]; S.crimeNews=[]; S.outgoing=[]; S.wars=[];
   S._crimeLog=[]; S._ocCrimes=[]; S._ocDetails=[];
   // NOTE: invPurchases and invSells are NOT cleared here — they are persisted inventory
   // data (not session cache). Wiping them in-memory causes calcInvDelta to see zero
@@ -2784,6 +2787,7 @@ async function runInitialize(){
     iconsole('Fetching faction/mainnews…','info');
     const mainArr=await pages('faction','mainnews',20,fromFloor);
     const mainAll=mainArr.sort((a,b)=>b.timestamp-a.timestamp);
+    S.mainNews=mainAll;
     S.attackNews=mainAll.filter(e=>e.news&&/respect/i.test(e.news));
     S.ocRaw=mainAll.filter(e=>e.news&&/faction received \$[\d,]+/i.test(e.news));
     ilog(`✓ faction/mainnews: ${mainAll.length} (${S.attackNews.length} respect, ${S.ocRaw.length} OC)`);
@@ -2824,7 +2828,7 @@ async function runInitialize(){
     // Write cache keys so fetchAll restoreFromCache() can use them on next page load
     try{ localStorage.setItem('hv_v1_faction_cache', JSON.stringify({faction:S.faction, donations:S.donations})); }catch(e){}
     try{ localStorage.setItem('hv_v1_armory_cache', JSON.stringify(S.armoryNews)); }catch(e){}
-    try{ localStorage.setItem('hv_v1_mainnews_cache', JSON.stringify({attackNews:S.attackNews, ocRaw:S.ocRaw})); }catch(e){}
+    try{ localStorage.setItem('hv_v1_mainnews_cache', JSON.stringify({mainNews:S.mainNews, attackNews:S.attackNews, ocRaw:S.ocRaw})); }catch(e){}
     try{ localStorage.setItem('hv_v1_attacknews_cache', JSON.stringify(S.crimeNews)); }catch(e){}
     try{ localStorage.setItem('hv_v1_items_cache', JSON.stringify(S.prices)); }catch(e){}
     // Write fetch meta timestamps so restoreFromCache() knows what's fresh
@@ -2893,9 +2897,9 @@ async function adminDeepFetch(){
       save:(arr)=>{ S.armoryNews=arr; try{localStorage.setItem('hv_v1_armory_cache',JSON.stringify(arr));}catch(e){} }
     },
     { id:'mainnews',   section:'faction', sel:'mainnews',   metaKey:'mainnews',
-      getArr:()=>{ const mem=[...(S.attackNews||[]),...(S.ocRaw||[])]; if(mem.length) return mem; try{const r=localStorage.getItem('hv_v1_mainnews_cache'); if(r){const d=JSON.parse(r); S.attackNews=d.attackNews||[]; S.ocRaw=d.ocRaw||[]; return [...S.attackNews,...S.ocRaw];}}catch(e){} return []; }, tsKey:'timestamp',
+      getArr:()=>{ if((S.mainNews||[]).length) return S.mainNews; try{const r=localStorage.getItem('hv_v1_mainnews_cache'); if(r){const d=JSON.parse(r); S.mainNews=d.mainNews||[...(d.attackNews||[]),...(d.ocRaw||[])]; S.attackNews=d.attackNews||[]; S.ocRaw=d.ocRaw||[]; return S.mainNews;}}catch(e){} return []; }, tsKey:'timestamp',
       merge:(old,nw)=>{ const map={}; old.forEach(e=>{map[e.timestamp+(e.news||'').slice(0,20)]=e;}); nw.forEach(e=>{map[e.timestamp+(e.news||'').slice(0,20)]=e;}); return Object.values(map).sort((a,b)=>b.timestamp-a.timestamp); },
-      save:(arr)=>{ S.attackNews=arr.filter(e=>e.news&&/respect/i.test(e.news)); S.ocRaw=arr.filter(e=>e.news&&/faction received \$[\d,]+|\$[\d,]+.*payout|payout.*\$[\d,]+/i.test(e.news)).slice(0,500); try{localStorage.setItem('hv_v1_mainnews_cache',JSON.stringify({attackNews:S.attackNews,ocRaw:S.ocRaw}));}catch(e){} }
+      save:(arr)=>{ S.mainNews=arr; S.attackNews=arr.filter(e=>e.news&&/respect/i.test(e.news)); S.ocRaw=arr.filter(e=>e.news&&/faction received \$[\d,]+|\$[\d,]+.*payout|payout.*\$[\d,]+/i.test(e.news)).slice(0,500); try{localStorage.setItem('hv_v1_mainnews_cache',JSON.stringify({mainNews:S.mainNews,attackNews:S.attackNews,ocRaw:S.ocRaw}));}catch(e){} }
     },
     { id:'attacknews', section:'faction', sel:'attacknews', metaKey:'attacknews',
       getArr:()=>{ if((S.crimeNews||[]).length) return S.crimeNews; try{const r=localStorage.getItem('hv_v1_attacknews_cache'); if(r){const d=JSON.parse(r); S.crimeNews=d; return d;}}catch(e){} return []; },         tsKey:'timestamp',
@@ -3206,7 +3210,7 @@ function restoreFromCache(){
   if(fresh('mainnews')){
     try{
       const raw=localStorage.getItem('hv_v1_mainnews_cache');
-      if(raw){ const d=JSON.parse(raw); S.attackNews=d.attackNews||[]; S.ocRaw=d.ocRaw||[]; restored.mainnews=true; }
+      if(raw){ const d=JSON.parse(raw); S.mainNews=d.mainNews||[]; S.attackNews=d.attackNews||[]; S.ocRaw=d.ocRaw||[]; restored.mainnews=true; }
     }catch(e){}
   }
   if(fresh('attacknews')){
@@ -3239,7 +3243,7 @@ function restoreFromCacheStale(){
   try{ const r=localStorage.getItem('hv_v1_faction_cache'); if(r){const d=JSON.parse(r);S.faction=d.faction||S.faction;S.donations=d.donations||S.donations;loaded.faction=true;} }catch(e){}
   try{ const r=localStorage.getItem('hv_v1_event_log'); if(r){S.eventLog=JSON.parse(r);loaded.events=true;} }catch(e){}
   try{ const r=localStorage.getItem('hv_v1_armory_cache'); if(r){S.armoryNews=JSON.parse(r);loaded.armory=true;} }catch(e){}
-  try{ const r=localStorage.getItem('hv_v1_mainnews_cache'); if(r){const d=JSON.parse(r);S.attackNews=d.attackNews||[];S.ocRaw=d.ocRaw||[];loaded.mainnews=true;} }catch(e){}
+  try{ const r=localStorage.getItem('hv_v1_mainnews_cache'); if(r){const d=JSON.parse(r);S.mainNews=d.mainNews||[];S.attackNews=d.attackNews||[];S.ocRaw=d.ocRaw||[];loaded.mainnews=true;} }catch(e){}
   try{ const r=localStorage.getItem('hv_v1_attacknews_cache'); if(r){S.crimeNews=JSON.parse(r);loaded.attacknews=true;} }catch(e){}
   try{ const r=localStorage.getItem('hv_v1_crime_log'); if(r){S._crimeLog=JSON.parse(r);loaded.crimenews=true;} }catch(e){}
   try{ const r=localStorage.getItem('hv_v1_items_cache'); if(r){S.prices=JSON.parse(r);loaded.items=true;} }catch(e){}
@@ -3356,9 +3360,11 @@ async function fetchAll(isManual=false, isBackground=false){
       clog('Fetching main news…','info');
       try{
         const mainArr=await paginatedFetch('faction','mainnews',3,newsFloor);
-        const mainMap={}; [...S.attackNews,...S.ocRaw].forEach(e=>{ mainMap[e.timestamp+(e.news||'').slice(0,20)]=e; });
+        // Seed merge from full mainNews history — not filtered subsets — to prevent data loss on re-sync
+        const mainMap={}; (S.mainNews||[]).forEach(e=>{ mainMap[e.timestamp+(e.news||'').slice(0,20)]=e; });
         mainArr.forEach(e=>{ mainMap[e.timestamp+(e.news||'').slice(0,20)]=e; });
         const mainAll=Object.values(mainMap).sort((a,b)=>b.timestamp-a.timestamp);
+        S.mainNews=mainAll;
         S.attackNews=mainAll.filter(e=>e.news&&/respect/i.test(e.news)).sort((a,b)=>b.timestamp-a.timestamp);
         S.ocRaw=mainAll.filter(e=>e.news&&(
           /faction received \$[\d,]+/i.test(e.news)||
@@ -3367,7 +3373,7 @@ async function fetchAll(isManual=false, isBackground=false){
           /organized crime.*\$[\d,]+/i.test(e.news)||
           /organised crime.*\$[\d,]+/i.test(e.news)
         )).sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
-        try{ localStorage.setItem('hv_v1_mainnews_cache',JSON.stringify({attackNews:S.attackNews,ocRaw:S.ocRaw})); }catch(e){}
+        try{ localStorage.setItem('hv_v1_mainnews_cache',JSON.stringify({mainNews:S.mainNews,attackNews:S.attackNews,ocRaw:S.ocRaw})); }catch(e){}
         writeFetchMeta(['mainnews']);
         clog(`Main news: ${mainAll.length} | ${S.attackNews.length} respect | ${S.ocRaw.length} OC $ entries`,'ok');
         if(mainAll.length>0&&S.ocRaw.length===0) clog('No OC vault deposits in mainnews — OC may pay members directly','warn');
