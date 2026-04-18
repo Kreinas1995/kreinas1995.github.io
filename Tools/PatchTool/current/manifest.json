@@ -1,6 +1,8 @@
 {
-  "latest": "PatchToolv1.1.1.html",
+  "latest": "PatchToolv1_1_2.html",
   "all": [
-    "PatchToolv1.1.1.html"
+    "PatchToolv1.1.1.html",
+    "PatchToolv1_1_0.html",
+    "PatchToolv1_1_2.html"
   ]
 }
