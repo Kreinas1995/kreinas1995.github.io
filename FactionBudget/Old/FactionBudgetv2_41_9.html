@@ -459,7 +459,7 @@
     </div>
     <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);line-height:1.9;padding:10px 12px;background:var(--bg);border:1px solid var(--border);">
       <div style="color:var(--muted2);font-size:9px;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">Required permissions</div>
-      <div><span style="color:var(--muted);margin-right:4px;">user:</span><code>basic</code> <code>events</code> <code>log</code></div>
+      <div><span style="color:var(--muted);margin-right:4px;">user:</span><code>basic</code> <code>events</code> <code>log</code> <span style="color:var(--accent3);font-size:9px;">(log must include Items &amp; Shops categories)</span></div>
       <div><span style="color:var(--muted);margin-right:4px;">faction:</span><code>basic</code> <code>donations</code> <code>armorynews</code> <code>mainnews</code> <code>attacknews</code> <code>crimenews</code></div>
       <div><span style="color:var(--muted);margin-right:4px;">torn:</span><code>items</code> <code>stats</code></div>
       <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--accent3);font-size:9px;">⚠ Vault total requires <code>faction/currency</code> — use <strong>Get Custom API Key</strong> above to generate a key with the correct checkboxes. Error 16 = checkbox not ticked.</div>
@@ -1062,7 +1062,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.8';
+const APP_VERSION = '2.41.9';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1127,6 +1127,12 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v:'2.41.9', date:'2026-04-17', notes:[
+    '[*] BUG-CUSTOM-KEY-LOG: fetchOutgoingLog() now requests &cat=85 (Item sending) and fetchInvPurchases() requests &cat=86 (Shops). Without a category filter the 99-entry API window was saturated by company/casino/faction noise — on custom keys with broad log access, purchase and send entries were never returned. Category filter pins each call to only the relevant log category.',
+    '[*] BUG-INV-PURCHASES-CATEGORY: fetchInvPurchases() isBuy gate now uses entry.category as primary check (Shops, Bazaars, Item market, Travel, Auctions, Items incoming) before falling back to title regex and narrative text. entry.category is a structured API field and more reliable than parsing the human-readable title string.',
+    '[*] BUG-OUTGOING-CATEGORY: fetchOutgoingLog() isSend gate now also matches entry.category containing "Item send" — supplements existing title/log_type checks.',
+    '[*] UX-KEY-HINT: API key setup permissions list now notes that the log permission must include Items and Shops log categories for purchase tracking to work.',
+  ]},
   { v:'2.41.8', date:'2026-04-17', notes:[
     '[*] BUG-DISCONNECT-STUCK: Added "↩ RETURN TO LOGIN" rescue button in the header. Visible only when S.key is empty (no connected key) — hides automatically when a key connects via revealDash(). Clicking it calls showAccessGate(true) to surface the full-screen access gate. Fixes the stuck state where a prior disconnect left mainApp visible with no key and no way to reach the login screen without a hard refresh.',
     '[*] BUG-DISCONNECT-STUCK-2: setStatus() now toggles #btnReturnLogin visibility on every call — shows when S.key is empty, hides when a key is active. Startup IIFE also explicitly shows the rescue button when no stored key is found, catching the stuck state immediately on page load without waiting for a setStatus call.',
@@ -3291,7 +3297,9 @@ async function fetchOutgoingLog(){
   const lastTs = (S.outgoing||[]).filter(r=>r.src==='log').reduce((mx,r)=>Math.max(mx,r.ts),0);
   const fromParam = lastTs>0 ? `&from=${lastTs+1}` : '';
   try{
-    const url=`https://api.torn.com/user/?selections=log${fromParam}&key=${S.key}`;
+    // cat=85 (Item sending) — narrows the 99-entry window to only item sends,
+    // preventing company/casino noise from drowning out relevant entries on custom keys
+    const url=`https://api.torn.com/user/?selections=log${fromParam}&cat=85&key=${S.key}`;
     trackApiCall();
     const r=await fetch(url); const d=await r.json();
     if(d.error){
@@ -3328,7 +3336,8 @@ async function fetchOutgoingLog(){
       const isSend =
         /item.{0,15}send|send.{0,15}item|gave.{0,10}item|item.{0,10}gave|sent.{0,10}to|trade.{0,10}sent/i.test(title) ||
         /^sent\b/i.test(title) ||
-        (entry.log_type && [3,4,5,6].includes(Number(entry.log_type)));
+        (entry.log_type && [3,4,5,6].includes(Number(entry.log_type))) ||
+        /^item.{0,10}send/i.test(String(entry.category||''));
 
       if(!isSend) return;
 
@@ -4919,7 +4928,10 @@ async function fetchInvPurchases(){
   try{
     // v1 API — same as fetchOutgoingLog; returns {log: {id: entry, ...}}
     const fromParam = earliestSince>0 ? `&from=${earliestSince}` : '';
-    const url = `https://api.torn.com/user/?selections=log${fromParam}&key=${S.key}`;
+    // cat= filters: 11=Item market, 15=Items incoming, 18=Bazaars, 86=Shops, 87=Travel, 88=Auctions
+    // Narrows the 99-entry window to purchase-relevant entries only — critical for custom keys
+    // where company/faction noise otherwise fills the window with zero purchases visible
+    const url = `https://api.torn.com/user/?selections=log${fromParam}&cat=86&key=${S.key}`;
     trackApiCall();
     const r = await fetch(url); const d = await r.json();
     if(d.error){
@@ -4955,12 +4967,13 @@ async function fetchInvPurchases(){
       const narrative = String(entry.log || entry.message || entry.text || '');
 
       // ── GAIN: Purchases (Item Market, Bazaar, Overseas/Abroad, City Shops) ────
-      // Known Torn v1 log titles: "Item market purchase", "Abroad purchase",
-      //   "Overseas purchase", "Bazaar purchase", "Auction won",
-      //   "Shop purchase" / "City shop" (Bits 'n' Bobs etc.)
-      // Narrative fallback: catch any title we haven't seen yet by detecting
-      //   "You bought Nx..." in the log text directly.
-      const isBuy = /item.{0,15}market|abroad|overseas|bazaar|auction|shop|city/i.test(title)
+      // Primary gate: entry.category (structured API field, most reliable)
+      //   86=Shops, 18=Bazaars, 11=Item market, 87=Travel/abroad, 88=Auctions, 15=Items incoming
+      // Secondary: title string match (human-readable label)
+      // Tertiary: narrative text fallback ("You bought Nx...") for unknown future categories
+      const cat = String(entry.category||'');
+      const isBuy = /^shops$|^bazaar|^item.{0,10}market|^travel|^auction|^items.{0,10}incoming/i.test(cat)
+                 || /item.{0,15}market|abroad|overseas|bazaar|auction|shop|city/i.test(title)
                  || /^you bought\s/i.test(narrative);
       if(isBuy && !existingIds.has(id)){
         const data = entry.data||entry.params||{};
