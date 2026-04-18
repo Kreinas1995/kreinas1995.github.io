@@ -889,6 +889,7 @@
       const wipGrid = document.getElementById('wip-grid');
 
       for (const tool of config.tools) {
+        if (tool.devOnly) continue;
         const href = await detectLatestVersion(tool);
 
         if (tool.heroStyle) {
@@ -898,7 +899,7 @@
         }
       }
 
-      await loadArchive(config.tools);
+      await loadArchive(config.tools.filter(t => !t.devOnly));
     }
 
     // ── DEV PANEL ──────────────────────────────────────────
@@ -940,9 +941,11 @@
       for (const tool of config.tools) {
         const href = await detectLatestVersion(tool);
         const ver  = displayVersion(href);
-        const badgeClass = tool.badgeStyle === 'wip' ? 'badge-wip' : '';
-        publicGrid.insertAdjacentHTML('beforeend', `
-          <a href="${esc(href)}" class="dev-tool-btn" target="_blank">
+        const badgeClass = tool.devOnly ? 'badge-dev' : tool.badgeStyle === 'wip' ? 'badge-wip' : '';
+        const grid = tool.devOnly ? devGrid : publicGrid;
+        const devOnlyClass = tool.devOnly ? ' dev-only' : '';
+        grid.insertAdjacentHTML('beforeend', `
+          <a href="${esc(href)}" class="dev-tool-btn${devOnlyClass}" target="_blank">
             <span class="dev-btn-badge ${badgeClass}">${esc(tool.badge)}</span>
             <span class="dev-btn-name">${esc(tool.shortName || tool.name)}</span>
             <span class="dev-btn-desc">${esc(tool.description)}</span>
@@ -951,7 +954,7 @@
           </a>`);
       }
 
-      // Dev-only tools (hardcoded, not in config)
+      // Hardcoded dev-only tools (not in config, e.g. single-file utilities)
       for (const tool of DEV_ONLY_TOOLS) {
         devGrid.insertAdjacentHTML('beforeend', `
           <a href="${esc(tool.href)}" class="dev-tool-btn dev-only" target="_blank">
