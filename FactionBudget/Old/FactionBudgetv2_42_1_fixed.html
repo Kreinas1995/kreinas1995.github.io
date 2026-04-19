@@ -2290,6 +2290,123 @@ async function rateSafeGet(section, sel, extra=''){
 }
 
 // ════════════════════════════════════════════
+// INDEXED DB — async key-value store
+// Replaces localStorage for 8 large cache keys.
+// Falls back to localStorage if IDB unavailable (e.g. Safari private browsing).
+// DB: "factionbudget"  Store: "kv"  Record shape: {k:string, v:any}
+// ════════════════════════════════════════════
+const IDB = (() => {
+  const DB_NAME    = 'factionbudget';
+  const DB_VERSION = 1;
+  const STORE      = 'kv';
+  let _db = null;
+
+  function open(){
+    if(_db) return Promise.resolve(_db);
+    return new Promise((res, rej) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains(STORE))
+          db.createObjectStore(STORE, {keyPath:'k'});
+      };
+      req.onsuccess = e => { _db = e.target.result; res(_db); };
+      req.onerror   = e => rej(e.target.error);
+    });
+  }
+
+  async function get(key){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx  = db.transaction(STORE,'readonly');
+        const req = tx.objectStore(STORE).get(key);
+        req.onsuccess = () => res(req.result ? req.result.v : null);
+        req.onerror   = e => rej(e.target.error);
+      });
+    }catch(e){
+      try{ const r=localStorage.getItem(key); return r ? JSON.parse(r) : null; }catch(_){ return null; }
+    }
+  }
+
+  async function set(key, value){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx  = db.transaction(STORE,'readwrite');
+        const req = tx.objectStore(STORE).put({k:key, v:value});
+        req.onsuccess = () => res();
+        req.onerror   = e => rej(e.target.error);
+      });
+    }catch(e){
+      try{ localStorage.setItem(key, JSON.stringify(value)); }catch(_){}
+    }
+  }
+
+  async function del(key){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx  = db.transaction(STORE,'readwrite');
+        const req = tx.objectStore(STORE).delete(key);
+        req.onsuccess = () => res();
+        req.onerror   = e => rej(e.target.error);
+      });
+    }catch(e){
+      try{ localStorage.removeItem(key); }catch(_){}
+    }
+  }
+
+  async function clear(){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx  = db.transaction(STORE,'readwrite');
+        const req = tx.objectStore(STORE).clear();
+        req.onsuccess = () => res();
+        req.onerror   = e => rej(e.target.error);
+      });
+    }catch(e){
+      IDB_KEYS.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){} });
+    }
+  }
+
+  async function size(){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx      = db.transaction(STORE,'readonly');
+        const results = [];
+        tx.objectStore(STORE).openCursor().onsuccess = e => {
+          const cursor = e.target.result;
+          if(cursor){
+            results.push({key:cursor.value.k, bytes:JSON.stringify(cursor.value.v).length});
+            cursor.continue();
+          } else {
+            res(results);
+          }
+        };
+        tx.onerror = e => rej(e.target.error);
+      });
+    }catch(e){ return []; }
+  }
+
+  return {get, set, del, clear, size};
+})();
+
+// Keys that live in IDB — used by startup migration, version upgrade wipe, and adminClearKey
+const IDB_KEYS = [
+  'hv_v1_event_log',
+  'hv_v1_crime_log',
+  'hv_v1_armory_cache',
+  'hv_v1_mainnews_cache',
+  'hv_v1_attacknews_cache',
+  'hv_v1_items_cache',
+  'hv_v1_inv_purchases',
+  'hv_v1_inv_sells',
+];
+
+// ════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════
 (async function(){
@@ -8969,109 +9086,6 @@ async function autoVerifyStoredKey(keyVal){
     showAccessGate(true);
   }
 }
-
-// ════════════════════════════════════════════
-// INDEXED DB — async key-value store
-// Replaces localStorage for 8 large cache keys.
-// Falls back to localStorage if IDB unavailable (e.g. Safari private browsing).
-// DB: "factionbudget"  Store: "kv"  Record shape: {k:string, v:any}
-// ════════════════════════════════════════════
-const IDB = (() => {
-  const DB_NAME    = 'factionbudget';
-  const DB_VERSION = 1;
-  const STORE      = 'kv';
-  let _db = null;
-
-  function open(){
-    if(_db) return Promise.resolve(_db);
-    return new Promise((res, rej) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = e => {
-        const db = e.target.result;
-        if(!db.objectStoreNames.contains(STORE))
-          db.createObjectStore(STORE, {keyPath:'k'});
-      };
-      req.onsuccess = e => { _db = e.target.result; res(_db); };
-      req.onerror   = e => rej(e.target.error);
-    });
-  }
-
-  async function get(key){
-    try{
-      const db = await open();
-      return new Promise((res, rej) => {
-        const tx  = db.transaction(STORE,'readonly');
-        const req = tx.objectStore(STORE).get(key);
-        req.onsuccess = () => res(req.result ? req.result.v : null);
-        req.onerror   = e => rej(e.target.error);
-      });
-    }catch(e){
-      try{ const r=localStorage.getItem(key); return r ? JSON.parse(r) : null; }catch(_){ return null; }
-    }
-  }
-
-  async function set(key, value){
-    try{
-      const db = await open();
-      return new Promise((res, rej) => {
-        const tx  = db.transaction(STORE,'readwrite');
-        const req = tx.objectStore(STORE).put({k:key, v:value});
-        req.onsuccess = () => res();
-        req.onerror   = e => rej(e.target.error);
-      });
-    }catch(e){
-      try{ localStorage.setItem(key, JSON.stringify(value)); }catch(_){}
-    }
-  }
-
-  async function del(key){
-    try{
-      const db = await open();
-      return new Promise((res, rej) => {
-        const tx  = db.transaction(STORE,'readwrite');
-        const req = tx.objectStore(STORE).delete(key);
-        req.onsuccess = () => res();
-        req.onerror   = e => rej(e.target.error);
-      });
-    }catch(e){
-      try{ localStorage.removeItem(key); }catch(_){}
-    }
-  }
-
-  async function clear(){
-    try{
-      const db = await open();
-      return new Promise((res, rej) => {
-        const tx  = db.transaction(STORE,'readwrite');
-        const req = tx.objectStore(STORE).clear();
-        req.onsuccess = () => res();
-        req.onerror   = e => rej(e.target.error);
-      });
-    }catch(e){
-      IDB_KEYS.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){} });
-    }
-  }
-
-  // Returns [{key, bytes}] for all records — used by storage inspector
-  async function size(){
-    try{
-      const db = await open();
-      return new Promise((res, rej) => {
-        const tx      = db.transaction(STORE,'readonly');
-        const results = [];
-        tx.objectStore(STORE).openCursor().onsuccess = e => {
-          const cursor = e.target.result;
-          if(cursor){
-            results.push({key:cursor.value.k, bytes:JSON.stringify(cursor.value.v).length});
-            cursor.continue();
-          } else {
-            res(results);
-          }
-        };
-        tx.onerror = e => rej(e.target.error);
-      });
-    }catch(e){ return []; }
-  }
 
 function checkAccessOnLoad(){
 
