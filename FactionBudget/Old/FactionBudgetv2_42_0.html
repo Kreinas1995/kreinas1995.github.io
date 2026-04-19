@@ -1106,6 +1106,7 @@
         <button class="btn-sm" onclick="adminExport('paidlog')">⬇ Paid Log</button>
         <button class="btn-sm" onclick="adminExport('rates')">⬇ Rates</button>
         <button class="btn-sm" onclick="adminExport('rawevents')">⬇ Raw Events</button>
+        <button class="btn-sm" onclick="adminExport('delta')">⬇ Delta Log (Purchases &amp; Sells)</button>
         <button class="btn-sm" onclick="adminExportDebugHtml()">⬇ Debug Report (HTML)</button>
       </div>
       <div id="adminExportStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent2);margin-top:10px;display:none;"></div>
@@ -1168,6 +1169,18 @@
       </div>
     </div>
 
+    <!-- IDB DATA VIEWER -->
+    <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--accent5);margin-bottom:8px;font-family:'Space Mono',monospace;">⬡ INDEXED DB — Purchase &amp; Sell Log</div>
+      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.8;">Inventory delta tracking data stored in IndexedDB. Entries are retained back to the oldest manual count baseline date.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="btn-sm" onclick="adminViewIDB('purchases')" style="border-color:var(--accent5);color:var(--accent5);">🔍 View Purchases</button>
+        <button class="btn-sm" onclick="adminViewIDB('sells')" style="border-color:var(--accent3);color:var(--accent3);">🔍 View Sells</button>
+        <button class="btn-sm" onclick="adminViewIDB('both')">🔍 View Both</button>
+      </div>
+      <div id="idbViewerOut" style="background:var(--bg);border:1px solid var(--border);padding:10px;font-family:'Space Mono',monospace;font-size:9px;color:var(--text);max-height:320px;overflow-y:auto;display:none;"></div>
+    </div>
+
     <!-- RECEIPT AUDIT TABLE -->
     <div style="background:var(--surface);border:1px solid var(--border);padding:20px;margin-bottom:16px;">
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'Space Mono',monospace;">📋 RECEIPT AUDIT — ALL ENTRIES (including deleted)</div>
@@ -1190,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.26';
+const APP_VERSION = '2.42.0';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1259,6 +1272,11 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.42.0', date: '2026-04-19', notes: [
+    '[+] IDB: Migrated 8 large cache keys (event_log, crime_log, armory, mainnews, attacknews, items, inv_purchases, inv_sells) from localStorage to IndexedDB — removes 5–10 MB quota risk for large factions',
+    '[+] IDB: inv_purchases/inv_sells no longer hard-capped at 500 entries — pruned to oldest manual count audit baseline; delta tracking now reliable at any history depth',
+    '[+] Admin: IDB data viewer (purchases & sells table), Delta Log export button, secure wipe now clears IDB',
+  ]},
   { v: '2.41.26', date: '2026-04-19', notes: [
     '[SECURITY] Removed hv_access_bypass localStorage flag — dev escape hatch eliminated',
     '[SECURITY] Payment-based access records now bound to API key via keyTag (last 4 chars) — injected fake records without matching key are rejected on load',
@@ -2270,7 +2288,22 @@ async function rateSafeGet(section, sel, extra=''){
 // ════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════
-(function(){
+(async function(){
+  // ── One-time IDB migration: move large cache keys from localStorage → IndexedDB
+  // Runs once per key that still exists in localStorage after upgrade from v2.41.x
+  // copy-then-delete — zero data loss
+  for(const k of IDB_KEYS){
+    try{
+      const lsVal = localStorage.getItem(k);
+      if(lsVal !== null){
+        const parsed = JSON.parse(lsVal);
+        await IDB.set(k, parsed);
+        localStorage.removeItem(k);
+        clog(`IDB migration: moved ${k} (${(lsVal.length/1024).toFixed(1)} KB)`,'ok');
+      }
+    }catch(e){ clog(`IDB migration error for ${k}: ${e.message}`,'warn'); }
+  }
+
   // ── Legacy key migration (one-time, already done for most users — safe no-op if already run)
   const CACHE_VERSION = 'v1';
   if(localStorage.getItem('hv_cache_version') !== CACHE_VERSION){
@@ -2301,8 +2334,9 @@ async function rateSafeGet(section, sel, extra=''){
     //   • items_cache = S.prices — needed at parse time for correct mv/audit values
     // mainnews_cache = S.attackNews (chain/war respect) + S.mainNews — hard to re-fetch, survives upgrade
     // attacknews_cache = S.crimeNews (attack respect entries) — same
-    ['hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_fetch_meta'
+    ['hv_v1_faction_cache','hv_v1_fetch_meta'
     ].forEach(k=>localStorage.removeItem(k));
+    IDB_KEYS.forEach(k=>IDB.del(k)); // clear IDB cache keys on version upgrade
     // Store the previous version so changelog can highlight new entries
     localStorage.setItem('hv_upgrade_from', lastSeen);
     localStorage.setItem('hv_pending_changelog', '1');
@@ -2344,9 +2378,7 @@ async function rateSafeGet(section, sel, extra=''){
     S.manualCounts = _migrated;
   }catch(e){}
   try{ S.invDeltaTs=parseInt(localStorage.getItem('hv_v1_inv_delta_ts')||'0')||0; }catch(e){}
-  try{ S.invPurchases=JSON.parse(localStorage.getItem('hv_v1_inv_purchases')||'[]'); }catch(e){}
-  try{ S.invSells=JSON.parse(localStorage.getItem('hv_v1_inv_sells')||'[]'); }catch(e){}
-  try{ S.eventLog=JSON.parse(localStorage.getItem('hv_v1_event_log')||'[]'); }catch(e){}
+  // S.invPurchases, S.invSells, S.eventLog loaded from IDB in restoreFromCacheStale()
   try{ S.lastEventTs=parseInt(localStorage.getItem('hv_v1_last_event_ts')||'0')||0; }catch(e){}
   try{ S._prevEventTs=parseInt(localStorage.getItem('hv_v1_prev_event_ts')||'0')||0; }catch(e){}
   loadRateInputs();
@@ -2366,8 +2398,8 @@ async function rateSafeGet(section, sel, extra=''){
       const storedSync=localStorage.getItem('hv_v1_last_sync');
       if(storedSync){ S.lastSync=parseInt(storedSync,10); const el=document.getElementById('rLast'); if(el) el.textContent='Updated '+new Date(S.lastSync).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
 
-      // Load all cached data into S state immediately (stale-OK)
-      const sc=restoreFromCacheStale();
+      // Load all cached data into S state immediately (stale-OK) — async IDB read
+      const sc=await restoreFromCacheStale();
       const hasCachedData=Object.keys(sc).length>0;
 
       // Render cache via setTimeout(0) to avoid TDZ on consts declared later in file
@@ -2417,7 +2449,7 @@ async function rateSafeGet(section, sel, extra=''){
   if(!k){ const _rl=document.getElementById('btnReturnLogin'); if(_rl) _rl.style.display='block'; }
   else if(!getAccessRecord()){
     // Key stored but no access record — render stale cache immediately then verify
-    const scv=restoreFromCacheStale();
+    const scv=await restoreFromCacheStale();
     if(Object.keys(scv).length>0){ setTimeout(()=>{ renderAll(); if(S.receipts.length)renderReceipts(); if(S.wars.length)renderWarPanel(); },0); }
     autoVerifyStoredKey(k);
   }
@@ -2496,7 +2528,7 @@ async function saveKey(){
       revealDash();
       const storedSync=localStorage.getItem('hv_v1_last_sync');
       if(storedSync){ S.lastSync=parseInt(storedSync,10); const el=document.getElementById('rLast'); if(el) el.textContent='Updated '+new Date(S.lastSync).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
-      const sc2=restoreFromCacheStale();
+      const sc2=await restoreFromCacheStale();
       if(Object.keys(sc2).length>0){ setTimeout(()=>renderAll(),0); }
       const msSinceSync2=S.lastSync?Date.now()-S.lastSync:Infinity;
       if(msSinceSync2>=RMINS*60*1000){ fetchAll(); } else { setStatus('live','CONNECTED'); document.getElementById('btnRefresh').disabled=false; }
@@ -2876,7 +2908,7 @@ async function runInitialize(){
     ilog(`✓ faction/attacknews: ${S.crimeNews.length}`);
     const crArr=await pages('faction','crimenews',20,fromFloor);
     S._crimeLog=crArr.sort((a,b)=>b.timestamp-a.timestamp);
-    try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog));}catch(e){}
+    await IDB.set('hv_v1_crime_log', S._crimeLog);
     ilog(`✓ faction/crimenews: ${S._crimeLog.length}`);
     stepDone('s-attacknews',`${S.crimeNews.length} atk · ${S._crimeLog.length} crime`);
 
@@ -2902,11 +2934,11 @@ async function runInitialize(){
     stepDone('s-parse',`${S.receipts.filter(r=>!r.deleted).length} receipts`);
 
     // Write cache keys so fetchAll restoreFromCache() can use them on next page load
-    try{ localStorage.setItem('hv_v1_faction_cache', JSON.stringify({faction:S.faction, donations:S.donations})); }catch(e){}
-    try{ localStorage.setItem('hv_v1_armory_cache', JSON.stringify(S.armoryNews)); }catch(e){}
-    try{ localStorage.setItem('hv_v1_mainnews_cache', JSON.stringify({mainNews:S.mainNews, attackNews:S.attackNews, ocRaw:S.ocRaw})); }catch(e){}
-    try{ localStorage.setItem('hv_v1_attacknews_cache', JSON.stringify(S.crimeNews)); }catch(e){}
-    try{ localStorage.setItem('hv_v1_items_cache', JSON.stringify(S.prices)); }catch(e){}
+    try{ localStorage.setItem('hv_v1_faction_cache', JSON.stringify({faction:S.faction, donations:S.donations})); }catch(e){} // faction stays in LS
+    await IDB.set('hv_v1_armory_cache', S.armoryNews);
+    await IDB.set('hv_v1_mainnews_cache', {mainNews:S.mainNews, attackNews:S.attackNews, ocRaw:S.ocRaw});
+    await IDB.set('hv_v1_attacknews_cache', S.crimeNews);
+    await IDB.set('hv_v1_items_cache', S.prices);
     // Write fetch meta timestamps so restoreFromCache() knows what's fresh
     writeFetchMeta(['faction','armory','mainnews','attacknews','crimenews','items','events']);
 
@@ -2965,27 +2997,27 @@ async function adminDeepFetch(){
     { id:'events',     section:'user',    sel:'events',     metaKey:'events',
       getArr:()=>S.eventLog||[],          tsKey:'timestamp',
       merge:(old,nw)=>{ const seen=new Set(old.map(e=>e.id||e.timestamp)); const added=nw.filter(e=>!seen.has(e.id||e.timestamp)); return [...old,...added].sort((a,b)=>b.timestamp-a.timestamp); },
-      save:(arr)=>{ S.eventLog=arr; try{localStorage.setItem('hv_v1_event_log',JSON.stringify(arr));}catch(e){} }
+      save:(arr)=>{ S.eventLog=arr; IDB.set('hv_v1_event_log',arr); }
     },
     { id:'armory',     section:'faction', sel:'armorynews', metaKey:'armory',
       getArr:()=>{ if((S.armoryNews||[]).length) return S.armoryNews; try{const r=localStorage.getItem('hv_v1_armory_cache'); if(r){const d=JSON.parse(r); S.armoryNews=d; return d;}}catch(e){} return []; },        tsKey:'timestamp',
       merge:(old,nw)=>{ const seen=new Set(old.map(e=>e.id||e.timestamp+'_'+e.news?.slice(0,20))); const added=nw.filter(e=>!seen.has(e.id||e.timestamp+'_'+e.news?.slice(0,20))); return [...old,...added].sort((a,b)=>b.timestamp-a.timestamp); },
-      save:(arr)=>{ S.armoryNews=arr; try{localStorage.setItem('hv_v1_armory_cache',JSON.stringify(arr));}catch(e){} }
+      save:(arr)=>{ S.armoryNews=arr; IDB.set('hv_v1_armory_cache',arr); }
     },
     { id:'mainnews',   section:'faction', sel:'mainnews',   metaKey:'mainnews',
       getArr:()=>{ if((S.mainNews||[]).length) return S.mainNews; try{const r=localStorage.getItem('hv_v1_mainnews_cache'); if(r){const d=JSON.parse(r); S.mainNews=d.mainNews||[...(d.attackNews||[]),...(d.ocRaw||[])]; S.attackNews=d.attackNews||[]; S.ocRaw=d.ocRaw||[]; return S.mainNews;}}catch(e){} return []; }, tsKey:'timestamp',
       merge:(old,nw)=>{ const map={}; old.forEach(e=>{map[e.timestamp+(e.news||'').slice(0,20)]=e;}); nw.forEach(e=>{map[e.timestamp+(e.news||'').slice(0,20)]=e;}); return Object.values(map).sort((a,b)=>b.timestamp-a.timestamp); },
-      save:(arr)=>{ S.mainNews=arr; S.attackNews=arr.filter(e=>e.news&&/respect/i.test(e.news)); S.ocRaw=arr.filter(e=>e.news&&/faction received \$[\d,]+|\$[\d,]+.*payout|payout.*\$[\d,]+/i.test(e.news)).slice(0,500); try{localStorage.setItem('hv_v1_mainnews_cache',JSON.stringify({mainNews:S.mainNews,attackNews:S.attackNews,ocRaw:S.ocRaw}));}catch(e){} }
+      save:(arr)=>{ S.mainNews=arr; S.attackNews=arr.filter(e=>e.news&&/respect/i.test(e.news)); S.ocRaw=arr.filter(e=>e.news&&/faction received \$[\d,]+|\$[\d,]+.*payout|payout.*\$[\d,]+/i.test(e.news)).slice(0,500); IDB.set('hv_v1_mainnews_cache',{mainNews:S.mainNews,attackNews:S.attackNews,ocRaw:S.ocRaw}); }
     },
     { id:'attacknews', section:'faction', sel:'attacknews', metaKey:'attacknews',
       getArr:()=>{ if((S.crimeNews||[]).length) return S.crimeNews; try{const r=localStorage.getItem('hv_v1_attacknews_cache'); if(r){const d=JSON.parse(r); S.crimeNews=d; return d;}}catch(e){} return []; },         tsKey:'timestamp',
       merge:(old,nw)=>{ const map={}; old.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,30)]=e;}); nw.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,30)]=e;}); return Object.values(map).sort((a,b)=>b.timestamp-a.timestamp); },
-      save:(arr)=>{ S.crimeNews=arr; try{localStorage.setItem('hv_v1_attacknews_cache',JSON.stringify(arr));}catch(e){} }
+      save:(arr)=>{ S.crimeNews=arr; IDB.set('hv_v1_attacknews_cache',arr); }
     },
     { id:'crimenews',  section:'faction', sel:'crimenews',  metaKey:'crimenews',
       getArr:()=>{ if((S._crimeLog||[]).length) return S._crimeLog; try{const r=localStorage.getItem('hv_v1_crime_log'); if(r){const d=JSON.parse(r); S._crimeLog=d; return d;}}catch(e){} return []; },         tsKey:'timestamp',
       merge:(old,nw)=>{ const map={}; old.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,20)]=e;}); nw.forEach(e=>{map[e.timestamp+'_'+(e.news||'').slice(0,20)]=e;}); return Object.values(map).sort((a,b)=>b.timestamp-a.timestamp); },
-      save:(arr)=>{ S._crimeLog=arr; try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(arr));}catch(e){} }
+      save:(arr)=>{ S._crimeLog=arr; IDB.set('hv_v1_crime_log',arr); }
     },
   ];
 
@@ -3257,7 +3289,7 @@ async function tGet(section, sel, extra=''){
 // ════════════════════════════════════════════
 // CACHE RESTORE — skip fetch categories that are still fresh
 // ════════════════════════════════════════════
-function restoreFromCache(){
+async function restoreFromCache(){
   const meta = JSON.parse(localStorage.getItem('hv_v1_fetch_meta')||'{}');
   const now = Math.floor(Date.now()/1000);
   // Extended TTLs — aligned with 15-min sync cycle + overnight resilience
@@ -3272,57 +3304,43 @@ function restoreFromCache(){
     }catch(e){}
   }
   if(fresh('events')){
-    try{
-      const raw=localStorage.getItem('hv_v1_event_log');
-      if(raw){ S.eventLog=JSON.parse(raw); restored.events=true; }
-    }catch(e){}
+    try{ const r=await IDB.get('hv_v1_event_log'); if(r){S.eventLog=r;restored.events=true;} }catch(e){}
   }
   if(fresh('armory')){
-    try{
-      const raw=localStorage.getItem('hv_v1_armory_cache');
-      if(raw){ S.armoryNews=JSON.parse(raw); restored.armory=true; }
-    }catch(e){}
+    try{ const r=await IDB.get('hv_v1_armory_cache'); if(r){S.armoryNews=r;restored.armory=true;} }catch(e){}
   }
   if(fresh('mainnews')){
-    try{
-      const raw=localStorage.getItem('hv_v1_mainnews_cache');
-      if(raw){ const d=JSON.parse(raw); S.mainNews=d.mainNews||[]; S.attackNews=d.attackNews||[]; S.ocRaw=d.ocRaw||[]; restored.mainnews=true; }
-    }catch(e){}
+    try{ const r=await IDB.get('hv_v1_mainnews_cache'); if(r){S.mainNews=r.mainNews||[];S.attackNews=r.attackNews||[];S.ocRaw=r.ocRaw||[];restored.mainnews=true;} }catch(e){}
   }
   if(fresh('attacknews')){
-    try{
-      const raw=localStorage.getItem('hv_v1_attacknews_cache');
-      if(raw){ S.crimeNews=JSON.parse(raw); restored.attacknews=true; }
-    }catch(e){}
+    try{ const r=await IDB.get('hv_v1_attacknews_cache'); if(r){S.crimeNews=r;restored.attacknews=true;} }catch(e){}
   }
   if(fresh('crimenews')){
-    try{
-      const raw=localStorage.getItem('hv_v1_crime_log');
-      if(raw){ S._crimeLog=JSON.parse(raw); restored.crimenews=true; }
-    }catch(e){}
+    try{ const r=await IDB.get('hv_v1_crime_log'); if(r){S._crimeLog=r;restored.crimenews=true;} }catch(e){}
   }
   if(fresh('items')){
-    try{
-      const raw=localStorage.getItem('hv_v1_items_cache');
-      if(raw){ S.prices=JSON.parse(raw); restored.items=true; }
-    }catch(e){}
+    try{ const r=await IDB.get('hv_v1_items_cache'); if(r){S.prices=r;restored.items=true;} }catch(e){}
   }
 
   if(Object.keys(restored).length>0) clog(`Cache restored: ${Object.keys(restored).join(', ')}`,'ok');
   return restored;
 }
 
-// Stale-OK cache load — ignores TTL, used for instant render on page load
-// Populates S state from any stored data regardless of age, returns keys loaded
-function restoreFromCacheStale(){
+// Stale-OK cache load — loads ALL persisted state so first render after page load/refresh
+// is identical to the last session. Reads IDB (large caches) + localStorage (faction cache).
+async function restoreFromCacheStale(){
   const loaded={};
+  // ── localStorage-resident (small, faction/donations only)
   try{ const r=localStorage.getItem('hv_v1_faction_cache'); if(r){const d=JSON.parse(r);S.faction=d.faction||S.faction;S.donations=d.donations||S.donations;loaded.faction=true;} }catch(e){}
-  try{ const r=localStorage.getItem('hv_v1_event_log'); if(r){S.eventLog=JSON.parse(r);loaded.events=true;} }catch(e){}
-  try{ const r=localStorage.getItem('hv_v1_armory_cache'); if(r){S.armoryNews=JSON.parse(r);loaded.armory=true;} }catch(e){}
-  try{ const r=localStorage.getItem('hv_v1_mainnews_cache'); if(r){const d=JSON.parse(r);S.mainNews=d.mainNews||[];S.attackNews=d.attackNews||[];S.ocRaw=d.ocRaw||[];loaded.mainnews=true;} }catch(e){}
-  try{ const r=localStorage.getItem('hv_v1_attacknews_cache'); if(r){S.crimeNews=JSON.parse(r);loaded.attacknews=true;} }catch(e){}
-  try{ const r=localStorage.getItem('hv_v1_crime_log'); if(r){S._crimeLog=JSON.parse(r);loaded.crimenews=true;} }catch(e){}
-  try{ const r=localStorage.getItem('hv_v1_items_cache'); if(r){S.prices=JSON.parse(r);loaded.items=true;} }catch(e){}
+  // ── IDB-resident keys (large caches — all 8 migrated keys)
+  try{ const r=await IDB.get('hv_v1_event_log'); if(r){S.eventLog=r;loaded.events=true;} }catch(e){}
+  try{ const r=await IDB.get('hv_v1_armory_cache'); if(r){S.armoryNews=r;loaded.armory=true;} }catch(e){}
+  try{ const r=await IDB.get('hv_v1_mainnews_cache'); if(r){S.mainNews=r.mainNews||[];S.attackNews=r.attackNews||[];S.ocRaw=r.ocRaw||[];loaded.mainnews=true;} }catch(e){}
+  try{ const r=await IDB.get('hv_v1_attacknews_cache'); if(r){S.crimeNews=r;loaded.attacknews=true;} }catch(e){}
+  try{ const r=await IDB.get('hv_v1_crime_log'); if(r){S._crimeLog=r;loaded.crimenews=true;} }catch(e){}
+  try{ const r=await IDB.get('hv_v1_items_cache'); if(r){S.prices=r;loaded.items=true;} }catch(e){}
+  try{ const r=await IDB.get('hv_v1_inv_purchases'); if(r){S.invPurchases=r;loaded.invpurchases=true;} }catch(e){}
+  try{ const r=await IDB.get('hv_v1_inv_sells'); if(r){S.invSells=r;loaded.invsells=true;} }catch(e){}
   return loaded;
 }
 
@@ -3354,7 +3372,7 @@ async function fetchAll(isManual=false, isBackground=false){
   }
 
   // Restore fresh categories from cache on non-manual syncs
-  const cached = isManual ? {} : restoreFromCache();
+  const cached = isManual ? {} : await restoreFromCache();
 
   try{
     // 1. Faction basic + donations (1 call)
@@ -3403,7 +3421,7 @@ async function fetchAll(isManual=false, isBackground=false){
         const armMap={}; S.armoryNews.forEach(e=>{ armMap[e.id||e.timestamp]=e; });
         armArr.forEach(e=>{ armMap[e.id||e.timestamp]=e; });
         S.armoryNews=Object.values(armMap).sort((a,b)=>b.timestamp-a.timestamp);
-        try{ localStorage.setItem('hv_v1_armory_cache',JSON.stringify(S.armoryNews)); }catch(e){}
+        await IDB.set('hv_v1_armory_cache', S.armoryNews);
         writeFetchMeta(['armory']);
         clog(`Armory: ${S.armoryNews.length} entries (merged)`,'ok');
       }catch(e){ clog('Armory news failed: '+e.message,'warn'); }
@@ -3417,7 +3435,7 @@ async function fetchAll(isManual=false, isBackground=false){
       Object.entries(items.items||{}).forEach(([id,it])=>{
         S.prices[id]={id,name:it.name,type:it.type||'',mv:it.market_value||0};
       });
-      try{ localStorage.setItem('hv_v1_items_cache',JSON.stringify(S.prices)); }catch(e){}
+      await IDB.set('hv_v1_items_cache', S.prices);
       writeFetchMeta(['items']);
       clog(`Prices: ${Object.keys(S.prices).length} items`,'ok');
     } else { clog(`Items: using cache (${Object.keys(S.prices).length} items)`,'ok'); }
@@ -3449,7 +3467,7 @@ async function fetchAll(isManual=false, isBackground=false){
           /organized crime.*\$[\d,]+/i.test(e.news)||
           /organised crime.*\$[\d,]+/i.test(e.news)
         )).sort((a,b)=>b.timestamp-a.timestamp).slice(0,200);
-        try{ localStorage.setItem('hv_v1_mainnews_cache',JSON.stringify({mainNews:S.mainNews,attackNews:S.attackNews,ocRaw:S.ocRaw})); }catch(e){}
+        await IDB.set('hv_v1_mainnews_cache', {mainNews:S.mainNews,attackNews:S.attackNews,ocRaw:S.ocRaw});
         writeFetchMeta(['mainnews']);
         clog(`Main news: ${mainAll.length} | ${S.attackNews.length} respect | ${S.ocRaw.length} OC $ entries`,'ok');
         if(mainAll.length>0&&S.ocRaw.length===0) clog('No OC vault deposits in mainnews — OC may pay members directly','warn');
@@ -3464,7 +3482,7 @@ async function fetchAll(isManual=false, isBackground=false){
         const atkMap={}; S.crimeNews.forEach(e=>{ atkMap[e.timestamp+'_'+(e.news||'').slice(0,30)]=e; });
         atkArr.forEach(e=>{ atkMap[e.timestamp+'_'+(e.news||'').slice(0,30)]=e; });
         S.crimeNews=Object.values(atkMap).sort((a,b)=>b.timestamp-a.timestamp);
-        try{ localStorage.setItem('hv_v1_attacknews_cache',JSON.stringify(S.crimeNews)); }catch(e){}
+        await IDB.set('hv_v1_attacknews_cache', S.crimeNews);
         writeFetchMeta(['attacknews']);
         clog(`Attack news: ${S.crimeNews.length} entries (merged)`,'ok');
       }catch(e){ clog('Attack news failed: '+e.message,'warn'); }
@@ -3480,7 +3498,7 @@ async function fetchAll(isManual=false, isBackground=false){
       crArr.forEach(e=>{ crMap[e.timestamp+'_'+(e.news||'').slice(0,20)]=e; });
       const crAll=Object.values(crMap).sort((a,b)=>b.timestamp-a.timestamp);
       S._crimeLog=crAll;
-      try{localStorage.setItem('hv_v1_crime_log',JSON.stringify(S._crimeLog));}catch(e){}
+      await IDB.set('hv_v1_crime_log', S._crimeLog);
       writeFetchMeta(['crimenews']);
 
       // OC detail fetches (faction/crimes&ID=X) removed — always [16] on custom keys.
@@ -5402,8 +5420,11 @@ async function fetchInvPurchases(){
 
     const sinceStr = earliestSince ? new Date(earliestSince*1000).toLocaleDateString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'ever';
     clog(`Purchase log: checked ${entries.length} entries since ${sinceStr}, ${newCount} purchase(s) + ${newSellCount} sell/listing(s) found`, 'ok');
-    try{ localStorage.setItem('hv_v1_inv_purchases', JSON.stringify(S.invPurchases.slice(0,500))); }catch(e){}
-    try{ localStorage.setItem('hv_v1_inv_sells',     JSON.stringify(S.invSells.slice(0,500)));     }catch(e){}
+    // Prune to earliest per-item audit window — no hard entry cap needed in IDB
+    S.invPurchases = S.invPurchases.filter(e=>(e.ts||0) >= earliestSince);
+    S.invSells     = S.invSells.filter(e=>(e.ts||0) >= earliestSince);
+    await IDB.set('hv_v1_inv_purchases', S.invPurchases);
+    await IDB.set('hv_v1_inv_sells',     S.invSells);
 
     // Rebuild delta status banner using per-item calcInvDelta
     const delta = calcInvDelta();
@@ -7587,6 +7608,8 @@ function adminExport(type){
       exemptReceipts:[...(S.exemptReceipts||new Set())],
       testers:S.testers||[],
       factionWhitelist:S.factionWhitelist||[],
+      inv_purchases:S.invPurchases||[],
+      inv_sells:S.invSells||[],
     };
     filename=`highvibes-backup-${ts}.json`;
   } else if(type==='wars'){
@@ -7604,6 +7627,9 @@ function adminExport(type){
   } else if(type==='rawevents'){
     data={events:S.events,armoryNews:S.armoryNews,ocRaw:S.ocRaw,attackNews:S.attackNews,crimeNews:S.crimeNews};
     filename=`highvibes-rawevents-${ts}.json`;
+  } else if(type==='delta'){
+    data={inv_purchases:S.invPurchases||[],inv_sells:S.invSells||[]};
+    filename=`highvibes-delta-${ts}.json`;
   }
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
@@ -7650,7 +7676,7 @@ function adminImport(evt){
   const status=document.getElementById('adminImportStatus');
   status.textContent='Reading file…';
   const reader=new FileReader();
-  reader.onload=e=>{
+  reader.onload=async e=>{
     try{
       const data=JSON.parse(e.target.result);
       let added=0, skipped=0;
@@ -7697,6 +7723,22 @@ function adminImport(evt){
         const existingOut=new Set(S.outgoing.map(r=>r.id));
         data.outgoing.forEach(r=>{ if(!existingOut.has(r.id)) S.outgoing.push(r); });
         try{localStorage.setItem('hv_v1_outgoing',JSON.stringify(S.outgoing));}catch(ex){}
+      }
+      // Import inv_purchases (merge by id)
+      if(data.inv_purchases&&Array.isArray(data.inv_purchases)){
+        if(!S.invPurchases) S.invPurchases=[];
+        const existingPIds=new Set(S.invPurchases.map(e=>e.id));
+        const addedP=data.inv_purchases.filter(e=>e.id&&!existingPIds.has(e.id));
+        S.invPurchases=[...S.invPurchases,...addedP].sort((a,b)=>(a.ts||0)-(b.ts||0));
+        await IDB.set('hv_v1_inv_purchases', S.invPurchases);
+      }
+      // Import inv_sells (merge by id)
+      if(data.inv_sells&&Array.isArray(data.inv_sells)){
+        if(!S.invSells) S.invSells=[];
+        const existingSIds=new Set(S.invSells.map(e=>e.id));
+        const addedS=data.inv_sells.filter(e=>e.id&&!existingSIds.has(e.id));
+        S.invSells=[...S.invSells,...addedS].sort((a,b)=>(a.ts||0)-(b.ts||0));
+        await IDB.set('hv_v1_inv_sells', S.invSells);
       }
       // Import ocOverrides (merge)
       if(data.ocOverrides&&typeof data.ocOverrides==='object'){
@@ -7757,9 +7799,47 @@ function adminAddManualReceipt(){
   clog(`Manual receipt added: ${qty}x ${item} from ${member}`,'ok');
 }
 
+// ── IDB DATA VIEWER
+async function adminViewIDB(mode){
+  const out=document.getElementById('idbViewerOut');
+  out.style.display='block'; out.innerHTML='Loading…';
+  const showP=mode==='purchases'||mode==='both';
+  const showS=mode==='sells'||mode==='both';
+  let html='';
+  if(showP){
+    const purchases=await IDB.get('hv_v1_inv_purchases')||[];
+    html+=`<div style="color:var(--accent5);margin-bottom:6px;letter-spacing:2px;">PURCHASES — ${purchases.length} entries</div>`;
+    if(purchases.length){
+      const oldest=purchases.reduce((m,e)=>Math.min(m,e.ts||Infinity),Infinity);
+      const newest=purchases.reduce((m,e)=>Math.max(m,e.ts||0),0);
+      html+=`<div style="color:var(--muted);margin-bottom:8px;">Range: ${ft(oldest)} → ${ft(newest)}</div>`;
+      html+=`<table style="width:100%;border-collapse:collapse;font-size:9px;"><thead><tr style="color:var(--muted)"><th style="text-align:left;padding:2px 6px;">Time</th><th style="text-align:left;padding:2px 6px;">Item</th><th style="text-align:right;padding:2px 6px;">Qty</th><th style="text-align:left;padding:2px 6px;">Src</th></tr></thead><tbody>`;
+      [...purchases].sort((a,b)=>(b.ts||0)-(a.ts||0)).forEach(e=>{
+        html+=`<tr><td style="padding:2px 6px;color:var(--muted)">${ft(e.ts)}</td><td style="padding:2px 6px;">${e.item||'?'}</td><td style="padding:2px 6px;text-align:right;">${e.qty||1}</td><td style="padding:2px 6px;color:var(--muted)">${e.src||'?'}</td></tr>`;
+      });
+      html+=`</tbody></table>`;
+    } else { html+=`<div style="color:var(--muted);margin-bottom:8px;">(empty)</div>`; }
+  }
+  if(showS){
+    const sells=await IDB.get('hv_v1_inv_sells')||[];
+    html+=`<div style="color:var(--accent3);margin-top:${showP?'16px':'0'};margin-bottom:6px;letter-spacing:2px;">SELLS / LISTINGS — ${sells.length} entries</div>`;
+    if(sells.length){
+      const oldest=sells.reduce((m,e)=>Math.min(m,e.ts||Infinity),Infinity);
+      const newest=sells.reduce((m,e)=>Math.max(m,e.ts||0),0);
+      html+=`<div style="color:var(--muted);margin-bottom:8px;">Range: ${ft(oldest)} → ${ft(newest)}</div>`;
+      html+=`<table style="width:100%;border-collapse:collapse;font-size:9px;"><thead><tr style="color:var(--muted)"><th style="text-align:left;padding:2px 6px;">Time</th><th style="text-align:left;padding:2px 6px;">Item</th><th style="text-align:right;padding:2px 6px;">Qty</th><th style="text-align:left;padding:2px 6px;">Src</th></tr></thead><tbody>`;
+      [...sells].sort((a,b)=>(b.ts||0)-(a.ts||0)).forEach(e=>{
+        html+=`<tr><td style="padding:2px 6px;color:var(--muted)">${ft(e.ts)}</td><td style="padding:2px 6px;">${e.item||'?'}</td><td style="padding:2px 6px;text-align:right;">${e.qty||1}</td><td style="padding:2px 6px;color:var(--muted)">${e.src||'?'}</td></tr>`;
+      });
+      html+=`</tbody></table>`;
+    } else { html+=`<div style="color:var(--muted);margin-bottom:8px;">(empty)</div>`; }
+  }
+  out.innerHTML=html||'(no data)';
+}
+
 // ── STORAGE INSPECTOR
-function adminInspectStorage(){
-  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist'];
+async function adminInspectStorage(){
+  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_ptprice','hv_v1_ptphist'];
   let totalBytes=0;
   let out='=== LOCALSTORAGE ===\n\n';
   keys.forEach(k=>{
@@ -7778,14 +7858,29 @@ function adminInspectStorage(){
   });
   // Whitelist note
   out+=`[whitelist.json]: managed server-side — ${_wl ? (_wl.testers.length+' testers, '+_wl.factions.length+' factions loaded this session') : 'not yet loaded'}\n\n`;
-  // Total size summary
-  const totalKB=(totalBytes/1024).toFixed(1);
-  const totalMB=(totalBytes/1048576).toFixed(2);
-  const pct=((totalBytes/10485760)*100).toFixed(1); // ~10MB typical localStorage limit
-  out=`=== TOTAL CACHE SIZE: ${totalKB} KB (${totalMB} MB) — ${pct}% of ~10MB limit ===\n\n`+out;
-  // Update summary badge if present
+  // IDB section
+  out+=`=== INDEXED DB (factionbudget/kv) ===\n\n`;
+  let idbBytes=0;
+  try{
+    const idbEntries=await IDB.size();
+    if(idbEntries.length){
+      idbEntries.sort((a,b)=>b.bytes-a.bytes).forEach(({key,bytes})=>{
+        idbBytes+=bytes;
+        out+=`[${key}]: ${(bytes/1024).toFixed(1)} KB\n\n`;
+      });
+    } else { out+=`(empty — keys migrate from localStorage on first load after upgrade)\n\n`; }
+  }catch(e){ out+=`IDB read error: ${e.message}\n\n`; }
+  const idbKB=(idbBytes/1024).toFixed(1);
+  out+=`IDB subtotal: ${idbKB} KB\n\n`;
+  // Combined total
+  const totalBytes_all=totalBytes+idbBytes;
+  const totalKB=(totalBytes_all/1024).toFixed(1);
+  const totalMB=(totalBytes_all/1048576).toFixed(2);
+  const lsKB=(totalBytes/1024).toFixed(1);
+  const lsPct=((totalBytes/10485760)*100).toFixed(1);
+  out=`=== TOTAL: ${totalKB} KB (${totalMB} MB) — localStorage: ${lsKB} KB (${lsPct}% of ~10MB) + IDB: ${idbKB} KB ===\n\n`+out;
   const badge=document.getElementById('cacheSizeBadge');
-  if(badge) badge.textContent=`${totalKB} KB used (${pct}% of ~10MB)`;
+  if(badge) badge.textContent=`LS: ${lsKB} KB (${lsPct}%) + IDB: ${idbKB} KB`;
   out+=`=== IN-MEMORY STATE ===\n`;
   out+=`S.receipts: ${S.receipts.length} (${S.receipts.filter(r=>!r.deleted).length} active)\n`;
   out+=`S.outgoing: ${(S.outgoing||[]).length}\n`;
@@ -7803,13 +7898,25 @@ function adminInspectStorage(){
   el.style.display='block'; el.textContent=out;
 }
 
-function adminClearKey(key){
-  if(!confirm(`Clear localStorage key "${key}"?\n\nThis cannot be undone.`)) return;
-  localStorage.removeItem(key);
-  if(key==='hv_v1_rcpts'){S.receipts=[];renderReceipts();renderCards();}
-  if(key==='hv_v1_paid'){S.paidLog={};renderReceipts();}
+async function adminClearKey(key){
+  if(!confirm(`Clear key "${key}"?\n\nThis cannot be undone.`)) return;
+  if(IDB_KEYS.includes(key)){
+    await IDB.del(key);
+    if(key==='hv_v1_event_log') S.eventLog=[];
+    if(key==='hv_v1_crime_log') S._crimeLog=[];
+    if(key==='hv_v1_armory_cache') S.armoryNews=[];
+    if(key==='hv_v1_mainnews_cache'){ S.mainNews=[];S.attackNews=[];S.ocRaw=[]; }
+    if(key==='hv_v1_attacknews_cache') S.crimeNews=[];
+    if(key==='hv_v1_items_cache') S.prices={};
+    if(key==='hv_v1_inv_purchases') S.invPurchases=[];
+    if(key==='hv_v1_inv_sells') S.invSells=[];
+  } else {
+    localStorage.removeItem(key);
+    if(key==='hv_v1_rcpts'){S.receipts=[];renderReceipts();renderCards();}
+    if(key==='hv_v1_paid'){S.paidLog={};renderReceipts();}
+  }
   clog(`Admin: cleared ${key}`,'warn');
-  adminInspectStorage();
+  await adminInspectStorage();
 }
 
 function adminCheckWipeInput(){
@@ -7825,13 +7932,14 @@ function adminCheckWipeInput(){
   }
 }
 
-function adminClearAll(){
+async function adminClearAll(){
   const val=(document.getElementById('wipeConfirmInput')?.value||'').trim().toUpperCase();
   if(val!=='WIPE'){ alert('Type WIPE in the confirmation box first.'); return; }
   const rcptCount=S.receipts.length;
   const paidCount=Object.keys(S.paidLog).length;
   const warCount=S.wars.length;
-  if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• ${warCount} war payout record(s)\n• All payout rates & card settings\n• Sync settings\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
+  if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• ${warCount} war payout record(s)\n• All payout rates & card settings\n• Sync settings\n• Purchase & sell log (IndexedDB)\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
+  await IDB.clear();
   ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist'].forEach(k=>localStorage.removeItem(k));
   S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98}; S.refundedPayments=new Set();
   S.cardPeriods={supply:'30d',oc:'30d',pnl:'30d'}; RMINS=15;
@@ -8856,6 +8964,124 @@ async function autoVerifyStoredKey(keyVal){
     showAccessGate(true);
   }
 }
+
+// ════════════════════════════════════════════
+// INDEXED DB — async key-value store
+// Replaces localStorage for 8 large cache keys.
+// Falls back to localStorage if IDB unavailable (e.g. Safari private browsing).
+// DB: "factionbudget"  Store: "kv"  Record shape: {k:string, v:any}
+// ════════════════════════════════════════════
+const IDB = (() => {
+  const DB_NAME    = 'factionbudget';
+  const DB_VERSION = 1;
+  const STORE      = 'kv';
+  let _db = null;
+
+  function open(){
+    if(_db) return Promise.resolve(_db);
+    return new Promise((res, rej) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains(STORE))
+          db.createObjectStore(STORE, {keyPath:'k'});
+      };
+      req.onsuccess = e => { _db = e.target.result; res(_db); };
+      req.onerror   = e => rej(e.target.error);
+    });
+  }
+
+  async function get(key){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx  = db.transaction(STORE,'readonly');
+        const req = tx.objectStore(STORE).get(key);
+        req.onsuccess = () => res(req.result ? req.result.v : null);
+        req.onerror   = e => rej(e.target.error);
+      });
+    }catch(e){
+      try{ const r=localStorage.getItem(key); return r ? JSON.parse(r) : null; }catch(_){ return null; }
+    }
+  }
+
+  async function set(key, value){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx  = db.transaction(STORE,'readwrite');
+        const req = tx.objectStore(STORE).put({k:key, v:value});
+        req.onsuccess = () => res();
+        req.onerror   = e => rej(e.target.error);
+      });
+    }catch(e){
+      try{ localStorage.setItem(key, JSON.stringify(value)); }catch(_){}
+    }
+  }
+
+  async function del(key){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx  = db.transaction(STORE,'readwrite');
+        const req = tx.objectStore(STORE).delete(key);
+        req.onsuccess = () => res();
+        req.onerror   = e => rej(e.target.error);
+      });
+    }catch(e){
+      try{ localStorage.removeItem(key); }catch(_){}
+    }
+  }
+
+  async function clear(){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx  = db.transaction(STORE,'readwrite');
+        const req = tx.objectStore(STORE).clear();
+        req.onsuccess = () => res();
+        req.onerror   = e => rej(e.target.error);
+      });
+    }catch(e){
+      IDB_KEYS.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){} });
+    }
+  }
+
+  // Returns [{key, bytes}] for all records — used by storage inspector
+  async function size(){
+    try{
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx      = db.transaction(STORE,'readonly');
+        const results = [];
+        tx.objectStore(STORE).openCursor().onsuccess = e => {
+          const cursor = e.target.result;
+          if(cursor){
+            results.push({key:cursor.value.k, bytes:JSON.stringify(cursor.value.v).length});
+            cursor.continue();
+          } else {
+            res(results);
+          }
+        };
+        tx.onerror = e => rej(e.target.error);
+      });
+    }catch(e){ return []; }
+  }
+
+  return {get, set, del, clear, size};
+})();
+
+// Keys that live in IDB — used by startup migration, version upgrade wipe, and adminClearKey
+const IDB_KEYS = [
+  'hv_v1_event_log',
+  'hv_v1_crime_log',
+  'hv_v1_armory_cache',
+  'hv_v1_mainnews_cache',
+  'hv_v1_attacknews_cache',
+  'hv_v1_items_cache',
+  'hv_v1_inv_purchases',
+  'hv_v1_inv_sells',
+];
 
 function checkAccessOnLoad(){
 
