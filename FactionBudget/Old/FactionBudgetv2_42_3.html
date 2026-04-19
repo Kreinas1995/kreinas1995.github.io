@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.42.2';
+const APP_VERSION = '2.42.3';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1380,6 +1380,9 @@ const CHANGELOG = [
   ]},
   { v:'2.42.2', date:'2026-04-19', notes:[
     '[*] MEMBERS-TEST: Test row now uses real item MV lookups (qty=1 per representative item per category). Pills show live category MV totals, right column shows grand total, tapping a pill opens muShowDetail drill-down. Previously pills showed static "$1" and total was "—".',
+  ]},
+  { v:'2.42.3', date:'2026-04-19', notes:[
+    '[*] MEMBERS-TEST: Test row now enumerates all consumable items from S.prices (qty=1 each) grouped by live category. Pills with $0 total hidden; falls back to "sync required" if prices not loaded.',
   ]},
   { v:'2.41.6', date:'2026-04-17', notes:[
     '[*] BUG-DBG-LOG-SAMPLE: Added null guard at top of dbgRunAll() — if(typeof dbgResults===\'undefined\') window.dbgResults={} — prevents "can\'t access property log, dbgResults is undefined" crash when RUN ALL is pressed before the script block fully evaluates after a partial parse or early error.',
@@ -5790,42 +5793,49 @@ function renderMemberUsage(){
   // ── TEST MEMBER ─────────────────────────────────────────────────────────────
   // Render-only test row. Not counted in any totals/calculations.
   // S._showTestMember is never persisted to localStorage (resets each page load).
+  // Enumerates ALL consumable items in S.prices at qty=1, grouped by category.
+  // Pills with $0 total (no MV data yet) are hidden. Falls back to "sync required".
   // TO REMOVE: delete this block and the toggleTestMember() function below,
   //   and remove id="testMemberToggleBtn" from the header div above.
   // ── TEST MEMBER ─────────────────────────────────────────────────────────────
   let testHtml='';
   if(S._showTestMember){
-    // One representative item per category, qty = 1 each
-    const TEST_ITEMS=[
-      {cat:'medical',   item:'First Aid Kit'},
-      {cat:'drug',      item:'Xanax'},
-      {cat:'alcohol',   item:'Beer'},
-      {cat:'energy drink', item:'Energy Drink'},
-      {cat:'booster',   item:'Feathery Hotel Coupon'},
-    ];
-    let testGrand=0;
-    // Build per-cat data (same shape as real usageMap cats)
-    const testCatData=TEST_ITEMS.map(({cat,item})=>{
-      const it=lookupItem(item), mv=it?.mv||0;
-      const cost=mv*1; // qty 1
-      testGrand+=cost;
-      return {cat, item, mv, cost, items:{[item]:{qty:1,cost}}};
+    // Build category→items map from full S.prices catalog, qty=1 per item
+    const testCatMap={}; // {catKey: {items:{name:{qty,cost}}, total}}
+    Object.values(S.prices||{}).forEach(it=>{
+      if(!it||!it.name) return;
+      if(!isConsumable(it.type||'')) return;
+      const catKey=(it.type||'').toLowerCase();
+      if(!testCatMap[catKey]) testCatMap[catKey]={items:{},total:0};
+      const cost=it.mv||0;
+      testCatMap[catKey].items[it.name]={qty:1,cost};
+      testCatMap[catKey].total+=cost;
     });
+    // Sort cats by total desc; drop any cat where every item has mv=0
+    const testCatEntries=Object.entries(testCatMap)
+      .filter(([,c])=>c.total>0)
+      .sort((a,b)=>b[1].total-a[1].total);
+    const testGrand=testCatEntries.reduce((s,[,c])=>s+c.total,0);
+
     let testPills='';
-    testCatData.forEach(({cat,item,cost,items})=>{
-      const col=muCatColor(cat);
-      const lbl=muCatLabel(cat);
-      const catVal=fmt$(cost);
-      const itemsJson=encodeURIComponent(JSON.stringify({name:'[test]',cat,items,total:cost}));
-      testPills+=`<button onclick="muShowDetail(decodeURIComponent('${itemsJson}'))"
-        style="background:rgba(0,0,0,0.3);border:1px solid ${col};color:${col};font-family:'Space Mono',monospace;
-        font-size:9px;padding:3px 7px;cursor:pointer;letter-spacing:0.5px;border-radius:2px;
-        display:inline-flex;flex-direction:column;align-items:center;gap:1px;line-height:1.2;
-        min-width:40px;transition:background 0.15s;" onmouseover="this.style.background='rgba(${hexToRgb(col)},0.15)'" onmouseout="this.style.background='rgba(0,0,0,0.3)'">
-        <span style="font-size:8px;font-weight:700;">${lbl}</span>
-        <span style="font-size:8px;opacity:0.85;">${catVal}</span>
-      </button>`;
-    });
+    if(testCatEntries.length){
+      testCatEntries.forEach(([cat,cdata])=>{
+        const col=muCatColor(cat);
+        const lbl=muCatLabel(cat);
+        const catVal=fmt$(cdata.total);
+        const itemsJson=encodeURIComponent(JSON.stringify({name:'[test]',cat,items:cdata.items,total:cdata.total}));
+        testPills+=`<button onclick="muShowDetail(decodeURIComponent('${itemsJson}'))"
+          style="background:rgba(0,0,0,0.3);border:1px solid ${col};color:${col};font-family:'Space Mono',monospace;
+          font-size:9px;padding:3px 7px;cursor:pointer;letter-spacing:0.5px;border-radius:2px;
+          display:inline-flex;flex-direction:column;align-items:center;gap:1px;line-height:1.2;
+          min-width:40px;transition:background 0.15s;" onmouseover="this.style.background='rgba(${hexToRgb(col)},0.15)'" onmouseout="this.style.background='rgba(0,0,0,0.3)'">
+          <span style="font-size:8px;font-weight:700;">${lbl}</span>
+          <span style="font-size:8px;opacity:0.85;">${catVal}</span>
+        </button>`;
+      });
+    } else {
+      testPills=`<span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted2);letter-spacing:1px;">sync required</span>`;
+    }
     testHtml=`<div style="padding:10px 12px;border-bottom:1px solid var(--border);border-left:3px solid var(--accent);
       display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(127,255,110,0.20);">
       <div style="min-width:90px;max-width:110px;flex-shrink:0;">
