@@ -803,6 +803,11 @@
         <div class="sc-value" id="rTotalAll">—</div>
         <div class="sc-sub" id="rTotalSub">all sources</div>
       </div>
+      <div class="sc" style="--ca:var(--accent5)">
+        <div class="sc-label">Faction Total</div>
+        <div class="sc-value" id="rFactionTotal">—</div>
+        <div class="sc-sub">live from API</div>
+      </div>
     </div>
     <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);padding:8px 12px;background:var(--bg);border:1px solid var(--border);margin-bottom:12px;line-height:1.8;">
       Counts: outgoing wins/mugs (+respect) · Chain = additive milestone bonuses per chain end · Incoming losses (−X) shown as separate row<br>
@@ -1185,7 +1190,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.24';
+const APP_VERSION = '2.41.25';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1250,6 +1255,10 @@ const XANAX_ITEM_ID = 206;
 
 
 const CHANGELOG = [
+  { v: '2.41.25', date: '2026-04-18', notes: [
+    'Respect: added Faction Total card showing live API value (S.faction.respect)',
+    'Respect: gap banner now muted info style explaining pre-history gap vs over-count',
+  ]},
   { v: '2.41.24', date: '2026-04-18', notes: [
     'Respect tab: war respect now sourced from ArmaSync w.members[].respect — credited per member individually, total 1881.5 for Roman Empire war',
     'Step 3a keeps mainnews rank-up parsing as fallback; Step 3b adds authoritative ArmaSync source',
@@ -4521,14 +4530,23 @@ function renderRespect(){
     return;
   }
 
-  // Unaccounted respect warning (ALL period only)
+  // Faction Total card — always update from live API value
+  const factionTotal=S.faction?.respect||0;
+  if(factionTotal>0){
+    const ftEl=document.getElementById('rFactionTotal');
+    if(ftEl) ftEl.textContent=factionTotal.toLocaleString();
+  }
+  // Gap banner (ALL period only)
   let unacc='';
-  if(period==='all'&&(S.faction?.respect||0)>0){
-    const fTotal=S.faction.respect;
-    const diff=fTotal-totalAll;
+  if(period==='all'&&factionTotal>0){
+    const diff=factionTotal-totalAll;
     if(Math.abs(diff)>1){
-      unacc=`<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent3);padding:8px 10px;background:rgba(240,192,64,0.06);border:1px solid rgba(240,192,64,0.2);margin-bottom:10px;">
-        ⚠ ${Math.abs(diff).toFixed(1)} respect ${diff>0?'unaccounted for — loaded data window may be incomplete':'over-counted — check for duplicate news entries'} · Faction total: ${fTotal.toLocaleString()} · Loaded net: ${totalAll.toFixed(1)}
+      const isShort=diff>0;
+      unacc=`<div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);padding:8px 10px;background:var(--surface2);border:1px solid var(--border);margin-bottom:10px;line-height:1.8;">
+        ${isShort
+          ?`ℹ ${diff.toFixed(1)} respect pre-dates your loaded history — earned before the data window. Faction total: <span style="color:var(--accent5)">${factionTotal.toLocaleString()}</span> · Loaded: <span style="color:var(--accent)">${totalAll.toFixed(1)}</span>`
+          :`⚠ ${Math.abs(diff).toFixed(1)} respect over-counted — check for duplicate news entries. Faction total: <span style="color:var(--accent5)">${factionTotal.toLocaleString()}</span> · Loaded: <span style="color:var(--accent)">${totalAll.toFixed(1)}</span>`
+        }
       </div>`;
     }
   }
