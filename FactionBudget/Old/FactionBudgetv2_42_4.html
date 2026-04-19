@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.42.3';
+const APP_VERSION = '2.42.4';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1383,6 +1383,9 @@ const CHANGELOG = [
   ]},
   { v:'2.42.3', date:'2026-04-19', notes:[
     '[*] MEMBERS-TEST: Test row now enumerates all consumable items from S.prices (qty=1 each) grouped by live category. Pills with $0 total hidden; falls back to "sync required" if prices not loaded.',
+  ]},
+  { v:'2.42.4', date:'2026-04-19', notes:[
+    '[*] MEMBERS-BUG: muShowDetail pill data now stored in _muDetailStore keyed by short ID instead of encodeURIComponent JSON in onclick attributes. Fixes broken detail sheets for large categories (medical, booster) where long encoded strings were mangled by HTML parsing.',
   ]},
   { v:'2.41.6', date:'2026-04-17', notes:[
     '[*] BUG-DBG-LOG-SAMPLE: Added null guard at top of dbgRunAll() — if(typeof dbgResults===\'undefined\') window.dbgResults={} — prevents "can\'t access property log, dbgResults is undefined" crash when RUN ALL is pressed before the script block fully evaluates after a partial parse or early error.',
@@ -5661,6 +5664,11 @@ function renderSupply(){
 }
 
 // ── MEMBER USAGE (consumables only)
+// Per-render store for muShowDetail pill data — avoids embedding large JSON in onclick attributes.
+const _muDetailStore={};
+let _muDetailKey=0;
+function _muStorePill(data){ const k='mu'+(++_muDetailKey); _muDetailStore[k]=data; return k; }
+
 // ── Member Usage: category colour palette
 const MU_CAT_COLORS={
   medical:'#3dd68c', drug:'#ff6b6b', drugs:'#ff6b6b', alcohol:'#f0c040',
@@ -5746,9 +5754,8 @@ function renderMemberUsage(){
       const col=muCatColor(cat);
       const lbl=muCatLabel(cat);
       const catVal=fmt$(cdata.total);
-      // Encode items for the detail popup
-      const itemsJson=encodeURIComponent(JSON.stringify({name,cat,items:cdata.items,total:cdata.total}));
-      pillsHtml+=`<button onclick="muShowDetail(decodeURIComponent('${itemsJson}'))"
+      const pillKey=_muStorePill({name,cat,items:cdata.items,total:cdata.total});
+      pillsHtml+=`<button onclick="muShowDetail(_muDetailStore['${pillKey}'])"
         style="background:rgba(0,0,0,0.3);border:1px solid ${col};color:${col};font-family:'Space Mono',monospace;
         font-size:9px;padding:3px 7px;cursor:pointer;letter-spacing:0.5px;border-radius:2px;
         display:inline-flex;flex-direction:column;align-items:center;gap:1px;line-height:1.2;
@@ -5823,8 +5830,8 @@ function renderMemberUsage(){
         const col=muCatColor(cat);
         const lbl=muCatLabel(cat);
         const catVal=fmt$(cdata.total);
-        const itemsJson=encodeURIComponent(JSON.stringify({name:'[test]',cat,items:cdata.items,total:cdata.total}));
-        testPills+=`<button onclick="muShowDetail(decodeURIComponent('${itemsJson}'))"
+        const pillKey=_muStorePill({name:'[test]',cat,items:cdata.items,total:cdata.total});
+        testPills+=`<button onclick="muShowDetail(_muDetailStore['${pillKey}'])"
           style="background:rgba(0,0,0,0.3);border:1px solid ${col};color:${col};font-family:'Space Mono',monospace;
           font-size:9px;padding:3px 7px;cursor:pointer;letter-spacing:0.5px;border-radius:2px;
           display:inline-flex;flex-direction:column;align-items:center;gap:1px;line-height:1.2;
