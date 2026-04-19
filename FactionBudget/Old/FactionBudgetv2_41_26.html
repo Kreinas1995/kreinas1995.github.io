@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.41.2</title>
+<title>Faction Budget v2.41.26</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1190,7 +1190,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.41.25';
+const APP_VERSION = '2.41.26';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1249,12 +1249,26 @@ const FACTION_ID = 50825;        // HighVibes
 const OWNER_ID = '2348580';      // Sypharius
 const OWNER_NAME = 'Sypharius';
 const ACCESS_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const WHITELIST_URL = 'whitelist.json'; // served from FactionBudget/current/ on GitHub Pages
 
 // ── Xanax item ID (access payment)
 const XANAX_ITEM_ID = 206;
 
+// ── Whitelist cache (populated once per session by loadWhitelist())
+var _wl = null;
+
 
 const CHANGELOG = [
+  { v: '2.41.26', date: '2026-04-19', notes: [
+    '[SECURITY] Removed hv_access_bypass localStorage flag — dev escape hatch eliminated',
+    '[SECURITY] Payment-based access records now bound to API key via keyTag (last 4 chars) — injected fake records without matching key are rejected on load',
+    '[WHITELIST] New whitelist.json system in FactionBudget/current/ — testers and whitelisted factions managed via repo file, works across all browser sessions',
+    '[WHITELIST] Verification checks whitelist testers (by player ID) and all whitelisted faction IDs — grants permanent access same as HighVibes members',
+    '[WHITELIST] silentFactionRecheck now handles faction_whitelist records — revokes if member kicked from whitelisted faction',
+    '[WHITELIST] localStorage tester/faction whitelist system removed — hv_v1_testers and hv_v1_faction_whitelist keys no longer used',
+    '[WHITELIST] In-app tester/whitelist management buttons now show instruction notice pointing to whitelist.json',
+    '[WHITELIST] Storage inspector, adminClearAll, export, and import updated to remove tester/factionWhitelist references',
+  ]},
   { v: '2.41.25', date: '2026-04-18', notes: [
     'Respect: added Faction Total card showing live API value (S.faction.respect)',
     'Respect: gap banner now muted info style explaining pre-history gap vs over-count',
@@ -1354,9 +1368,7 @@ const CHANGELOG = [
     '[*] BUG-INV-SHOP: fetchInvPurchases() now detects city shop (Bits \'n\' Bobs) purchases. isBuy title regex now also matches "shop" and "city" — previously only matched market/bazaar/overseas/auction. Added narrative-driven fallback: any log entry whose entry.log starts with "You bought" triggers buy parsing regardless of unrecognized title. Narrative regex stop-words updated to also halt at "for a total" (Bits \'n\' Bobs format). Always-on title/raw diagnostics: titles and first raw entry now log on every UPDATE (removed one-shot _invLogTitlesSeen guard so repeat presses show fresh data).',
     '[*] BUG-DBG-TDZ: dbgResults changed from let to var — eliminates "can\'t access lexical declaration before initialization" crash when RUN ALL is pressed before the debug panel script block fully evaluates.',
   ]},
-  { v:'2.41.3', date:'2026-04-17', notes:[
-    '[*] BUG-INV-AUDIT-MISMATCH: showInvEntryForm() now pre-fills each input with the effective count (manual base + auto-tracked delta) instead of the raw manual base. Previously, opening SET COUNTS showed the stale audited value, so saving reset the baseline without incorporating auto-tracked changes — causing the dashboard display to diverge from the form. Now the form shows the same number the dashboard displays. Delta contributions are shown inline (e.g. "base 563 +14 auto") so you can verify them before saving. Saving locks in the effective count as the new baseline and clears the accumulated delta for that item.',
-  ]},
+
   { v:'2.41.2', date:'2026-04-17', notes:[
     '[*] BUG-INV-ITEMNAME: Fixed "itemName.toLowerCase is not a function" crash in fetchInvPurchases(). The Torn v1 log API can return data.item_name as a numeric item ID instead of a string. itemName is now coerced with String() immediately after extraction in both the buy block and the sell block.',
     '[*] BUG-INV-STALE: renderInventory() now clears and hides #invDeltaStatus at the top of every render pass. Previously, a "Purchase log fetch failed" error from a prior session could persist on-screen after a successful subsequent sync.',
@@ -2319,8 +2331,6 @@ async function rateSafeGet(section, sel, extra=''){
   try{ const pp=localStorage.getItem('hv_v1_ptprice'); if(pp) S.pointPrice=parseFloat(pp)||0; }catch(e){}
   try{ S.pointPriceHistory=JSON.parse(localStorage.getItem('hv_v1_ptphist')||'[]'); }catch(e){}
   try{ S.trackConsumablesSent=localStorage.getItem('hv_v1_track_consumables')==='true'; }catch(e){}
-  try{ S.testers=JSON.parse(localStorage.getItem('hv_v1_testers')||'[]'); }catch(e){}
-  try{ S.factionWhitelist=JSON.parse(localStorage.getItem('hv_v1_faction_whitelist')||'[]'); }catch(e){}
   try{ S.inventory=JSON.parse(localStorage.getItem('hv_v1_inventory')||'[]'); }catch(e){}
   try{
     const _mc = JSON.parse(localStorage.getItem('hv_v1_manual_counts')||'{}');
@@ -4035,35 +4045,19 @@ function _renderPaymentLogModal(){
   el.innerHTML=h;
 }
 
-// B-2: Mark player as tester
+// B-2: Mark player as tester — now managed via whitelist.json in repo
 function markAsTester(name){
-  if(!confirm('Mark ' + name + ' as a tester? They will appear in the TESTERS section and be exempt from payment requirements.')) return;
-  if(!S.testers) S.testers=[];
-  if(S.testers.find(t=>t.name===name)) return;
-  S.testers.push({name,grantedAt:Date.now(),notes:''});
-  try{localStorage.setItem('hv_v1_testers',JSON.stringify(S.testers));}catch(e){}
-  clog('Tester access granted: '+name,'ok');
+  alert('Testers are now managed via whitelist.json in FactionBudget/current/.\nAdd the player\'s Torn ID and name to the "testers" array and re-upload the file.');
 }
 
-// B-2: Remove tester
+// B-2: Remove tester — now managed via whitelist.json in repo
 function removeTester(name){
-  S.testers=(S.testers||[]).filter(t=>t.name!==name);
-  try{localStorage.setItem('hv_v1_testers',JSON.stringify(S.testers));}catch(e){}
-  clog('Tester removed: '+name,'warn');
+  alert('Testers are now managed via whitelist.json in FactionBudget/current/.\nRemove the player from the "testers" array and re-upload the file.');
 }
 
-// B-7: Grant tester from input field
+// B-7: Grant tester — now managed via whitelist.json in repo
 function grantTesterAccess(){
-  const input=document.getElementById('grantTesterInput');
-  const name=(input?.value||'').trim();
-  if(!name){ alert('Enter a player name.'); return; }
-  if(!S.testers) S.testers=[];
-  if(S.testers.find(t=>t.name===name)){ alert(name+' is already a tester.'); return; }
-  S.testers.push({name,grantedAt:Date.now(),notes:''});
-  try{localStorage.setItem('hv_v1_testers',JSON.stringify(S.testers));}catch(e){}
-  clog('Tester access granted: '+name,'ok');
-  if(input) input.value='';
-  _renderPaymentLogModal();
+  alert('Testers are now managed via whitelist.json in FactionBudget/current/.\nAdd the player\'s Torn ID and name to the "testers" array and re-upload the file.');
 }
 
 // B-8: Show/hide add faction form
@@ -4072,25 +4066,14 @@ function showAddFactionWhitelist(){
   if(el) el.style.display=el.style.display==='none'?'block':'none';
 }
 
-// B-8: Add faction to whitelist
+// B-8: Add faction to whitelist — now managed via whitelist.json in repo
 function addFactionWhitelist(){
-  const id=(document.getElementById('wlFactionId')?.value||'').trim();
-  const label=(document.getElementById('wlFactionLabel')?.value||'').trim();
-  const notes=(document.getElementById('wlFactionNotes')?.value||'').trim();
-  if(!id){ alert('Enter a faction ID.'); return; }
-  if(!S.factionWhitelist) S.factionWhitelist=[];
-  if(S.factionWhitelist.find(w=>String(w.id)===String(id))){ alert('Faction '+id+' is already whitelisted.'); return; }
-  S.factionWhitelist.push({id,label,notes,grantedAt:Date.now()});
-  try{localStorage.setItem('hv_v1_faction_whitelist',JSON.stringify(S.factionWhitelist));}catch(e){}
-  clog('Faction whitelisted: '+id+' ('+label+')','ok');
-  _renderPaymentLogModal();
+  alert('Faction whitelist is now managed via whitelist.json in FactionBudget/current/.\nAdd the faction ID and label to the "factions" array and re-upload the file.');
 }
 
-// B-8: Remove faction from whitelist
+// B-8: Remove faction from whitelist — now managed via whitelist.json in repo
 function removeFactionWhitelist(id){
-  S.factionWhitelist=(S.factionWhitelist||[]).filter(w=>String(w.id)!==String(id));
-  try{localStorage.setItem('hv_v1_faction_whitelist',JSON.stringify(S.factionWhitelist));}catch(e){}
-  clog('Faction removed from whitelist: '+id,'warn');
+  alert('Faction whitelist is now managed via whitelist.json in FactionBudget/current/.\nRemove the faction from the "factions" array and re-upload the file.');
 }
 
 // B-6: Export payment data
@@ -4099,8 +4082,6 @@ function exportPaymentData(){
   const data={
     _meta:{exported:new Date().toISOString(),version:APP_VERSION},
     players,
-    testers:S.testers||[],
-    factionWhitelist:S.factionWhitelist||[],
   };
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');
@@ -7727,20 +7708,7 @@ function adminImport(evt){
         S.respectOverrides=Object.assign(S.respectOverrides||{},data.respectOverrides);
         try{localStorage.setItem('hv_v1_respect_overrides',JSON.stringify(S.respectOverrides));}catch(ex){}
       }
-      // Import testers (merge by name)
-      if(data.testers&&Array.isArray(data.testers)){
-        if(!S.testers) S.testers=[];
-        const existingT=new Set(S.testers.map(t=>t.name));
-        data.testers.forEach(t=>{ if(!existingT.has(t.name)) S.testers.push(t); });
-        try{localStorage.setItem('hv_v1_testers',JSON.stringify(S.testers));}catch(ex){}
-      }
-      // Import factionWhitelist (merge by id)
-      if(data.factionWhitelist&&Array.isArray(data.factionWhitelist)){
-        if(!S.factionWhitelist) S.factionWhitelist=[];
-        const existingW=new Set(S.factionWhitelist.map(w=>String(w.id)));
-        data.factionWhitelist.forEach(w=>{ if(!existingW.has(String(w.id))) S.factionWhitelist.push(w); });
-        try{localStorage.setItem('hv_v1_faction_whitelist',JSON.stringify(S.factionWhitelist));}catch(ex){}
-      }
+      // Import testers/factionWhitelist: now managed via whitelist.json — skipped on import
       // Import exemptReceipts (merge)
       if(data.exemptReceipts&&Array.isArray(data.exemptReceipts)){
         if(!S.exemptReceipts) S.exemptReceipts=new Set();
@@ -7791,7 +7759,7 @@ function adminAddManualReceipt(){
 
 // ── STORAGE INSPECTOR
 function adminInspectStorage(){
-  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'];
+  const keys=['hv_key','hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist'];
   let totalBytes=0;
   let out='=== LOCALSTORAGE ===\n\n';
   keys.forEach(k=>{
@@ -7808,6 +7776,8 @@ function adminInspectStorage(){
       out+=`  Size: ${(v.length/1024).toFixed(1)} KB\n\n`;
     }catch(e){ out+=`[${k}]: ${v.slice(0,80)}…\n\n`; }
   });
+  // Whitelist note
+  out+=`[whitelist.json]: managed server-side — ${_wl ? (_wl.testers.length+' testers, '+_wl.factions.length+' factions loaded this session') : 'not yet loaded'}\n\n`;
   // Total size summary
   const totalKB=(totalBytes/1024).toFixed(1);
   const totalMB=(totalBytes/1048576).toFixed(2);
@@ -7818,8 +7788,6 @@ function adminInspectStorage(){
   if(badge) badge.textContent=`${totalKB} KB used (${pct}% of ~10MB)`;
   out+=`=== IN-MEMORY STATE ===\n`;
   out+=`S.receipts: ${S.receipts.length} (${S.receipts.filter(r=>!r.deleted).length} active)\n`;
-  out+=`S.testers: ${(S.testers||[]).length}\n`;
-  out+=`S.factionWhitelist: ${(S.factionWhitelist||[]).length}\n`;
   out+=`S.outgoing: ${(S.outgoing||[]).length}\n`;
   out+=`S.wars: ${S.wars.length}\n`;
   out+=`S.events: ${S.events.length} (session)\n`;
@@ -7864,8 +7832,8 @@ function adminClearAll(){
   const paidCount=Object.keys(S.paidLog).length;
   const warCount=S.wars.length;
   if(!confirm(`FINAL WARNING\n\nThis will permanently delete:\n• ${rcptCount} receipt(s)\n• Paid log for ${paidCount} member(s)\n• ${warCount} war payout record(s)\n• All payout rates & card settings\n• Sync settings\n\nAPI key is NOT deleted.\n\nProceed?`)) return;
-  ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist','hv_v1_testers','hv_v1_faction_whitelist'].forEach(k=>localStorage.removeItem(k));
-  S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98}; S.refundedPayments=new Set(); S.testers=[]; S.factionWhitelist=[];
+  ['hv_v1_rcpts','hv_v1_paid','hv_v1_rates','hv_v1_sync_rate','hv_v1_wars','hv_v1_card_periods','hv_v1_outgoing','hv_v1_inventory','hv_v1_event_log','hv_v1_last_event_ts','hv_v1_prev_event_ts','hv_v1_oc_manual','hv_v1_oc_overrides','hv_v1_respect_overrides','hv_v1_refunded_payments','hv_v1_crime_log','hv_v1_oc_crimes','hv_v1_manual_counts','hv_v1_inv_delta_ts','hv_v1_inv_purchases','hv_v1_inv_sells','hv_v1_last_sync','hv_v1_fetch_meta','hv_v1_init_lookback','hv_v1_faction_cache','hv_v1_armory_cache','hv_v1_mainnews_cache','hv_v1_attacknews_cache','hv_v1_items_cache','hv_v1_ptprice','hv_v1_ptphist'].forEach(k=>localStorage.removeItem(k));
+  S.receipts=[]; S.paidLog={}; S.rates={Plushie:98,Flower:98,Xanax:98,Drug:98,Alcohol:98,Medical:98}; S.refundedPayments=new Set();
   S.cardPeriods={supply:'30d',oc:'30d',pnl:'30d'}; RMINS=15;
   S.pointPrice=0; S.pointPriceHistory=[];
   clearSessionState();
@@ -8609,6 +8577,27 @@ function checkAccessPaymentLog(logEntries){
   return { method, qty:totalXanax, units:totalMoneyUnits, days:totalDays, lifetime, from, ts:firstTs };
 }
 
+// ── Whitelist loader — fetches whitelist.json once per session from GitHub Pages.
+// Returns { testers:[{playerId,name}], factions:[{id,label}] }.
+// On any fetch/parse failure returns empty lists so verification degrades gracefully.
+async function loadWhitelist(){
+  if(_wl) return _wl; // already loaded this session
+  try{
+    const res = await fetch(WHITELIST_URL + '?_=' + Date.now());
+    if(!res.ok){ _wl={testers:[],factions:[]}; return _wl; }
+    const data = await res.json();
+    _wl = {
+      testers: Array.isArray(data.testers) ? data.testers : [],
+      factions: Array.isArray(data.factions) ? data.factions : []
+    };
+    clog('Whitelist loaded: '+_wl.testers.length+' testers, '+_wl.factions.length+' factions','info');
+  }catch(e){
+    clog('Whitelist unavailable ('+e.message+') — continuing without it','warn');
+    _wl={testers:[],factions:[]};
+  }
+  return _wl;
+}
+
 async function verifyAndGrantAccess(){
   const btn = document.getElementById('btnVerifyAccess');
   const status = document.getElementById('accessStatus');
@@ -8629,6 +8618,24 @@ async function verifyAndGrantAccess(){
     if(bd.error) throw new Error(`[${bd.error.code}] ${bd.error.error}`);
     const playerId = String(bd.player_id);
     const playerName = bd.name || 'Unknown';
+    status.textContent = `Identified as ${playerName} [${playerId}] — checking whitelist…`;
+
+    // Step 1.5: Check whitelist.json — testers and whitelisted factions
+    const wl = await loadWhitelist();
+
+    // Tester check
+    const isTester = wl.testers.some(t => String(t.playerId) === playerId);
+    if(isTester){
+      const record = { grantedAt: Date.now(), method:'tester', from: playerName, playerId, permanent: true };
+      setAccessRecord(record);
+      S.key = keyVal;
+      localStorage.setItem('hv_key', keyVal);
+      btn.innerHTML = '✓ VERIFIED';
+      progress.style.display = 'none';
+      showInitPanel(playerName, 'TESTER · PERMANENT ACCESS');
+      return;
+    }
+
     status.textContent = `Identified as ${playerName} [${playerId}] — checking faction…`;
 
     // Step 2: Check if player is in HighVibes faction (ID 50825)
@@ -8649,6 +8656,26 @@ async function verifyAndGrantAccess(){
       progress.style.display = 'none';
       showInitPanel(playerName, 'FACTION MEMBER · PERMANENT ACCESS', fd2.name||'');
       return;
+    }
+
+    // Step 2.5: Check whitelisted factions (from whitelist.json, excluding HighVibes already checked)
+    const extraFactions = wl.factions.filter(f => String(f.id) !== String(FACTION_ID));
+    for(const wlFac of extraFactions){
+      status.textContent = `Checking ${wlFac.label||'faction '+wlFac.id} membership…`;
+      await rateSleep();
+      trackApiCall();
+      const wfRes = await fetch(`https://api.torn.com/faction/${wlFac.id}?selections=basic&key=${keyVal}`);
+      const wfData = await wfRes.json();
+      if(!wfData.error && wfData.members && wfData.members[playerId]){
+        const record = { grantedAt: Date.now(), method:'faction_whitelist', from: playerName, playerId, permanent: true, factionLabel: wlFac.label||('Faction '+wlFac.id) };
+        setAccessRecord(record);
+        S.key = keyVal;
+        localStorage.setItem('hv_key', keyVal);
+        btn.innerHTML = '✓ VERIFIED';
+        progress.style.display = 'none';
+        showInitPanel(playerName, (wlFac.label||'Faction '+wlFac.id).toUpperCase()+' MEMBER · PERMANENT ACCESS');
+        return;
+      }
     }
 
     // Step 3: Not a faction member — deep scan user/log for all payments to Sypharius
@@ -8678,7 +8705,7 @@ async function verifyAndGrantAccess(){
 
     if(found){
       const expiry = found.lifetime ? null : Date.now() + found.days * 86400000;
-      const record = { grantedAt: Date.now(), expiry, method: found.method, from: playerName, playerId, lifetime: found.lifetime };
+      const record = { grantedAt: Date.now(), expiry, method: found.method, from: playerName, playerId, lifetime: found.lifetime, keyTag: keyVal.slice(-4) };
       setAccessRecord(record);
       S.key = keyVal;
       localStorage.setItem('hv_key', keyVal);
@@ -8782,21 +8809,48 @@ async function autoVerifyStoredKey(keyVal){
     if(bd.error){ showAccessGate(true); return; }
     const playerId = String(bd.player_id);
     const playerName = bd.name || 'Unknown';
+
+    // Whitelist tester check
+    const wl = await loadWhitelist();
+    if(wl.testers.some(t => String(t.playerId) === playerId)){
+      setAccessRecord({ grantedAt: Date.now(), method:'tester', from: playerName, playerId, permanent: true });
+      showAccessGate(false);
+      clog(`Auto-verified: ${playerName} — tester access granted`,'ok');
+      if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
+      return;
+    }
+
+    // HighVibes faction check
     await rateSleep();
     trackApiCall();
     const fr = await fetch(`https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${keyVal}`);
     const fd = await fr.json();
     if(!fd.error && fd.members && fd.members[playerId]){
-      // Confirmed faction member — grant access and proceed
       setAccessRecord({ grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true });
       showAccessGate(false);
       clog(`Auto-verified: ${playerName} — faction member access granted`,'ok');
-      // Key is already stored; dashboard init already ran or will run via the stored-key path
       if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
-    } else {
-      // Not in faction or API error — show gate normally
-      showAccessGate(true);
+      return;
     }
+
+    // Whitelisted factions check
+    const extraFactions = wl.factions.filter(f => String(f.id) !== String(FACTION_ID));
+    for(const wlFac of extraFactions){
+      await rateSleep();
+      trackApiCall();
+      const wfRes = await fetch(`https://api.torn.com/faction/${wlFac.id}?selections=basic&key=${keyVal}`);
+      const wfData = await wfRes.json();
+      if(!wfData.error && wfData.members && wfData.members[playerId]){
+        setAccessRecord({ grantedAt: Date.now(), method:'faction_whitelist', from: playerName, playerId, permanent: true, factionLabel: wlFac.label||('Faction '+wlFac.id) });
+        showAccessGate(false);
+        clog(`Auto-verified: ${playerName} — ${wlFac.label||'faction '+wlFac.id} member access granted`,'ok');
+        if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
+        return;
+      }
+    }
+
+    // Not in any whitelisted faction — show gate
+    showAccessGate(true);
   }catch(e){
     // Network error — show gate to avoid locking out
     showAccessGate(true);
@@ -8804,24 +8858,31 @@ async function autoVerifyStoredKey(keyVal){
 }
 
 function checkAccessOnLoad(){
-  // Dev bypass: localStorage.setItem('hv_access_bypass','true')
-  if(localStorage.getItem('hv_access_bypass')==='true') return;
+
   const r = getAccessRecord();
   if(!r){
     const storedKey = localStorage.getItem('hv_key');
     if(storedKey){ autoVerifyStoredKey(storedKey); return; }
     showAccessGate(true); return;
   }
-  // Faction members: re-verify on each load (their membership could change)
-  // But to avoid a blocking API call, trust the stored record if it's fresh (< 24h)
-  // and re-verify silently in background after dashboard loads
-  if(r.method === 'faction'){
+  // Permanent access methods (faction, tester, faction_whitelist): trust stored record, silent recheck in background
+  if(r.method === 'faction' || r.method === 'tester' || r.method === 'faction_whitelist'){
     showAccessGate(false);
-    // Silent re-verify in background after 3s
-    setTimeout(()=> silentFactionRecheck(r), 3000);
+    if(r.method === 'faction' || r.method === 'faction_whitelist'){
+      setTimeout(()=> silentFactionRecheck(r), 3000);
+    }
     const rem = Date.now() - r.grantedAt;
-    clog(`Faction member ${r.from} — access active (last verified ${Math.floor(rem/3600000)}h ago)`,'ok');
+    const methodLabel = r.method === 'tester' ? 'tester' : (r.factionLabel || 'faction member');
+    clog(`${r.from} — ${methodLabel} access active (last verified ${Math.floor(rem/3600000)}h ago)`,'ok');
     return;
+  }
+  // Payment-based: validate keyTag binding before trusting record
+  // Prevents injected fake records — tag must match last 4 chars of stored key
+  const storedKeyForCheck = localStorage.getItem('hv_key') || '';
+  if(!r.keyTag || storedKeyForCheck.slice(-4) !== r.keyTag){
+    clog('Access record key mismatch — clearing and re-verifying','warn');
+    localStorage.removeItem(ACCESS_KEY);
+    showAccessGate(true); return;
   }
   // Payment-based: check 7-day timer
   if(isAccessValid()){
@@ -8852,15 +8913,27 @@ function checkAccessOnLoad(){
 
 async function silentFactionRecheck(r){
   // Re-verify faction membership silently — revoke if member was kicked
+  // Handles both 'faction' (HighVibes) and 'faction_whitelist' (whitelisted faction) records
   if(!S.key) return;
   try{
-    const url = `https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${S.key}`;
+    // Determine which faction ID to check against
+    let factionIdToCheck = FACTION_ID; // default: HighVibes
+    if(r.method === 'faction_whitelist'){
+      // Load whitelist to find the faction ID for this player's record
+      const wl = await loadWhitelist();
+      // Find the faction this player was granted access through
+      // We can't know exactly which one without storing it — use factionLabel to match
+      const match = wl.factions.find(f => (f.label||('Faction '+f.id)) === r.factionLabel);
+      if(match) factionIdToCheck = match.id;
+      else { clog(`silentRecheck: no matching faction for label "${r.factionLabel}" — skipping revoke`,'warn'); return; }
+    }
+    const url = `https://api.torn.com/faction/${factionIdToCheck}?selections=basic&key=${S.key}`;
     trackApiCall();
     const res = await fetch(url); const d = await res.json();
     if(d.error) return; // API error — keep access, don't punish for network issues
     if(d.members && !d.members[r.playerId]){
       // No longer in faction
-      clog(`${r.from} no longer in faction — access revoked`,'warn');
+      clog(`${r.from} no longer in ${r.factionLabel||'faction'} — access revoked`,'warn');
       localStorage.removeItem(ACCESS_KEY);
       showAccessGate(true);
     } else if(d.members && d.members[r.playerId]){
