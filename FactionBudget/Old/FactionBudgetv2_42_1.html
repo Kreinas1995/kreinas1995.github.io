@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.42.0';
+const APP_VERSION = '2.42.1';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1272,6 +1272,10 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.42.1', date: '2026-04-19', notes: [
+    '[*] BUG-TDZ: IDB module and IDB_KEYS constant moved before the startup IIFE — were declared after line 2291 causing ReferenceError on load',
+    '[*] BUG-UPGRADE-WIPE: Removed IDB_KEYS wipe from version upgrade block — was deleting freshly-migrated data immediately after migration ran',
+  ]},
   { v: '2.42.0', date: '2026-04-19', notes: [
     '[+] IDB: Migrated 8 large cache keys (event_log, crime_log, armory, mainnews, attacknews, items, inv_purchases, inv_sells) from localStorage to IndexedDB — removes 5–10 MB quota risk for large factions',
     '[+] IDB: inv_purchases/inv_sells no longer hard-capped at 500 entries — pruned to oldest manual count audit baseline; delta tracking now reliable at any history depth',
@@ -2336,7 +2340,8 @@ async function rateSafeGet(section, sel, extra=''){
     // attacknews_cache = S.crimeNews (attack respect entries) — same
     ['hv_v1_faction_cache','hv_v1_fetch_meta'
     ].forEach(k=>localStorage.removeItem(k));
-    IDB_KEYS.forEach(k=>IDB.del(k)); // clear IDB cache keys on version upgrade
+    // IDB cache keys intentionally preserved on upgrade — same policy as pre-migration:
+    // event_log, crime_log, news caches, items, inv data all survive version upgrades
     // Store the previous version so changelog can highlight new entries
     localStorage.setItem('hv_upgrade_from', lastSeen);
     localStorage.setItem('hv_pending_changelog', '1');
@@ -9067,21 +9072,6 @@ const IDB = (() => {
       });
     }catch(e){ return []; }
   }
-
-  return {get, set, del, clear, size};
-})();
-
-// Keys that live in IDB — used by startup migration, version upgrade wipe, and adminClearKey
-const IDB_KEYS = [
-  'hv_v1_event_log',
-  'hv_v1_crime_log',
-  'hv_v1_armory_cache',
-  'hv_v1_mainnews_cache',
-  'hv_v1_attacknews_cache',
-  'hv_v1_items_cache',
-  'hv_v1_inv_purchases',
-  'hv_v1_inv_sells',
-];
 
 function checkAccessOnLoad(){
 
