@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.42.1';
+const APP_VERSION = '2.42.2';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1377,6 +1377,9 @@ const CHANGELOG = [
   ]},
   { v:'2.41.7', date:'2026-04-17', notes:[
     '[*] BUG-DISCONNECT: clearKey() now calls showAccessGate(true) instead of manually toggling apiSetup display. Previously, disconnect removed the key and showed the apiSetup panel but left mainApp visible and the access gate logic in an inconsistent state — the page appeared as a blank dashboard shell with no way to enter a new key. Now disconnect properly routes back through the access gate the same way a fresh page load with no stored key does. Confirm dialog updated to clarify that inventory counts and logs are preserved.',
+  ]},
+  { v:'2.42.2', date:'2026-04-19', notes:[
+    '[*] MEMBERS-TEST: Test row now uses real item MV lookups (qty=1 per representative item per category). Pills show live category MV totals, right column shows grand total, tapping a pill opens muShowDetail drill-down. Previously pills showed static "$1" and total was "—".',
   ]},
   { v:'2.41.6', date:'2026-04-17', notes:[
     '[*] BUG-DBG-LOG-SAMPLE: Added null guard at top of dbgRunAll() — if(typeof dbgResults===\'undefined\') window.dbgResults={} — prevents "can\'t access property log, dbgResults is undefined" crash when RUN ALL is pressed before the script block fully evaluates after a partial parse or early error.',
@@ -5790,20 +5793,37 @@ function renderMemberUsage(){
   // TO REMOVE: delete this block and the toggleTestMember() function below,
   //   and remove id="testMemberToggleBtn" from the header div above.
   // ── TEST MEMBER ─────────────────────────────────────────────────────────────
-  // Render-only test row — always first, not counted in any totals.
   let testHtml='';
   if(S._showTestMember){
-    const testCats=['Medical','Drug','Alcohol','Energy','Booster'];
+    // One representative item per category, qty = 1 each
+    const TEST_ITEMS=[
+      {cat:'medical',   item:'First Aid Kit'},
+      {cat:'drug',      item:'Xanax'},
+      {cat:'alcohol',   item:'Beer'},
+      {cat:'energy drink', item:'Energy Drink'},
+      {cat:'booster',   item:'Feathery Hotel Coupon'},
+    ];
+    let testGrand=0;
+    // Build per-cat data (same shape as real usageMap cats)
+    const testCatData=TEST_ITEMS.map(({cat,item})=>{
+      const it=lookupItem(item), mv=it?.mv||0;
+      const cost=mv*1; // qty 1
+      testGrand+=cost;
+      return {cat, item, mv, cost, items:{[item]:{qty:1,cost}}};
+    });
     let testPills='';
-    testCats.forEach(cat=>{
-      const col=muCatColor(cat.toLowerCase());
-      const lbl=muCatLabel(cat.toLowerCase());
-      testPills+=`<button style="background:rgba(0,0,0,0.3);border:1px solid ${col};color:${col};
-        font-family:'Space Mono',monospace;font-size:9px;padding:3px 7px;cursor:default;
-        letter-spacing:0.5px;border-radius:2px;display:inline-flex;flex-direction:column;
-        align-items:center;gap:1px;line-height:1.2;min-width:40px;opacity:0.7;">
+    testCatData.forEach(({cat,item,cost,items})=>{
+      const col=muCatColor(cat);
+      const lbl=muCatLabel(cat);
+      const catVal=fmt$(cost);
+      const itemsJson=encodeURIComponent(JSON.stringify({name:'[test]',cat,items,total:cost}));
+      testPills+=`<button onclick="muShowDetail(decodeURIComponent('${itemsJson}'))"
+        style="background:rgba(0,0,0,0.3);border:1px solid ${col};color:${col};font-family:'Space Mono',monospace;
+        font-size:9px;padding:3px 7px;cursor:pointer;letter-spacing:0.5px;border-radius:2px;
+        display:inline-flex;flex-direction:column;align-items:center;gap:1px;line-height:1.2;
+        min-width:40px;transition:background 0.15s;" onmouseover="this.style.background='rgba(${hexToRgb(col)},0.15)'" onmouseout="this.style.background='rgba(0,0,0,0.3)'">
         <span style="font-size:8px;font-weight:700;">${lbl}</span>
-        <span style="font-size:8px;opacity:0.85;">$1</span>
+        <span style="font-size:8px;opacity:0.85;">${catVal}</span>
       </button>`;
     });
     testHtml=`<div style="padding:10px 12px;border-bottom:1px solid var(--border);border-left:3px solid var(--accent);
@@ -5816,7 +5836,7 @@ function renderMemberUsage(){
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:0;">${testPills}</div>
       <div style="flex-shrink:0;text-align:right;min-width:54px;">
-        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--accent);">—</div>
+        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--accent);">${testGrand>0?fmt$(testGrand):'$0'}</div>
       </div>
     </div>`;
   }
