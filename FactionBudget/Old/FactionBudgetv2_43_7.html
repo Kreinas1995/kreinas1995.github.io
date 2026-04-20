@@ -1204,7 +1204,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.6';
+const APP_VERSION = '2.43.7';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1274,6 +1274,9 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.7', date: '2026-04-19', notes: [
+    'Fixed faction and whitelist membership checks — now use bd.faction.faction_id from user/basic instead of fetching faction member list, works with public keys',
+  ]},
   { v: '2.43.6', date: '2026-04-19', notes: [
     'Fixed init crash on public/limited keys — faction/basic and faction/donations now split, donations gracefully optional',
     'Added BACK TO LOGIN escape on init screen so stuck users can return to the access gate',
@@ -9076,44 +9079,33 @@ async function verifyAndGrantAccess(){
 
     status.textContent = `Identified as ${playerName} [${playerId}] — checking faction…`;
 
-    // Step 2: Check if player is in HighVibes faction (ID 50825)
-    // Use their own key to fetch faction/basic — works with any AA key or public data
-    await rateSleep();
-    const facUrl = `https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${keyVal}`;
-    trackApiCall();
-    const fr = await fetch(facUrl); const fd2 = await fr.json();
+    // Step 2: Check faction membership via bd.faction.faction_id from user/basic
+    // Works with any key including public — no faction AA required
+    const playerFactionId = String(bd.faction?.faction_id || '');
 
-    if(!fd2.error && fd2.members && fd2.members[playerId]){
-      // Player IS a faction member — grant permanent access (re-verified on each load)
+    if(playerFactionId && playerFactionId === String(FACTION_ID)){
       const record = { grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true };
       setAccessRecord(record);
-      // Store their key for dashboard use
       S.key = keyVal;
       localStorage.setItem('hv_key', keyVal);
       btn.innerHTML = '✓ VERIFIED';
       progress.style.display = 'none';
-      showInitPanel(playerName, 'FACTION MEMBER · PERMANENT ACCESS', fd2.name||'');
+      showInitPanel(playerName, 'FACTION MEMBER · PERMANENT ACCESS');
       return;
     }
 
-    // Step 2.5: Check whitelisted factions (from whitelist.json, excluding HighVibes already checked)
+    // Step 2.5: Check whitelisted factions via faction_id — no extra API call needed
     const extraFactions = wl.factions.filter(f => String(f.id) !== String(FACTION_ID));
-    for(const wlFac of extraFactions){
-      status.textContent = `Checking ${wlFac.label||'faction '+wlFac.id} membership…`;
-      await rateSleep();
-      trackApiCall();
-      const wfRes = await fetch(`https://api.torn.com/faction/${wlFac.id}?selections=basic&key=${keyVal}`);
-      const wfData = await wfRes.json();
-      if(!wfData.error && wfData.members && wfData.members[playerId]){
-        const record = { grantedAt: Date.now(), method:'faction_whitelist', from: playerName, playerId, permanent: true, factionLabel: wlFac.label||('Faction '+wlFac.id) };
-        setAccessRecord(record);
-        S.key = keyVal;
-        localStorage.setItem('hv_key', keyVal);
-        btn.innerHTML = '✓ VERIFIED';
-        progress.style.display = 'none';
-        showInitPanel(playerName, (wlFac.label||'Faction '+wlFac.id).toUpperCase()+' MEMBER · PERMANENT ACCESS');
-        return;
-      }
+    const matchedFac = extraFactions.find(f => String(f.id) === playerFactionId);
+    if(matchedFac){
+      const record = { grantedAt: Date.now(), method:'faction_whitelist', from: playerName, playerId, permanent: true, factionLabel: matchedFac.label||('Faction '+matchedFac.id) };
+      setAccessRecord(record);
+      S.key = keyVal;
+      localStorage.setItem('hv_key', keyVal);
+      btn.innerHTML = '✓ VERIFIED';
+      progress.style.display = 'none';
+      showInitPanel(playerName, (matchedFac.label||'Faction '+matchedFac.id).toUpperCase()+' MEMBER · PERMANENT ACCESS');
+      return;
     }
 
     // Step 3: Not a faction member — deep scan user/log for all payments to Sypharius
@@ -9258,33 +9250,26 @@ async function autoVerifyStoredKey(keyVal){
       return;
     }
 
-    // HighVibes faction check
-    await rateSleep();
-    trackApiCall();
-    const fr = await fetch(`https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${keyVal}`);
-    const fd = await fr.json();
-    if(!fd.error && fd.members && fd.members[playerId]){
+    // Faction check via bd.faction.faction_id — works with any key including public
+    const autoFactionId = String(bd.faction?.faction_id || '');
+
+    if(autoFactionId && autoFactionId === String(FACTION_ID)){
       setAccessRecord({ grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true });
       showAccessGate(false);
-      clog(`Auto-verified: ${playerName} — faction member access granted`,'ok');
+      clog(`Auto-verified: ${playerName} — HighVibes member`,'ok');
       if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
       return;
     }
 
-    // Whitelisted factions check
-    const extraFactions = wl.factions.filter(f => String(f.id) !== String(FACTION_ID));
-    for(const wlFac of extraFactions){
-      await rateSleep();
-      trackApiCall();
-      const wfRes = await fetch(`https://api.torn.com/faction/${wlFac.id}?selections=basic&key=${keyVal}`);
-      const wfData = await wfRes.json();
-      if(!wfData.error && wfData.members && wfData.members[playerId]){
-        setAccessRecord({ grantedAt: Date.now(), method:'faction_whitelist', from: playerName, playerId, permanent: true, factionLabel: wlFac.label||('Faction '+wlFac.id) });
-        showAccessGate(false);
-        clog(`Auto-verified: ${playerName} — ${wlFac.label||'faction '+wlFac.id} member access granted`,'ok');
-        if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
-        return;
-      }
+    // Whitelisted factions — compare faction_id, no extra API calls
+    const autoExtra = wl.factions.filter(f => String(f.id) !== String(FACTION_ID));
+    const autoMatch = autoExtra.find(f => String(f.id) === autoFactionId);
+    if(autoMatch){
+      setAccessRecord({ grantedAt: Date.now(), method:'faction_whitelist', from: playerName, playerId, permanent: true, factionLabel: autoMatch.label||('Faction '+autoMatch.id) });
+      showAccessGate(false);
+      clog(`Auto-verified: ${playerName} — ${autoMatch.label||'faction '+autoMatch.id} member`,'ok');
+      if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
+      return;
     }
 
     // Not in any whitelisted faction — show gate
