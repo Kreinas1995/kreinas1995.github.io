@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.41.26</title>
+<title>Faction Budget v2.43.10</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.9';
+const APP_VERSION = '2.43.10';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,12 +1273,15 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.10', date: '2026-04-19', notes: [
+    'Verify: whitelist check now runs before log-permission error — players whitelisted by Sypharius bypass log scanning entirely, so a public/limited API key no longer blocks access for whitelisted users',
+  ]},
   { v: '2.43.9', date: '2026-04-19', notes: [
     'Fixed broken <div id="ocRawOut"> tag (missing closing >) that was silently killing script execution in all browsers',
   ]},
   { v: '2.43.8', date: '2026-04-19', notes: [
     'Show detected faction ID in verify status so mismatches are visible during debugging',
-    'Payment log scan now shows clear error when key lacks log permission instead of silent "0 log entries" failure',
+    'Payment log scan now shows clear error when key lacks log permission instead of silent \"0 log entries\" failure',
   ]},
   { v: '2.43.7', date: '2026-04-19', notes: [
     'Fixed faction and whitelist membership checks — now use bd.faction.faction_id from user/basic instead of fetching faction member list, works with public keys',
@@ -9123,6 +9126,7 @@ async function verifyAndGrantAccess(){
     const limit = 100;
     let pgN = 0;
     const maxPg = 50; // up to 5000 entries — years of history
+    let logPermissionDenied = false;
     while(pgN < maxPg){
       await rateSleep();
       const url = `https://api.torn.com/user/?selections=log&key=${keyVal}&limit=${limit}&offset=${offset}`;
@@ -9131,9 +9135,8 @@ async function verifyAndGrantAccess(){
       if(d.error){
         clog(`Log scan [${d.error.code}]: ${d.error.error}`,'warn');
         if(d.error.code===7||d.error.code===16){
-          status.innerHTML = `<span style="color:var(--accent4)">✗ Your API key lacks <code>log</code> permission — payment verification requires it.<br><span style="color:var(--muted);font-size:9px;">Tap <strong>GET KEY</strong> above to generate a key with the correct permissions.</span></span>`;
-          btn.disabled = false; btn.innerHTML = '↻ RETRY';
-          return;
+          logPermissionDenied = true;
+          break; // fall through to whitelist-only check below
         }
         break;
       }
@@ -9144,6 +9147,13 @@ async function verifyAndGrantAccess(){
       if(entries.length < limit) break;
       offset += limit;
       pgN++;
+    }
+
+    // If log was inaccessible and player isn't whitelisted, bail now
+    if(logPermissionDenied){
+      status.innerHTML = `<span style="color:var(--accent4)">✗ Your API key lacks <code>log</code> permission — payment verification requires it.<br><span style="color:var(--muted);font-size:9px;">Tap <strong>GET KEY</strong> above to generate a key with the correct permissions.</span></span>`;
+      btn.disabled = false; btn.innerHTML = '↻ RETRY';
+      return;
     }
 
     const found = checkAccessPaymentLog(allEntries);
