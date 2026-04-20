@@ -1,12 +1,5 @@
 {
-  "testers": [
-    {
-      "playerId": "12345",
-      "name": "test2",
-      "notes": "test 2",
-      "grantedAt": 1776646651668
-    }
-  ],
+  "testers": [],
   "factions": [
     {
       "id": "11111",
