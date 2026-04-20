@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.43.13</title>
+<title>Faction Budget v2.43.14</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.13';
+const APP_VERSION = '2.43.14';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,8 +1273,14 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.14', date: '2026-04-20', notes: [
+    '[*] Version bump: 2.43.13 → 2.43.14 (release of all fixes committed in 2.43.13 session).',
+  ]},
   { v: '2.43.13', date: '2026-04-20', notes: [
     '[*] BUG-INV-DELTA-EVENTS: calcInvDelta() was using S.eventLog when populated, completely ignoring S.events — items received that existed only in S.events (e.g. Lion Plushie, Tribulus Omanense) were parsed correctly by parseReceipts() but silently missed by the delta. Fixed by merging both arrays deduped by timestamp+event prefix so calcInvDelta sees the same event universe as parseReceipts.',
+    '[*] BUG-OUTGOING-INCOMING: fetchOutgoingLog() isSend regex matched "sent to you" / "item sent to" incoming titles — items sent TO you by others (e.g. Kush_McLoud) were mis-classified as outgoing sends, stored with toMember="unknown", and then subtracted from the inventory delta, canceling out incoming gains. Fixed by: (1) explicit isIncoming guard that gates out before isSend; (2) hard requirement that data.receiver is present — incoming entries have no receiver field; (3) removed data.user_id fallback which resolved to sender on incoming entries.',
+    '[*] BUG-OUTGOING-STALE: On restore, existing S.outgoing entries with toMember="unknown" and no toMemberId (written by the old buggy logic) are now pruned from localStorage on load so stale mis-classified entries do not persist across sessions.',
+    '[+] S.player / S.playerId now set on S state at every verify and auto-verify grant path, making the logged-in player\'s identity available to all runtime code.',
   ]},
   { v: '2.43.12', date: '2026-04-19', notes: [
     'Payment cards: parsePaymentEvents() now extracts XID from raw HTML event link before stripping — player PID stored on every event and player record',
@@ -2299,6 +2305,7 @@ let S = {
   _ocCrimes:[], // v2 enriched crime objects with payout attribution
   inventory:[], // user's personal inventory items (deprecated API — use manualCounts instead)
   manualCounts:{}, // {itemName: {qty, savedAt}} — manually entered museum set counts with per-item timestamps
+  player:'', playerId:'', // logged-in player name and numeric ID — set on init/auto-verify
   invDeltaTs:0,   // legacy global ts — kept for migration; per-item savedAt in manualCounts is authoritative
   invPurchases:[], // [{id,ts,item,qty,src}] — market/bazaar/overseas purchases of museum items
   invSells:[],    // [{id,ts,item,qty,src}] — bazaar/market listings/sells of museum items (losses)
@@ -2553,7 +2560,18 @@ const IDB_KEYS = [
     if(!w.result) w.result='Unknown';
   });
   try{ const cp=JSON.parse(localStorage.getItem('hv_v1_card_periods')||'{}'); S.cardPeriods={...S.cardPeriods,...cp}; }catch(e){}
-  try{ S.outgoing=JSON.parse(localStorage.getItem('hv_v1_outgoing')||'[]'); }catch(e){}
+  try{
+    S.outgoing=JSON.parse(localStorage.getItem('hv_v1_outgoing')||'[]');
+    // Prune entries saved by the old buggy isSend logic that mis-classified incoming
+    // items (sent TO you by others) as outgoing. Those always resolved to toMember='unknown'
+    // with no toMemberId. Remove them so they no longer cancel out the inventory delta.
+    const before = S.outgoing.length;
+    S.outgoing = S.outgoing.filter(r => r.toMember !== 'unknown' || r.toMemberId);
+    if(S.outgoing.length !== before){
+      clog(`Pruned ${before - S.outgoing.length} bad outgoing entries (mis-classified incoming items)`,'warn');
+      try{ localStorage.setItem('hv_v1_outgoing', JSON.stringify(S.outgoing)); }catch(e){}
+    }
+  }catch(e){}
   try{ S.ocOverrides=JSON.parse(localStorage.getItem('hv_v1_oc_overrides')||'{}'); }catch(e){}
   try{ S.respectOverrides=JSON.parse(localStorage.getItem('hv_v1_respect_overrides')||'{}'); }catch(e){}
   try{ const rp=JSON.parse(localStorage.getItem('hv_v1_refunded_payments')||'[]'); S.refundedPayments=new Set(rp); }catch(e){}
@@ -3799,14 +3817,20 @@ async function fetchOutgoingLog(){
       const ts    = entry.timestamp||0;
       const data  = entry.data||entry.params||{};
 
-      // Broad item-send detection — covers known Torn log title variants:
-      // "Item sending", "Sent item to player", "Gave item", "Trade item sent"
-      // Log category IDs for sends are typically 3–6 — we also check log_type if present
-      const isSend =
-        /item.{0,15}send|send.{0,15}item|gave.{0,10}item|item.{0,10}gave|sent.{0,10}to|trade.{0,10}sent/i.test(title) ||
-        /^sent\b/i.test(title) ||
-        (entry.log_type && [3,4,5,6].includes(Number(entry.log_type))) ||
-        /^item.{0,10}send/i.test(String(entry.category||''));
+      // Outgoing send detection — we fetch cat=85 ("Item sending") specifically,
+      // so only entries where WE are the sender should appear. We match the known
+      // title variants for outgoing sends and explicitly exclude incoming-item titles
+      // ("item sent to you", "items incoming", "item received") to prevent cat=15
+      // entries that may bleed in from polluting the outgoing log.
+      const titleLc = title.toLowerCase();
+      const isIncoming =
+        /item.{0,10}receiv|items?\s+incoming|sent\s+to\s+you|item\s+sent\s+to/i.test(title);
+      const isSend = !isIncoming && (
+        /^item.{0,10}send/i.test(titleLc) ||
+        /^item.{0,10}send/i.test(String(entry.category||'').toLowerCase()) ||
+        /gave.{0,10}item|item.{0,10}gave/i.test(titleLc) ||
+        /^sent\b/i.test(titleLc)
+      );
 
       if(!isSend) return;
 
@@ -3818,11 +3842,14 @@ async function fetchOutgoingLog(){
       const items = Array.isArray(data.items) ? data.items : [];
       if(!items.length) return;
 
-      // Resolve receiver name — priority: faction members > prices catalog > raw ID
-      const receiverId = String(data.receiver||data.to_id||data.user_id||'');
+      // Guard: a genuine outgoing send must have a receiver ID.
+      // If data.receiver is absent this is likely an incoming entry that slipped through.
+      const receiverId = String(data.receiver||data.to_id||'');
+      if(!receiverId) return;
+
+      // Resolve receiver name — priority: faction members > raw ID
       const receiverName = S.faction?.members?.[receiverId]?.name
-        || S.prices?.[receiverId]?.name
-        || (receiverId ? `#${receiverId}` : 'unknown');
+        || `#${receiverId}`;
 
       items.forEach(itemEntry=>{
         const itemId = String(itemEntry.id||'');
@@ -9128,7 +9155,7 @@ async function verifyAndGrantAccess(){
     if(playerId === OWNER_ID){
       const record = { grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true };
       setAccessRecord(record);
-      S.key = keyVal;
+      S.key = keyVal; S.player = playerName; S.playerId = playerId;
       localStorage.setItem('hv_key', keyVal);
       btn.innerHTML = '✓ VERIFIED';
       progress.style.display = 'none';
@@ -9148,7 +9175,7 @@ async function verifyAndGrantAccess(){
     if(isTester){
       const record = { grantedAt: Date.now(), method:'tester', from: playerName, playerId, permanent: true };
       setAccessRecord(record);
-      S.key = keyVal;
+      S.key = keyVal; S.player = playerName; S.playerId = playerId;
       localStorage.setItem('hv_key', keyVal);
       btn.innerHTML = '✓ VERIFIED';
       progress.style.display = 'none';
@@ -9175,7 +9202,7 @@ async function verifyAndGrantAccess(){
     if(playerId === OWNER_ID){
       const record = { grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true };
       setAccessRecord(record);
-      S.key = keyVal;
+      S.key = keyVal; S.player = playerName; S.playerId = playerId;
       localStorage.setItem('hv_key', keyVal);
       btn.innerHTML = '✓ VERIFIED';
       progress.style.display = 'none';
@@ -9186,7 +9213,7 @@ async function verifyAndGrantAccess(){
     if(playerFactionId && playerFactionId === String(FACTION_ID)){
       const record = { grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true };
       setAccessRecord(record);
-      S.key = keyVal;
+      S.key = keyVal; S.player = playerName; S.playerId = playerId;
       localStorage.setItem('hv_key', keyVal);
       btn.innerHTML = '✓ VERIFIED';
       progress.style.display = 'none';
@@ -9200,7 +9227,7 @@ async function verifyAndGrantAccess(){
     if(matchedFac){
       const record = { grantedAt: Date.now(), method:'faction_whitelist', from: playerName, playerId, permanent: true, factionLabel: matchedFac.label||('Faction '+matchedFac.id) };
       setAccessRecord(record);
-      S.key = keyVal;
+      S.key = keyVal; S.player = playerName; S.playerId = playerId;
       localStorage.setItem('hv_key', keyVal);
       btn.innerHTML = '✓ VERIFIED';
       progress.style.display = 'none';
@@ -9252,7 +9279,7 @@ async function verifyAndGrantAccess(){
       const expiry = found.lifetime ? null : Date.now() + found.days * 86400000;
       const record = { grantedAt: Date.now(), expiry, method: found.method, from: playerName, playerId, lifetime: found.lifetime, keyTag: keyVal.slice(-4) };
       setAccessRecord(record);
-      S.key = keyVal;
+      S.key = keyVal; S.player = playerName; S.playerId = playerId;
       localStorage.setItem('hv_key', keyVal);
       let label;
       if(found.lifetime){
@@ -9355,11 +9382,18 @@ async function autoVerifyStoredKey(keyVal){
     const playerId = String(bd.player_id);
     const playerName = bd.name || 'Unknown';
 
+    // Helper — sets key + player identity on S then boots the dashboard
+    const grantAndBoot = () => {
+      S.key = keyVal; S.player = playerName; S.playerId = playerId;
+      showAccessGate(false);
+      if(!S.key || S.key !== keyVal){ revealDash(); fetchAll(); startCycle(); }
+      else { revealDash(); fetchAll(); startCycle(); }
+    };
+
     // Owner bypass
     if(playerId === OWNER_ID){
       setAccessRecord({ grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true });
-      showAccessGate(false);
-      S.key = keyVal; revealDash(); fetchAll(); startCycle();
+      grantAndBoot();
       return;
     }
 
@@ -9370,9 +9404,8 @@ async function autoVerifyStoredKey(keyVal){
       ((t.playerId === null || t.playerId === undefined) && t.name && t.name.toLowerCase() === playerName.toLowerCase())
     )){
       setAccessRecord({ grantedAt: Date.now(), method:'tester', from: playerName, playerId, permanent: true });
-      showAccessGate(false);
       clog(`Auto-verified: ${playerName} — tester access granted`,'ok');
-      if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
+      if(!S.key){ grantAndBoot(); }
       return;
     }
 
@@ -9381,9 +9414,8 @@ async function autoVerifyStoredKey(keyVal){
 
     if(autoFactionId && autoFactionId === String(FACTION_ID)){
       setAccessRecord({ grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true });
-      showAccessGate(false);
       clog(`Auto-verified: ${playerName} — HighVibes member`,'ok');
-      if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
+      if(!S.key){ grantAndBoot(); }
       return;
     }
 
@@ -9392,9 +9424,8 @@ async function autoVerifyStoredKey(keyVal){
     const autoMatch = autoExtra.find(f => String(f.id) === autoFactionId);
     if(autoMatch){
       setAccessRecord({ grantedAt: Date.now(), method:'faction_whitelist', from: playerName, playerId, permanent: true, factionLabel: autoMatch.label||('Faction '+autoMatch.id) });
-      showAccessGate(false);
       clog(`Auto-verified: ${playerName} — ${autoMatch.label||'faction '+autoMatch.id} member`,'ok');
-      if(!S.key){ S.key=keyVal; revealDash(); fetchAll(); startCycle(); }
+      if(!S.key){ grantAndBoot(); }
       return;
     }
 
