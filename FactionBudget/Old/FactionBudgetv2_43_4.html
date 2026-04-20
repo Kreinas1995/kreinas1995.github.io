@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.2';
+const APP_VERSION = '2.43.4';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,6 +1273,12 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.4', date: '2026-04-19', notes: [
+    'Lifetime and tester players no longer show EXPIRED or days-left badge — tester shows TESTER badge in accent2, lifetime always shows LIFETIME',
+  ]},
+  { v: '2.43.3', date: '2026-04-19', notes: [
+    'Fixed 🐛 / ✕ TESTER buttons — wrapped in async IIFE so await markAsTester/removeTester actually resolves before re-render',
+  ]},
   { v: '2.43.2', date: '2026-04-19', notes: [
     'Fixed whitelist mutation race condition — all write functions now async and await loadWhitelist() before mutating, guaranteeing _wl is populated from GitHub before any push/filter',
     'All whitelist writes now await saveWhitelistToGitHub() so re-render only fires after confirmed write',
@@ -4142,8 +4148,8 @@ function _renderPaymentLogModal(){
   function playerCard(p){
     const safeId='pc_'+p.name.replace(/[^a-z0-9]/gi,'_');
     const logId=safeId+'_log';
-    const statusColor=p.lifetime?'var(--accent2)':p.expired?'var(--accent4)':p.daysLeft<=3?'var(--accent3)':'var(--muted)';
-    const statusText=p.lifetime?'LIFETIME':p.expired?'EXPIRED':p.daysLeft===1?'1 DAY LEFT':`${p.daysLeft}d LEFT`;
+    const statusColor=p.lifetime||p.isTester?'var(--accent2)':p.expired?'var(--accent4)':p.daysLeft<=3?'var(--accent3)':'var(--muted)';
+    const statusText=p.lifetime?'LIFETIME':p.isTester?'TESTER':p.expired?'EXPIRED':p.daysLeft===1?'1 DAY LEFT':`${p.daysLeft}d LEFT`;
     const profileUrl=`https://www.torn.com/profiles.php?XID=0`; // placeholder — no ID stored in events
     const unitsToLifetime=Math.max(0,100-p.combinedUnits);
 
@@ -4156,9 +4162,9 @@ function _renderPaymentLogModal(){
     card+=`<span style="flex:1;"></span>`;
     // Tester toggle button
     if(p.isTester){
-      card+=`<button onclick="removeTester('${p.name.replace(/'/g,"\\'")}');_renderPaymentLogModal();" style="background:transparent;border:1px solid var(--muted2);color:var(--muted2);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;">✕ TESTER</button>`;
+      card+=`<button onclick="(async()=>{await removeTester('${p.name.replace(/'/g,\"\\\'")}');})()" style="background:transparent;border:1px solid var(--muted2);color:var(--muted2);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;">✕ TESTER</button>`;
     } else {
-      card+=`<button onclick="markAsTester('${p.name.replace(/'/g,"\\'")}');_renderPaymentLogModal();" style="background:transparent;border:1px solid var(--muted);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;" title="Mark as tester">🐛</button>`;
+      card+=`<button onclick="(async()=>{await markAsTester('${p.name.replace(/'/g,\"\\\'")}');})()" style="background:transparent;border:1px solid var(--muted);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;" title="Mark as tester">🐛</button>`;
     }
     card+=`</div>`;
     // Stats grid
