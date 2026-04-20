@@ -1,4 +1,10 @@
 {
-  "testers": [],
+  "testers": [
+    {
+      "playerId": null,
+      "name": "Chubbs",
+      "grantedAt": 1776647475203
+    }
+  ],
   "factions": []
 }
