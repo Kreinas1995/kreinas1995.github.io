@@ -1,10 +1,10 @@
 {
-  "_note": "Authoritative access whitelist for FactionBudget. Upload to FactionBudget/current/ in repo.",
-  "_updated": "2026-04-19",
   "testers": [
-    { "playerId": "2348580", "name": "Sypharius", "note": "Owner — always has access" }
+    {
+      "playerId": null,
+      "name": "Chubbs",
+      "grantedAt": 1776645807897
+    }
   ],
-  "factions": [
-    { "id": 50825, "label": "HighVibes", "note": "Home faction — members get permanent access" }
-  ]
+  "factions": []
 }
