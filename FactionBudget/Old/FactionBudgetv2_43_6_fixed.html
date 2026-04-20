@@ -1204,7 +1204,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.4';
+const APP_VERSION = '2.43.6';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -4174,12 +4174,6 @@ function _renderPaymentLogModal(){
     card+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">`;
     card+=`<div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--text);">${p.name}</div>`;
     card+=`<span style="font-family:'Space Mono',monospace;font-size:9px;padding:2px 7px;border:1px solid ${statusColor};color:${statusColor};">${statusText}</span>`;
->>> END
-
-<<< FIND
-const APP_VERSION = '2.43.4';
-===
-const APP_VERSION = '2.43.6';
     card+=`<span style="flex:1;"></span>`;
     // Tester toggle button
     if(p.isTester){
