@@ -1274,10 +1274,8 @@ var _wl = null;
 
 const CHANGELOG = [
   { v: '2.43.4', date: '2026-04-19', notes: [
-    'Lifetime and tester players no longer show EXPIRED or days-left badge — tester shows TESTER badge in accent2, lifetime always shows LIFETIME',
-  ]},
-  { v: '2.43.3', date: '2026-04-19', notes: [
-    'Fixed 🐛 / ✕ TESTER buttons — wrapped in async IIFE so await markAsTester/removeTester actually resolves before re-render',
+    'Lifetime and tester players no longer show EXPIRED or days-left badge — tester shows TESTER badge in accent2',
+    'Fixed tester button JS crash — replaced inline async IIFE with data-name attribute + named wrapper functions, eliminating quote-escaping issues',
   ]},
   { v: '2.43.2', date: '2026-04-19', notes: [
     'Fixed whitelist mutation race condition — all write functions now async and await loadWhitelist() before mutating, guaranteeing _wl is populated from GitHub before any push/filter',
@@ -4093,7 +4091,7 @@ function _renderPaymentLogModal(){
 
   // ── TOOLBAR: export + add player + add faction
   h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);">`;
-  h+=`<div style="flex:1;min-width:0;"> </div>`;
+  h+=`<div style="flex:1;min-width:0;"></div>`;
   h+=`<div style="display:flex;flex-direction:column;gap:4px;justify-content:flex-end;">`;
   h+=`<button onclick="exportPaymentData()" style="background:var(--surface);border:1px solid var(--accent2);color:var(--accent2);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;white-space:nowrap;">⬇ EXPORT</button>`;
   h+=`<button onclick="showAddPlayerWhitelist()" style="background:var(--surface);border:1px solid var(--accent3);color:var(--accent3);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;white-space:nowrap;">+ PLAYER</button>`;
@@ -4162,9 +4160,9 @@ function _renderPaymentLogModal(){
     card+=`<span style="flex:1;"></span>`;
     // Tester toggle button
     if(p.isTester){
-      card+=`<button onclick="(async()=>{await removeTester('${p.name.replace(/'/g,\"\\\'")}');})()" style="background:transparent;border:1px solid var(--muted2);color:var(--muted2);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;">✕ TESTER</button>`;
+      card+=`<button onclick="wlRemoveTester(this)" data-name="${p.name}" style="background:transparent;border:1px solid var(--muted2);color:var(--muted2);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;">✕ TESTER</button>`;
     } else {
-      card+=`<button onclick="(async()=>{await markAsTester('${p.name.replace(/'/g,\"\\\'")}');})()" style="background:transparent;border:1px solid var(--muted);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;" title="Mark as tester">🐛</button>`;
+      card+=`<button onclick="wlMarkTester(this)" data-name="${p.name}" style="background:transparent;border:1px solid var(--muted);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;" title="Mark as tester">🐛</button>`;
     }
     card+=`</div>`;
     // Stats grid
@@ -4240,6 +4238,10 @@ function _syncWlToS(){
   S.testers=_wl.testers.map(t=>({name:t.name||'',grantedAt:t.grantedAt||0,notes:t.notes||''}));
   S.factionWhitelist=_wl.factions.map(f=>({id:f.id,label:f.label||'',notes:f.notes||'',grantedAt:f.grantedAt||0}));
 }
+
+// Wrapper functions for tester buttons — avoid complex inline onclick escaping
+async function wlMarkTester(btn){ await markAsTester(btn.dataset.name); }
+async function wlRemoveTester(btn){ await removeTester(btn.dataset.name); }
 
 // B-2: Mark player as tester (called from 🐛 button on player cards)
 async function markAsTester(name){
