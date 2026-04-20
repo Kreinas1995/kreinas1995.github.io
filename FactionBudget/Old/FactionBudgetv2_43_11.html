@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.43.10</title>
+<title>Faction Budget v2.43.11</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.10';
+const APP_VERSION = '2.43.11';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,6 +1273,17 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.11', date: '2026-04-19', notes: [
+    'Verify: owner (Sypharius) now bypasses all checks and always gets access — no longer blocked if bd.faction is missing or key lacks faction permission',
+    'Verify: tester check now matches by name when playerId is null in whitelist.json (fixes Chubbs null-playerId entry)',
+    'Verify: faction_id now read from both bd.faction.faction_id and bd.faction_id for broader key compatibility',
+    'Verify: status message now shows whitelist load result and exact faction ID at each step for easier debugging',
+  ]},
+  { v: '2.43.11', date: '2026-04-19', notes: [
+    'Verify: owner (Sypharius) now bypasses all checks — always granted access regardless of key permissions',
+    'Verify: fetch now includes profile selection so bd.faction_id is always populated — fixes faction whitelist check failing when bd.faction was undefined',
+    'Verify + autoVerify: tester name-match now also applied in autoVerifyStoredKey on page reload',
+  ]},
   { v: '2.43.10', date: '2026-04-19', notes: [
     'Verify: whitelist check now runs before log-permission error — players whitelisted by Sypharius bypass log scanning entirely, so a public/limited API key no longer blocks access for whitelisted users',
   ]},
@@ -9052,8 +9063,9 @@ async function verifyAndGrantAccess(){
   status.textContent = 'Checking identity…';
 
   try{
-    // Step 1: Get visitor's player ID and name
-    const basicUrl = `https://api.torn.com/user/?selections=basic&key=${keyVal}`;
+    // Step 1: Get visitor's player ID, name, and faction_id
+    // basic+profile ensures faction_id is always returned regardless of key type
+    const basicUrl = `https://api.torn.com/user/?selections=basic,profile&key=${keyVal}`;
     trackApiCall();
     const br = await fetch(basicUrl); const bd = await br.json();
     if(bd.error) throw new Error(`[${bd.error.code}] ${bd.error.error}`);
@@ -9061,11 +9073,27 @@ async function verifyAndGrantAccess(){
     const playerName = bd.name || 'Unknown';
     status.textContent = `Identified as ${playerName} [${playerId}] — checking whitelist…`;
 
+    // Owner bypass — Sypharius always gets through regardless of key permissions
+    if(playerId === OWNER_ID){
+      const record = { grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true };
+      setAccessRecord(record);
+      S.key = keyVal;
+      localStorage.setItem('hv_key', keyVal);
+      btn.innerHTML = '✓ VERIFIED';
+      progress.style.display = 'none';
+      showInitPanel(playerName, 'OWNER · PERMANENT ACCESS');
+      return;
+    }
+
     // Step 1.5: Check whitelist.json — testers and whitelisted factions
     const wl = await loadWhitelist();
+    status.textContent = `Whitelist loaded — ${wl.testers.length} testers, ${wl.factions.length} factions`;
 
-    // Tester check
-    const isTester = wl.testers.some(t => String(t.playerId) === playerId);
+    // Tester check — match by playerId (or by name if playerId is null in whitelist)
+    const isTester = wl.testers.some(t =>
+      (t.playerId !== null && t.playerId !== undefined && String(t.playerId) === playerId) ||
+      (( t.playerId === null || t.playerId === undefined) && t.name && t.name.toLowerCase() === playerName.toLowerCase())
+    );
     if(isTester){
       const record = { grantedAt: Date.now(), method:'tester', from: playerName, playerId, permanent: true };
       setAccessRecord(record);
@@ -9088,10 +9116,21 @@ async function verifyAndGrantAccess(){
 
     status.textContent = `Identified as ${playerName} [${playerId}] — checking faction…`;
 
-    // Step 2: Check faction membership via bd.faction.faction_id from user/basic
-    // Works with any key including public — no faction AA required
-    const playerFactionId = String(bd.faction?.faction_id || '');
-    status.textContent = `Identified as ${playerName} [${playerId}] — faction ID: ${playerFactionId||'none'} — checking access…`;
+    // Step 2: Check faction membership — faction_id from basic (bd.faction.faction_id) or profile (bd.faction_id)
+    const playerFactionId = String(bd.faction?.faction_id || bd.faction_id || '');
+    status.textContent = `${playerName} [${playerId}] — faction ID: ${playerFactionId||'NONE'} — checking access…`;
+
+    // Owner always gets access regardless of key type or faction field
+    if(playerId === OWNER_ID){
+      const record = { grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true };
+      setAccessRecord(record);
+      S.key = keyVal;
+      localStorage.setItem('hv_key', keyVal);
+      btn.innerHTML = '✓ VERIFIED';
+      progress.style.display = 'none';
+      showInitPanel(playerName, 'OWNER · PERMANENT ACCESS');
+      return;
+    }
 
     if(playerFactionId && playerFactionId === String(FACTION_ID)){
       const record = { grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true };
@@ -9259,15 +9298,26 @@ function showAccessGate(show){
 async function autoVerifyStoredKey(keyVal){
   try{
     trackApiCall();
-    const br = await fetch(`https://api.torn.com/user/?selections=basic&key=${keyVal}`);
+    const br = await fetch(`https://api.torn.com/user/?selections=basic,profile&key=${keyVal}`);
     const bd = await br.json();
     if(bd.error){ showAccessGate(true); return; }
     const playerId = String(bd.player_id);
     const playerName = bd.name || 'Unknown';
 
+    // Owner bypass
+    if(playerId === OWNER_ID){
+      setAccessRecord({ grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true });
+      showAccessGate(false);
+      S.key = keyVal; revealDash(); fetchAll(); startCycle();
+      return;
+    }
+
     // Whitelist tester check
     const wl = await loadWhitelist();
-    if(wl.testers.some(t => String(t.playerId) === playerId)){
+    if(wl.testers.some(t =>
+      (t.playerId !== null && t.playerId !== undefined && String(t.playerId) === playerId) ||
+      ((t.playerId === null || t.playerId === undefined) && t.name && t.name.toLowerCase() === playerName.toLowerCase())
+    )){
       setAccessRecord({ grantedAt: Date.now(), method:'tester', from: playerName, playerId, permanent: true });
       showAccessGate(false);
       clog(`Auto-verified: ${playerName} — tester access granted`,'ok');
@@ -9275,8 +9325,8 @@ async function autoVerifyStoredKey(keyVal){
       return;
     }
 
-    // Faction check via bd.faction.faction_id — works with any key including public
-    const autoFactionId = String(bd.faction?.faction_id || '');
+    // Faction check — faction_id from basic (bd.faction.faction_id) or profile (bd.faction_id)
+    const autoFactionId = String(bd.faction?.faction_id || bd.faction_id || '');
 
     if(autoFactionId && autoFactionId === String(FACTION_ID)){
       setAccessRecord({ grantedAt: Date.now(), method:'faction', from: playerName, playerId, permanent: true });
