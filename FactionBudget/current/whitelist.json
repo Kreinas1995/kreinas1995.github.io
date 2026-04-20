@@ -6,5 +6,12 @@
       "grantedAt": 1776651819126
     }
   ],
-  "factions": []
+  "factions": [
+    {
+      "id": "3660143",
+      "label": "Chaotic Misfits",
+      "notes": "Zikaman: Beta Test Faction Access",
+      "grantedAt": 1776657182423
+    }
+  ]
 }
