@@ -1273,6 +1273,9 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.5', date: '2026-04-19', notes: [
+    'Removed duplicate TESTER badge on player cards — status badge already shows TESTER, inline span was redundant',
+  ]},
   { v: '2.43.4', date: '2026-04-19', notes: [
     'Lifetime and tester players no longer show EXPIRED or days-left badge — tester shows TESTER badge in accent2',
     'Fixed tester button JS crash — replaced inline async IIFE with data-name attribute + named wrapper functions, eliminating quote-escaping issues',
@@ -4156,7 +4159,12 @@ function _renderPaymentLogModal(){
     card+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">`;
     card+=`<div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--text);">${p.name}</div>`;
     card+=`<span style="font-family:'Space Mono',monospace;font-size:9px;padding:2px 7px;border:1px solid ${statusColor};color:${statusColor};">${statusText}</span>`;
-    if(p.isTester) card+=`<span style="font-family:'Space Mono',monospace;font-size:8px;padding:2px 6px;background:rgba(240,192,64,0.12);border:1px solid rgba(240,192,64,0.3);color:var(--accent3);">TESTER</span>`;
+>>> END
+
+<<< FIND
+const APP_VERSION = '2.43.4';
+===
+const APP_VERSION = '2.43.5';
     card+=`<span style="flex:1;"></span>`;
     // Tester toggle button
     if(p.isTester){
