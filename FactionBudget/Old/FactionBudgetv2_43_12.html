@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.43.11</title>
+<title>Faction Budget v2.43.12</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.11';
+const APP_VERSION = '2.43.12';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,6 +1273,19 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.12', date: '2026-04-19', notes: [
+    'Payment cards: parsePaymentEvents() now extracts XID from raw HTML event link before stripping — player PID stored on every event and player record',
+    'Payment cards: bucketed by PID (not name) — renames no longer split a player\'s payment history into separate cards',
+    'Payment cards: player name updated to most recent seen value per PID bucket — always current even after rename',
+    'Payment cards: profile link now uses real XID instead of placeholder XID=0',
+    'Payment cards: [PID] shown in card header alongside player name',
+    'Payment cards: tester matching now checks PID first (falls back to name-match for entries without a PID)',
+    'Tester buttons: now carry data-pid so markAsTester/removeTester receive and store the PID',
+    'markAsTester: stores PID in whitelist.json entry; dedup check uses PID-or-name',
+    'removeTester: matches by PID when available — rename-safe removal',
+    'addPlayerToWhitelist: dedup check uses PID-or-name instead of name-only',
+    '_syncWlToS / loadWhitelist: playerId now preserved when copying tester entries into S.testers — fixes PID-based tester check at runtime',
+  ]},
   { v: '2.43.11', date: '2026-04-19', notes: [
     'Verify: owner (Sypharius) now bypasses all checks and always gets access — no longer blocked if bd.faction is missing or key lacks faction permission',
     'Verify: tester check now matches by name when playerId is null in whitelist.json (fixes Chubbs null-playerId entry)',
@@ -4064,8 +4077,12 @@ function renderPaymentCard(){
 function parsePaymentEvents(){
   const REQUIRED_MSG='dashboardaccess';
   const byPlayer={};
+  // Key by PID when available so renames don't split a player's history into two cards.
+  // Falls back to name for older events that lack a profile link.
+  const byPlayerKey={}; // pid -> bucket key (or name -> bucket key)
   (S.eventLog||[]).forEach(ev=>{
     const raw=ev.event||'';
+    const pid=extractXid(raw); // extract BEFORE stripping — profile link contains XID
     const n=stripHtml(raw);
     if(!n.toLowerCase().includes(REQUIRED_MSG)) return;
     const refunded=S.refundedPayments.has(ev.timestamp);
@@ -4079,11 +4096,19 @@ function parsePaymentEvents(){
     else if(iSing){type='Xanax';qty=1;}
     else if(mM){type='Money';qty=parseInt(mM[1].replace(/,/g,''));}
     if(!type) return;
-    if(!byPlayer[from]) byPlayer[from]={name:from,events:[],xanaxTotal:0,moneyUnits:0};
-    byPlayer[from].events.push({ts:ev.timestamp,type,qty,refunded,rawEvent:n});
+    // Use PID as the stable bucket key when we have one; fall back to name
+    const bucketKey = (pid && pid!=='0') ? 'pid:'+pid : 'name:'+from;
+    if(!byPlayer[bucketKey]){
+      byPlayer[bucketKey]={name:from,playerId:pid!=='0'?pid:null,events:[],xanaxTotal:0,moneyUnits:0};
+    } else {
+      // Always update name to most recent (handles renames)
+      byPlayer[bucketKey].name=from;
+      if(pid && pid!=='0') byPlayer[bucketKey].playerId=pid;
+    }
+    byPlayer[bucketKey].events.push({ts:ev.timestamp,type,qty,refunded,rawEvent:n});
     if(!refunded){
-      if(type==='Xanax') byPlayer[from].xanaxTotal+=qty;
-      if(type==='Money') byPlayer[from].moneyUnits+=Math.floor(qty/1000000);
+      if(type==='Xanax') byPlayer[bucketKey].xanaxTotal+=qty;
+      if(type==='Money') byPlayer[bucketKey].moneyUnits+=Math.floor(qty/1000000);
     }
   });
   // Compute derived fields per player
@@ -4091,7 +4116,10 @@ function parsePaymentEvents(){
     p.combinedUnits=p.xanaxTotal+p.moneyUnits;
     p.lifetime=p.combinedUnits>=100;
     p.daysGranted=p.lifetime?Infinity:p.combinedUnits*7;
-    p.isTester=(S.testers||[]).some(t=>t.name===p.name);
+    p.isTester=(S.testers||[]).some(t=>
+      (t.playerId && p.playerId && String(t.playerId)===String(p.playerId)) ||
+      ((!t.playerId || !p.playerId) && t.name && t.name.toLowerCase()===p.name.toLowerCase())
+    );
     const lastTs=Math.max(0,...p.events.map(e=>e.ts));
     p.grantedAt=lastTs*1000; // ms
     p.expiry=p.lifetime?null:p.grantedAt+(p.daysGranted*86400000);
@@ -4189,20 +4217,21 @@ function _renderPaymentLogModal(){
     const logId=safeId+'_log';
     const statusColor=p.lifetime||p.isTester?'var(--accent2)':p.expired?'var(--accent4)':p.daysLeft<=3?'var(--accent3)':'var(--muted)';
     const statusText=p.lifetime?'LIFETIME':p.isTester?'TESTER':p.expired?'EXPIRED':p.daysLeft===1?'1 DAY LEFT':`${p.daysLeft}d LEFT`;
-    const profileUrl=`https://www.torn.com/profiles.php?XID=0`; // placeholder — no ID stored in events
+    const profileUrl=p.playerId?`https://www.torn.com/profiles.php?XID=${p.playerId}`:`https://www.torn.com/profiles.php?XID=0`;
     const unitsToLifetime=Math.max(0,100-p.combinedUnits);
 
     let card=`<div style="background:var(--surface);border:1px solid var(--border);padding:12px 14px;">`;
     // Header row
     card+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">`;
-    card+=`<div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--text);">${p.name}</div>`;
+    card+=`<a href="${profileUrl}" target="_blank" rel="noopener" style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--text);text-decoration:none;" title="Open Torn profile">${p.name}</a>`;
+    if(p.playerId) card+=`<span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);">[${p.playerId}]</span>`;
     card+=`<span style="font-family:'Space Mono',monospace;font-size:9px;padding:2px 7px;border:1px solid ${statusColor};color:${statusColor};">${statusText}</span>`;
     card+=`<span style="flex:1;"></span>`;
     // Tester toggle button
     if(p.isTester){
-      card+=`<button onclick="wlRemoveTester(this)" data-name="${p.name}" style="background:transparent;border:1px solid var(--muted2);color:var(--muted2);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;">✕ TESTER</button>`;
+      card+=`<button onclick="wlRemoveTester(this)" data-name="${p.name}" data-pid="${p.playerId||''}" style="background:transparent;border:1px solid var(--muted2);color:var(--muted2);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;">✕ TESTER</button>`;
     } else {
-      card+=`<button onclick="wlMarkTester(this)" data-name="${p.name}" style="background:transparent;border:1px solid var(--muted);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;" title="Mark as tester">🐛</button>`;
+      card+=`<button onclick="wlMarkTester(this)" data-name="${p.name}" data-pid="${p.playerId||''}" style="background:transparent;border:1px solid var(--muted);color:var(--muted);font-family:'Space Mono',monospace;font-size:8px;padding:3px 8px;cursor:pointer;letter-spacing:1px;" title="Mark as tester">🐛</button>`;
     }
     card+=`</div>`;
     // Stats grid
@@ -4275,32 +4304,38 @@ function _renderPaymentLogModal(){
 }
 
 function _syncWlToS(){
-  S.testers=_wl.testers.map(t=>({name:t.name||'',grantedAt:t.grantedAt||0,notes:t.notes||''}));
+  S.testers=_wl.testers.map(t=>({playerId:t.playerId||null,name:t.name||'',grantedAt:t.grantedAt||0,notes:t.notes||''}));
   S.factionWhitelist=_wl.factions.map(f=>({id:f.id,label:f.label||'',notes:f.notes||'',grantedAt:f.grantedAt||0}));
 }
 
 // Wrapper functions for tester buttons — avoid complex inline onclick escaping
-async function wlMarkTester(btn){ await markAsTester(btn.dataset.name); }
-async function wlRemoveTester(btn){ await removeTester(btn.dataset.name); }
+async function wlMarkTester(btn){ await markAsTester(btn.dataset.name, btn.dataset.pid||null); }
+async function wlRemoveTester(btn){ await removeTester(btn.dataset.name, btn.dataset.pid||null); }
 
 // B-2: Mark player as tester (called from 🐛 button on player cards)
-async function markAsTester(name){
+async function markAsTester(name, pid){
   const rec=getAccessRecord();
   if(!rec||rec.playerId!==OWNER_ID) return;
   await loadWhitelist(); // ensure _wl is populated before mutating
-  if(_wl.testers.some(t=>t.name===name)){clog('Already a tester: '+name,'warn');_renderPaymentLogModal();return;}
-  _wl.testers.push({playerId:null,name,grantedAt:Date.now()});
+  const already=_wl.testers.some(t=>
+    (pid && t.playerId && String(t.playerId)===String(pid)) ||
+    (!pid && t.name===name)
+  );
+  if(already){clog('Already a tester: '+name,'warn');_renderPaymentLogModal();return;}
+  _wl.testers.push({playerId:pid||null,name,grantedAt:Date.now()});
   _syncWlToS();
   await saveWhitelistToGitHub();
   _renderPaymentLogModal();
 }
 
 // B-2: Remove tester
-async function removeTester(name){
+async function removeTester(name, pid){
   const rec=getAccessRecord();
   if(!rec||rec.playerId!==OWNER_ID) return;
   await loadWhitelist();
-  _wl.testers=_wl.testers.filter(t=>t.name!==name);
+  _wl.testers=_wl.testers.filter(t=>
+    pid && t.playerId ? String(t.playerId)!==String(pid) : t.name!==name
+  );
   _syncWlToS();
   await saveWhitelistToGitHub();
   _renderPaymentLogModal();
@@ -4329,7 +4364,11 @@ async function addPlayerToWhitelist(){
   const playerId=pidEl?pidEl.value.trim():null;
   const notes=notesEl?notesEl.value.trim():'';
   if(!name){clog('Player name required','warn');return;}
-  if(_wl.testers.some(t=>t.name===name)){clog('Already whitelisted: '+name,'warn');return;}
+  const alreadyWl=_wl.testers.some(t=>
+    (playerId && t.playerId && String(t.playerId)===String(playerId)) ||
+    (!playerId && t.name===name)
+  );
+  if(alreadyWl){clog('Already whitelisted: '+name,'warn');return;}
   _wl.testers.push({playerId:playerId||null,name,notes,grantedAt:Date.now()});
   _syncWlToS();
   await saveWhitelistToGitHub();
@@ -9015,7 +9054,7 @@ async function loadWhitelist(){
       factions: Array.isArray(data.factions) ? data.factions : []
     };
     clog('Whitelist loaded: '+_wl.testers.length+' testers, '+_wl.factions.length+' factions','info');
-    S.testers = _wl.testers.map(t=>({name:t.name||'',grantedAt:t.grantedAt||0,notes:t.notes||''}));
+    S.testers = _wl.testers.map(t=>({playerId:t.playerId||null,name:t.name||'',grantedAt:t.grantedAt||0,notes:t.notes||''}));
     S.factionWhitelist = _wl.factions.map(f=>({id:f.id,label:f.label||'',notes:f.notes||'',grantedAt:f.grantedAt||0}));
   }catch(e){
     clog('Whitelist unavailable ('+e.message+') — continuing without it','warn');
