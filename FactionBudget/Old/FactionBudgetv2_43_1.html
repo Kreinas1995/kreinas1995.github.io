@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.0';
+const APP_VERSION = '2.43.1';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,6 +1273,11 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.1', date: '2026-04-19', notes: [
+    'Replaced GRANT TESTER toolbar with + PLAYER button — opens inline form with name, player ID, and notes fields',
+    'Fixed whitelist overwrite bug — _wl now loaded via loadWhitelist() when payment log opens, ensuring existing entries are preserved',
+    'Fixed markAsTester double-render — removed internal _renderPaymentLogModal() call since button onclick handles it',
+  ]},
   { v: '2.43.0', date: '2026-04-19', notes: [
     'Owner can now manage testers and whitelisted factions directly in the payment log GUI — changes commit to whitelist.json on GitHub via Contents API',
     'Added GITHUB TOKEN field to payment log toolbar — PAT stored in localStorage, used for all whitelist writes',
@@ -4050,7 +4055,12 @@ function parsePaymentEvents(){
 function showPaymentLog(){
   const rec=getAccessRecord();
   if(!rec||rec.playerId!==OWNER_ID) return;
-  _renderPaymentLogModal();
+  // Ensure _wl is loaded before rendering so whitelist data is available
+  if(!_wl){
+    loadWhitelist().then(()=>{ _renderPaymentLogModal(); });
+  } else {
+    _renderPaymentLogModal();
+  }
   document.getElementById('paymentLogModal').style.display='block';
 }
 
@@ -4071,16 +4081,12 @@ function _renderPaymentLogModal(){
 
   let h='';
 
-  // ── TOOLBAR: grant tester + export + add faction
+  // ── TOOLBAR: export + add player + add faction
   h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);">`;
-  h+=`<div style="flex:1;min-width:0;">`;
-  h+=`<div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:4px;">GRANT TESTER ACCESS</div>`;
-  h+=`<div style="display:flex;gap:6px;">`;
-  h+=`<input id="grantTesterInput" type="text" placeholder="Player name…" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:4px 8px;outline:none;">`;
-  h+=`<button onclick="grantTesterAccess()" style="background:var(--accent3);color:#000;border:none;font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;letter-spacing:1px;white-space:nowrap;">+ TESTER</button>`;
-  h+=`</div></div>`;
+  h+=`<div style="flex:1;min-width:0;"> </div>`;
   h+=`<div style="display:flex;flex-direction:column;gap:4px;justify-content:flex-end;">`;
   h+=`<button onclick="exportPaymentData()" style="background:var(--surface);border:1px solid var(--accent2);color:var(--accent2);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;white-space:nowrap;">⬇ EXPORT</button>`;
+  h+=`<button onclick="showAddPlayerWhitelist()" style="background:var(--surface);border:1px solid var(--accent3);color:var(--accent3);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;white-space:nowrap;">+ PLAYER</button>`;
   h+=`<button onclick="showAddFactionWhitelist()" style="background:var(--surface);border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;white-space:nowrap;">+ FACTION</button>`;
   const storedPat=localStorage.getItem('hv_github_pat')||'';
   const patSet=storedPat?'1':'0';
@@ -4092,6 +4098,17 @@ function _renderPaymentLogModal(){
   h+=`<button onclick="(function(){localStorage.removeItem('hv_github_pat');const inp=document.getElementById('githubPatInput');inp.value='';inp.dataset.set='0';clog('GitHub PAT cleared','ok');})()" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);font-family:'Space Mono',monospace;font-size:9px;padding:3px 8px;cursor:pointer;white-space:nowrap;">CLEAR</button>`;
   h+=`</div>`;
   h+=`</div></div>`;
+
+  // Add player whitelist form (hidden by default)
+  h+=`<div id="addPlayerForm" style="display:none;background:var(--surface2);border:1px solid var(--accent3);padding:12px;margin-bottom:12px;">`;
+  h+=`<div style="font-size:9px;color:var(--accent3);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:8px;">ADD PLAYER TO WHITELIST</div>`;
+  h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">`;
+  h+=`<div><div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">PLAYER NAME</div><input id="wlPlayerName" type="text" placeholder="ExactTornName" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:4px 8px;outline:none;box-sizing:border-box;"></div>`;
+  h+=`<div><div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">PLAYER ID (optional)</div><input id="wlPlayerId" type="text" placeholder="12345" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:4px 8px;outline:none;box-sizing:border-box;"></div>`;
+  h+=`</div>`;
+  h+=`<div style="margin-bottom:8px;"><div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">NOTES</div><input id="wlPlayerNotes" type="text" placeholder="Optional notes…" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:4px 8px;outline:none;box-sizing:border-box;"></div>`;
+  h+=`<div style="display:flex;gap:6px;"><button onclick="addPlayerToWhitelist()" style="background:var(--accent3);color:#000;border:none;font-family:'Space Mono',monospace;font-size:9px;padding:5px 12px;cursor:pointer;">ADD</button><button onclick="document.getElementById('addPlayerForm').style.display='none'" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;padding:5px 10px;cursor:pointer;">CANCEL</button></div>`;
+  h+=`</div>`;
 
   // Add faction whitelist form (hidden by default)
   h+=`<div id="addFactionForm" style="display:none;background:var(--surface2);border:1px solid var(--accent5);padding:12px;margin-bottom:12px;">`;
@@ -4214,19 +4231,16 @@ function _syncWlToS(){
   S.factionWhitelist=_wl.factions.map(f=>({id:f.id,label:f.label||'',notes:f.notes||'',grantedAt:f.grantedAt||0}));
 }
 
-// B-2: Mark player as tester
+// B-2: Mark player as tester (called from 🐛 button on player cards)
 function markAsTester(name){
   const rec=getAccessRecord();
-  if(!rec||rec.playerId!==OWNER_ID){
-    alert('Testers are managed via whitelist.json in FactionBudget/current/.\nAdd the player\'s Torn ID and name to the "testers" array and re-upload the file.');
-    return;
-  }
+  if(!rec||rec.playerId!==OWNER_ID) return;
   if(!_wl) _wl={testers:[],factions:[]};
   if(_wl.testers.some(t=>t.name===name)){clog('Already a tester: '+name,'warn');return;}
   _wl.testers.push({playerId:null,name,grantedAt:Date.now()});
   _syncWlToS();
   saveWhitelistToGitHub();
-  _renderPaymentLogModal();
+  // caller (_renderPaymentLogModal inline) handles re-render
 }
 
 // B-2: Remove tester
@@ -4243,18 +4257,39 @@ function removeTester(name){
   _renderPaymentLogModal();
 }
 
-// B-7: Grant tester
+// B-7: Grant tester (legacy — kept for compatibility)
 function grantTesterAccess(){
+  showAddPlayerWhitelist();
+}
+
+// B-8: Show/hide add player form
+function showAddPlayerWhitelist(){
+  const el=document.getElementById('addPlayerForm');
+  if(el) el.style.display=el.style.display==='none'?'block':'none';
+}
+
+// B-8: Add player to whitelist
+function addPlayerToWhitelist(){
   const rec=getAccessRecord();
-  if(!rec||rec.playerId!==OWNER_ID){
-    alert('Testers are managed via whitelist.json in FactionBudget/current/.\nAdd the player\'s Torn ID and name to the "testers" array and re-upload the file.');
-    return;
-  }
-  const inp=document.getElementById('grantTesterInput');
-  const name=inp?inp.value.trim():'';
-  if(!name){clog('Enter a player name first','warn');return;}
-  markAsTester(name);
-  if(inp) inp.value='';
+  if(!rec||rec.playerId!==OWNER_ID) return;
+  if(!_wl) _wl={testers:[],factions:[]};
+  const nameEl=document.getElementById('wlPlayerName');
+  const pidEl=document.getElementById('wlPlayerId');
+  const notesEl=document.getElementById('wlPlayerNotes');
+  const name=nameEl?nameEl.value.trim():'';
+  const playerId=pidEl?pidEl.value.trim():null;
+  const notes=notesEl?notesEl.value.trim():'';
+  if(!name){clog('Player name required','warn');return;}
+  if(_wl.testers.some(t=>t.name===name)){clog('Already whitelisted: '+name,'warn');return;}
+  _wl.testers.push({playerId:playerId||null,name,notes,grantedAt:Date.now()});
+  _syncWlToS();
+  saveWhitelistToGitHub();
+  if(nameEl) nameEl.value='';
+  if(pidEl) pidEl.value='';
+  if(notesEl) notesEl.value='';
+  const el=document.getElementById('addPlayerForm');
+  if(el) el.style.display='none';
+  _renderPaymentLogModal();
 }
 
 // B-8: Show/hide add faction form
