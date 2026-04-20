@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.42.4';
+const APP_VERSION = '2.43.0';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1263,6 +1263,7 @@ const OWNER_ID = '2348580';      // Sypharius
 const OWNER_NAME = 'Sypharius';
 const ACCESS_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const WHITELIST_URL = 'whitelist.json'; // served from FactionBudget/current/ on GitHub Pages
+const WHITELIST_GITHUB_API = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current/whitelist.json';
 
 // ── Xanax item ID (access payment)
 const XANAX_ITEM_ID = 206;
@@ -1272,6 +1273,11 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.0', date: '2026-04-19', notes: [
+    'Owner can now manage testers and whitelisted factions directly in the payment log GUI — changes commit to whitelist.json on GitHub via Contents API',
+    'Added GITHUB TOKEN field to payment log toolbar — PAT stored in localStorage, used for all whitelist writes',
+    '_wl synced into S.testers/S.factionWhitelist on load so modal renders live data',
+  ]},
   { v: '2.42.1', date: '2026-04-19', notes: [
     '[*] BUG-TDZ: IDB module and IDB_KEYS constant moved before the startup IIFE — were declared after line 2291 causing ReferenceError on load',
     '[*] BUG-UPGRADE-WIPE: Removed IDB_KEYS wipe from version upgrade block — was deleting freshly-migrated data immediately after migration ran',
@@ -4076,6 +4082,15 @@ function _renderPaymentLogModal(){
   h+=`<div style="display:flex;flex-direction:column;gap:4px;justify-content:flex-end;">`;
   h+=`<button onclick="exportPaymentData()" style="background:var(--surface);border:1px solid var(--accent2);color:var(--accent2);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;white-space:nowrap;">⬇ EXPORT</button>`;
   h+=`<button onclick="showAddFactionWhitelist()" style="background:var(--surface);border:1px solid var(--accent5);color:var(--accent5);font-family:'Space Mono',monospace;font-size:9px;padding:4px 10px;cursor:pointer;white-space:nowrap;">+ FACTION</button>`;
+  const storedPat=localStorage.getItem('hv_github_pat')||'';
+  const patSet=storedPat?'1':'0';
+  const patVal=storedPat?'saved':'';
+  h+=`<div style="width:100%;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;">`;
+  h+=`<div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;white-space:nowrap;">GITHUB TOKEN</div>`;
+  h+=`<input id="githubPatInput" type="password" placeholder="ghp_… (contents:write scope)" value="`+patVal+`" data-set="`+patSet+`" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:10px;padding:3px 8px;outline:none;">`;
+  h+=`<button onclick="(function(){const inp=document.getElementById('githubPatInput');const v=inp.value.trim();if(!v||inp.dataset.set==='1')return;localStorage.setItem('hv_github_pat',v);inp.dataset.set='1';inp.value='saved';clog('GitHub PAT saved','ok');})()" style="background:var(--surface);border:1px solid var(--muted);color:var(--muted);font-family:'Space Mono',monospace;font-size:9px;padding:3px 8px;cursor:pointer;white-space:nowrap;">SAVE</button>`;
+  h+=`<button onclick="(function(){localStorage.removeItem('hv_github_pat');const inp=document.getElementById('githubPatInput');inp.value='';inp.dataset.set='0';clog('GitHub PAT cleared','ok');})()" style="background:transparent;border:1px solid var(--accent4);color:var(--accent4);font-family:'Space Mono',monospace;font-size:9px;padding:3px 8px;cursor:pointer;white-space:nowrap;">CLEAR</button>`;
+  h+=`</div>`;
   h+=`</div></div>`;
 
   // Add faction whitelist form (hidden by default)
@@ -4194,19 +4209,52 @@ function _renderPaymentLogModal(){
   el.innerHTML=h;
 }
 
-// B-2: Mark player as tester — now managed via whitelist.json in repo
+function _syncWlToS(){
+  S.testers=_wl.testers.map(t=>({name:t.name||'',grantedAt:t.grantedAt||0,notes:t.notes||''}));
+  S.factionWhitelist=_wl.factions.map(f=>({id:f.id,label:f.label||'',notes:f.notes||'',grantedAt:f.grantedAt||0}));
+}
+
+// B-2: Mark player as tester
 function markAsTester(name){
-  alert('Testers are now managed via whitelist.json in FactionBudget/current/.\nAdd the player\'s Torn ID and name to the "testers" array and re-upload the file.');
+  const rec=getAccessRecord();
+  if(!rec||rec.playerId!==OWNER_ID){
+    alert('Testers are managed via whitelist.json in FactionBudget/current/.\nAdd the player\'s Torn ID and name to the "testers" array and re-upload the file.');
+    return;
+  }
+  if(!_wl) _wl={testers:[],factions:[]};
+  if(_wl.testers.some(t=>t.name===name)){clog('Already a tester: '+name,'warn');return;}
+  _wl.testers.push({playerId:null,name,grantedAt:Date.now()});
+  _syncWlToS();
+  saveWhitelistToGitHub();
+  _renderPaymentLogModal();
 }
 
-// B-2: Remove tester — now managed via whitelist.json in repo
+// B-2: Remove tester
 function removeTester(name){
-  alert('Testers are now managed via whitelist.json in FactionBudget/current/.\nRemove the player from the "testers" array and re-upload the file.');
+  const rec=getAccessRecord();
+  if(!rec||rec.playerId!==OWNER_ID){
+    alert('Testers are managed via whitelist.json in FactionBudget/current/.\nRemove the player from the "testers" array and re-upload the file.');
+    return;
+  }
+  if(!_wl) _wl={testers:[],factions:[]};
+  _wl.testers=_wl.testers.filter(t=>t.name!==name);
+  _syncWlToS();
+  saveWhitelistToGitHub();
+  _renderPaymentLogModal();
 }
 
-// B-7: Grant tester — now managed via whitelist.json in repo
+// B-7: Grant tester
 function grantTesterAccess(){
-  alert('Testers are now managed via whitelist.json in FactionBudget/current/.\nAdd the player\'s Torn ID and name to the "testers" array and re-upload the file.');
+  const rec=getAccessRecord();
+  if(!rec||rec.playerId!==OWNER_ID){
+    alert('Testers are managed via whitelist.json in FactionBudget/current/.\nAdd the player\'s Torn ID and name to the "testers" array and re-upload the file.');
+    return;
+  }
+  const inp=document.getElementById('grantTesterInput');
+  const name=inp?inp.value.trim():'';
+  if(!name){clog('Enter a player name first','warn');return;}
+  markAsTester(name);
+  if(inp) inp.value='';
 }
 
 // B-8: Show/hide add faction form
@@ -4215,14 +4263,45 @@ function showAddFactionWhitelist(){
   if(el) el.style.display=el.style.display==='none'?'block':'none';
 }
 
-// B-8: Add faction to whitelist — now managed via whitelist.json in repo
+// B-8: Add faction to whitelist
 function addFactionWhitelist(){
-  alert('Faction whitelist is now managed via whitelist.json in FactionBudget/current/.\nAdd the faction ID and label to the "factions" array and re-upload the file.');
+  const rec=getAccessRecord();
+  if(!rec||rec.playerId!==OWNER_ID){
+    alert('Faction whitelist is managed via whitelist.json in FactionBudget/current/.\nAdd the faction ID and label to the "factions" array and re-upload the file.');
+    return;
+  }
+  if(!_wl) _wl={testers:[],factions:[]};
+  const idEl=document.getElementById('wlFactionId');
+  const lblEl=document.getElementById('wlFactionLabel');
+  const notesEl=document.getElementById('wlFactionNotes');
+  const id=idEl?idEl.value.trim():'';
+  const label=lblEl?lblEl.value.trim():'';
+  const notes=notesEl?notesEl.value.trim():'';
+  if(!id){clog('Faction ID required','warn');return;}
+  if(_wl.factions.some(f=>String(f.id)===String(id))){clog('Already whitelisted: '+id,'warn');return;}
+  _wl.factions.push({id,label,notes,grantedAt:Date.now()});
+  _syncWlToS();
+  saveWhitelistToGitHub();
+  if(idEl) idEl.value='';
+  if(lblEl) lblEl.value='';
+  if(notesEl) notesEl.value='';
+  const el=document.getElementById('addFactionForm');
+  if(el) el.style.display='none';
+  _renderPaymentLogModal();
 }
 
-// B-8: Remove faction from whitelist — now managed via whitelist.json in repo
+// B-8: Remove faction from whitelist
 function removeFactionWhitelist(id){
-  alert('Faction whitelist is now managed via whitelist.json in FactionBudget/current/.\nRemove the faction from the "factions" array and re-upload the file.');
+  const rec=getAccessRecord();
+  if(!rec||rec.playerId!==OWNER_ID){
+    alert('Faction whitelist is managed via whitelist.json in FactionBudget/current/.\nRemove the faction from the "factions" array and re-upload the file.');
+    return;
+  }
+  if(!_wl) _wl={testers:[],factions:[]};
+  _wl.factions=_wl.factions.filter(f=>String(f.id)!==String(id));
+  _syncWlToS();
+  saveWhitelistToGitHub();
+  _renderPaymentLogModal();
 }
 
 // B-6: Export payment data
@@ -8858,11 +8937,39 @@ async function loadWhitelist(){
       factions: Array.isArray(data.factions) ? data.factions : []
     };
     clog('Whitelist loaded: '+_wl.testers.length+' testers, '+_wl.factions.length+' factions','info');
+    S.testers = _wl.testers.map(t=>({name:t.name||'',grantedAt:t.grantedAt||0,notes:t.notes||''}));
+    S.factionWhitelist = _wl.factions.map(f=>({id:f.id,label:f.label||'',notes:f.notes||'',grantedAt:f.grantedAt||0}));
   }catch(e){
     clog('Whitelist unavailable ('+e.message+') — continuing without it','warn');
     _wl={testers:[],factions:[]};
   }
   return _wl;
+}
+
+async function saveWhitelistToGitHub(){
+  const pat=localStorage.getItem('hv_github_pat')||'';
+  if(!pat){ clog('GitHub PAT not set — open payment log and enter it under GITHUB TOKEN','warn'); return; }
+  try{
+    const getRes=await fetch(WHITELIST_GITHUB_API,{headers:{Authorization:'token '+pat,Accept:'application/vnd.github.v3+json'}});
+    if(!getRes.ok){ clog('Whitelist SHA fetch failed: '+getRes.status,'err'); return; }
+    const meta=await getRes.json();
+    const sha=meta.sha;
+    const payload=JSON.stringify({testers:_wl.testers,factions:_wl.factions},null,2);
+    const b64=btoa(unescape(encodeURIComponent(payload)));
+    const putRes=await fetch(WHITELIST_GITHUB_API,{
+      method:'PUT',
+      headers:{Authorization:'token '+pat,Accept:'application/vnd.github.v3+json','Content-Type':'application/json'},
+      body:JSON.stringify({message:'whitelist update via FactionBudget',content:b64,sha})
+    });
+    if(putRes.ok){
+      clog('whitelist.json saved ('+_wl.testers.length+' testers, '+_wl.factions.length+' factions)','ok');
+    } else {
+      const err=await putRes.json().catch(()=>({}));
+      clog('GitHub write failed: '+(err.message||putRes.status),'err');
+    }
+  }catch(e){
+    clog('saveWhitelistToGitHub error: '+e.message,'err');
+  }
 }
 
 async function verifyAndGrantAccess(){
