@@ -535,6 +535,7 @@
     <button class="btn-connect" id="btnInitialize" onclick="runInitialize()" style="width:100%;justify-content:center;font-size:14px;padding:14px 0;">
       ⬡ INITIALIZE DASHBOARD
     </button>
+    <button onclick="(function(){document.getElementById('initScreen').style.display='none';document.getElementById('initLog').innerHTML='';document.getElementById('initConsole').innerHTML='';document.getElementById('initProgress').style.display='none';document.getElementById('btnInitialize').disabled=false;document.getElementById('btnInitialize').innerHTML='⬡ INITIALIZE DASHBOARD';showAccessGate(true);})()" style="width:100%;margin-top:8px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:8px;cursor:pointer;letter-spacing:1px;">↩ BACK TO LOGIN</button>
     <div id="initProgress" style="display:none;margin-top:20px;">
       <!-- Per-step checklist -->
       <div id="initChecklist" style="margin-bottom:12px;">
@@ -1203,7 +1204,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.5';
+const APP_VERSION = '2.43.4';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,6 +1274,11 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.6', date: '2026-04-19', notes: [
+    'Fixed init crash on public/limited keys — faction/basic and faction/donations now split, donations gracefully optional',
+    'Added BACK TO LOGIN escape on init screen so stuck users can return to the access gate',
+    'Tester key capability check: warns at verify time if key lacks faction permissions',
+  ]},
   { v: '2.43.5', date: '2026-04-19', notes: [
     'Removed duplicate TESTER badge on player cards — status badge already shows TESTER, inline span was redundant',
   ]},
@@ -2996,9 +3002,14 @@ async function runInitialize(){
     // ── Step 1: Faction data
     stepStart('s-faction','Faction data');
     await rateSleep();
-    iconsole('GET faction/?selections=basic,donations','info');
-    const fac=await tGet('faction','basic,donations'); calls++;
-    S.faction=fac; S.donations=fac.donations||{};
+    iconsole('GET faction/?selections=basic','info');
+    const fac=await tGet('faction','basic'); calls++;
+    S.faction=fac; S.donations={};
+    try{
+      iconsole('GET faction/?selections=donations','info');
+      const donD=await tGet('faction','donations'); calls++;
+      S.donations=donD.donations||{};
+    }catch(e){ ilog(`⚠ faction/donations: ${e.message} — member balances unavailable (key needs AA)`); }
     const _titleEl=document.getElementById('factionTitle');
     if(_titleEl&&fac.name) _titleEl.textContent=fac.name.toUpperCase();
     let mTotal=0; Object.values(S.donations).forEach(d=>{ mTotal+=d.money_balance||0; });
@@ -3532,9 +3543,13 @@ async function fetchAll(isManual=false, isBackground=false){
     if(!cached.faction){
       await rateSafeGet('faction','basic'); // warm check
       clog('Fetching faction data…','info');
-      const fac=await tGet('faction','basic,donations');
+      const fac=await tGet('faction','basic');
       S.faction=fac;
-      S.donations=fac.donations||{};
+      S.donations={};
+      try{
+        const donD=await tGet('faction','donations');
+        S.donations=donD.donations||{};
+      }catch(e){ clog(`faction/donations unavailable [${e.message}] — member balances won't show (key needs AA)`,'warn'); }
       try{ localStorage.setItem('hv_v1_faction_cache',JSON.stringify({faction:fac,donations:fac.donations||{}})); }catch(e){}
       writeFetchMeta(['faction']);
     } else {
@@ -4159,6 +4174,12 @@ function _renderPaymentLogModal(){
     card+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">`;
     card+=`<div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--text);">${p.name}</div>`;
     card+=`<span style="font-family:'Space Mono',monospace;font-size:9px;padding:2px 7px;border:1px solid ${statusColor};color:${statusColor};">${statusText}</span>`;
+>>> END
+
+<<< FIND
+const APP_VERSION = '2.43.4';
+===
+const APP_VERSION = '2.43.6';
     card+=`<span style="flex:1;"></span>`;
     // Tester toggle button
     if(p.isTester){
@@ -9046,6 +9067,15 @@ async function verifyAndGrantAccess(){
       localStorage.setItem('hv_key', keyVal);
       btn.innerHTML = '✓ VERIFIED';
       progress.style.display = 'none';
+      try{
+        await rateSleep();
+        trackApiCall();
+        const capRes = await fetch(`https://api.torn.com/faction/${FACTION_ID}?selections=basic&key=${keyVal}`);
+        const capD = await capRes.json();
+        if(capD.error && capD.error.code===16){
+          status.innerHTML = `<span style="color:var(--accent2)">✓ TESTER ACCESS GRANTED</span><br><span style="color:var(--accent3);font-size:9px;">⚠ Your key lacks <code>faction</code> permissions — supply, OC and armory data won't load. Tap <strong>GET KEY</strong> to generate a key with faction access.</span>`;
+        }
+      }catch(e){}
       showInitPanel(playerName, 'TESTER · PERMANENT ACCESS');
       return;
     }
