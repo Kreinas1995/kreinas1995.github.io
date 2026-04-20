@@ -4,6 +4,12 @@
       "playerId": null,
       "name": "Chubbs",
       "grantedAt": 1776651819126
+    },
+    {
+      "playerId": "2620570",
+      "name": "Droxy",
+      "notes": "The Guy",
+      "grantedAt": 1776716859304
     }
   ],
   "factions": [
