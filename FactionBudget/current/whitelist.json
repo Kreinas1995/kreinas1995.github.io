@@ -2,10 +2,17 @@
   "testers": [
     {
       "playerId": "12345",
-      "name": "Chubbs",
-      "notes": "test",
-      "grantedAt": 1776646512948
+      "name": "test2",
+      "notes": "test 2",
+      "grantedAt": 1776646651668
     }
   ],
-  "factions": []
+  "factions": [
+    {
+      "id": "11111",
+      "label": "Test",
+      "notes": "Test",
+      "grantedAt": 1776646544673
+    }
+  ]
 }
