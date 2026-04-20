@@ -1,24 +1,4 @@
 {
-  "testers": [
-    {
-      "playerId": "xxxx",
-      "name": "player1",
-      "notes": "test",
-      "grantedAt": 1776647088952
-    }
-  ],
-  "factions": [
-    {
-      "id": "test 2",
-      "label": "xxxxx",
-      "notes": "test2",
-      "grantedAt": 1776647048654
-    },
-    {
-      "id": "Test 3",
-      "label": "Twst3",
-      "notes": "test 3",
-      "grantedAt": 1776647064322
-    }
-  ]
+  "testers": [],
+  "factions": []
 }
