@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faction Budget v2.43.12</title>
+<title>Faction Budget v2.43.13</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.12';
+const APP_VERSION = '2.43.13';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,6 +1273,9 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.13', date: '2026-04-20', notes: [
+    '[*] BUG-INV-DELTA-EVENTS: calcInvDelta() was using S.eventLog when populated, completely ignoring S.events — items received that existed only in S.events (e.g. Lion Plushie, Tribulus Omanense) were parsed correctly by parseReceipts() but silently missed by the delta. Fixed by merging both arrays deduped by timestamp+event prefix so calcInvDelta sees the same event universe as parseReceipts.',
+  ]},
   { v: '2.43.12', date: '2026-04-19', notes: [
     'Payment cards: parsePaymentEvents() now extracts XID from raw HTML event link before stripping — player PID stored on every event and player record',
     'Payment cards: bucketed by PID (not name) — renames no longer split a player\'s payment history into separate cards',
@@ -5386,7 +5389,16 @@ function calcInvDelta(){
     }
   });
 
-  const events = (S.eventLog&&S.eventLog.length) ? S.eventLog : (S.events||[]);
+  // Merge S.events and S.eventLog — deduped by timestamp+event prefix so neither
+  // source is dropped. parseReceipts() reads S.events; older delta logic read
+  // S.eventLog; unioning both ensures items like Lion Plushie / Tribulus Omanense
+  // that exist only in S.events are not silently missed by calcInvDelta.
+  const _evMap = new Map();
+  [...(S.events||[]), ...(S.eventLog||[])].forEach(ev=>{
+    const key=`${ev.timestamp||0}_${(ev.event||ev.news||'').slice(0,40)}`;
+    if(!_evMap.has(key)) _evMap.set(key,ev);
+  });
+  const events = [..._evMap.values()];
 
   // ─────────────────────────────────────────────────────────────────────────────
   // PASS 1 — build trade acceptance maps (needed before processing trade events)
