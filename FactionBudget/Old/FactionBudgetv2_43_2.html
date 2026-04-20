@@ -1203,7 +1203,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.1';
+const APP_VERSION = '2.43.2';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,6 +1273,10 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.43.2', date: '2026-04-19', notes: [
+    'Fixed whitelist mutation race condition — all write functions now async and await loadWhitelist() before mutating, guaranteeing _wl is populated from GitHub before any push/filter',
+    'All whitelist writes now await saveWhitelistToGitHub() so re-render only fires after confirmed write',
+  ]},
   { v: '2.43.1', date: '2026-04-19', notes: [
     'Replaced GRANT TESTER toolbar with + PLAYER button — opens inline form with name, player ID, and notes fields',
     'Fixed whitelist overwrite bug — _wl now loaded via loadWhitelist() when payment log opens, ensuring existing entries are preserved',
@@ -4232,28 +4236,25 @@ function _syncWlToS(){
 }
 
 // B-2: Mark player as tester (called from 🐛 button on player cards)
-function markAsTester(name){
+async function markAsTester(name){
   const rec=getAccessRecord();
   if(!rec||rec.playerId!==OWNER_ID) return;
-  if(!_wl) _wl={testers:[],factions:[]};
-  if(_wl.testers.some(t=>t.name===name)){clog('Already a tester: '+name,'warn');return;}
+  await loadWhitelist(); // ensure _wl is populated before mutating
+  if(_wl.testers.some(t=>t.name===name)){clog('Already a tester: '+name,'warn');_renderPaymentLogModal();return;}
   _wl.testers.push({playerId:null,name,grantedAt:Date.now()});
   _syncWlToS();
-  saveWhitelistToGitHub();
-  // caller (_renderPaymentLogModal inline) handles re-render
+  await saveWhitelistToGitHub();
+  _renderPaymentLogModal();
 }
 
 // B-2: Remove tester
-function removeTester(name){
+async function removeTester(name){
   const rec=getAccessRecord();
-  if(!rec||rec.playerId!==OWNER_ID){
-    alert('Testers are managed via whitelist.json in FactionBudget/current/.\nRemove the player from the "testers" array and re-upload the file.');
-    return;
-  }
-  if(!_wl) _wl={testers:[],factions:[]};
+  if(!rec||rec.playerId!==OWNER_ID) return;
+  await loadWhitelist();
   _wl.testers=_wl.testers.filter(t=>t.name!==name);
   _syncWlToS();
-  saveWhitelistToGitHub();
+  await saveWhitelistToGitHub();
   _renderPaymentLogModal();
 }
 
@@ -4269,10 +4270,10 @@ function showAddPlayerWhitelist(){
 }
 
 // B-8: Add player to whitelist
-function addPlayerToWhitelist(){
+async function addPlayerToWhitelist(){
   const rec=getAccessRecord();
   if(!rec||rec.playerId!==OWNER_ID) return;
-  if(!_wl) _wl={testers:[],factions:[]};
+  await loadWhitelist();
   const nameEl=document.getElementById('wlPlayerName');
   const pidEl=document.getElementById('wlPlayerId');
   const notesEl=document.getElementById('wlPlayerNotes');
@@ -4283,7 +4284,7 @@ function addPlayerToWhitelist(){
   if(_wl.testers.some(t=>t.name===name)){clog('Already whitelisted: '+name,'warn');return;}
   _wl.testers.push({playerId:playerId||null,name,notes,grantedAt:Date.now()});
   _syncWlToS();
-  saveWhitelistToGitHub();
+  await saveWhitelistToGitHub();
   if(nameEl) nameEl.value='';
   if(pidEl) pidEl.value='';
   if(notesEl) notesEl.value='';
@@ -4299,13 +4300,10 @@ function showAddFactionWhitelist(){
 }
 
 // B-8: Add faction to whitelist
-function addFactionWhitelist(){
+async function addFactionWhitelist(){
   const rec=getAccessRecord();
-  if(!rec||rec.playerId!==OWNER_ID){
-    alert('Faction whitelist is managed via whitelist.json in FactionBudget/current/.\nAdd the faction ID and label to the "factions" array and re-upload the file.');
-    return;
-  }
-  if(!_wl) _wl={testers:[],factions:[]};
+  if(!rec||rec.playerId!==OWNER_ID) return;
+  await loadWhitelist();
   const idEl=document.getElementById('wlFactionId');
   const lblEl=document.getElementById('wlFactionLabel');
   const notesEl=document.getElementById('wlFactionNotes');
@@ -4316,7 +4314,7 @@ function addFactionWhitelist(){
   if(_wl.factions.some(f=>String(f.id)===String(id))){clog('Already whitelisted: '+id,'warn');return;}
   _wl.factions.push({id,label,notes,grantedAt:Date.now()});
   _syncWlToS();
-  saveWhitelistToGitHub();
+  await saveWhitelistToGitHub();
   if(idEl) idEl.value='';
   if(lblEl) lblEl.value='';
   if(notesEl) notesEl.value='';
@@ -4326,16 +4324,13 @@ function addFactionWhitelist(){
 }
 
 // B-8: Remove faction from whitelist
-function removeFactionWhitelist(id){
+async function removeFactionWhitelist(id){
   const rec=getAccessRecord();
-  if(!rec||rec.playerId!==OWNER_ID){
-    alert('Faction whitelist is managed via whitelist.json in FactionBudget/current/.\nRemove the faction from the "factions" array and re-upload the file.');
-    return;
-  }
-  if(!_wl) _wl={testers:[],factions:[]};
+  if(!rec||rec.playerId!==OWNER_ID) return;
+  await loadWhitelist();
   _wl.factions=_wl.factions.filter(f=>String(f.id)!==String(id));
   _syncWlToS();
-  saveWhitelistToGitHub();
+  await saveWhitelistToGitHub();
   _renderPaymentLogModal();
 }
 
