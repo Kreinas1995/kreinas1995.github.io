@@ -317,9 +317,23 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 .divider{border:none;border-top:1px solid var(--border);margin:14px 0;}
 .muted{color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:.58rem;}
 .data-row{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap;}
+.mob-nav{display:none;}
 @media(max-width:768px){
-  .shell{grid-template-columns:1fr;}
+  .shell{grid-template-columns:1fr;grid-template-rows:52px 1fr 56px;}
   .sidebar{display:none;}
+  .mob-nav{display:flex;position:fixed;bottom:0;left:0;right:0;height:56px;background:var(--bg1);border-top:1px solid var(--border);z-index:60;align-items:stretch;}
+  .mob-btn{flex:1;background:none;border:none;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:.6rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 0;transition:color .15s;}
+  .mob-btn span{font-size:.45rem;letter-spacing:.05em;}
+  .mob-btn.active{color:var(--gold2);}
+  .mob-btn:hover{color:var(--text);}
+  .mob-more-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:70;}
+  .mob-more-overlay.open{display:block;}
+  .mob-more-menu{display:none;position:fixed;bottom:56px;left:0;right:0;background:var(--card);border-top:1px solid var(--border);z-index:80;padding:8px 0;}
+  .mob-more-menu.open{display:block;}
+  .mob-more-item{padding:12px 20px;font-family:'Inter',sans-serif;font-size:.84rem;color:var(--text2);cursor:pointer;border-bottom:1px solid var(--border);}
+  .mob-more-item:last-child{border-bottom:none;}
+  .mob-more-item:hover{background:var(--gdim);color:var(--gold2);}
+  .main{padding-bottom:72px;}
   .g2,.g3,.g4{grid-template-columns:1fr;}
   .stat3{grid-template-columns:1fr 1fr;}
   .dbg-grid{grid-template-columns:1fr 1fr;}
@@ -748,6 +762,25 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 </div>
 
 </div><!-- /main -->
+<!-- MOBILE BOTTOM NAV -->
+<div class="mob-nav" id="mobNav">
+  <button class="mob-btn active" id="mn-dashboard" onclick="nav('dashboard');setMN('dashboard')">▦<span>HOME</span></button>
+  <button class="mob-btn" id="mn-tracker" onclick="nav('tracker');setMN('tracker')">⚡<span>TRACK</span></button>
+  <button class="mob-btn" id="mn-apisync" onclick="nav('apisync');setMN('apisync')">↻<span>SYNC</span></button>
+  <button class="mob-btn" id="mn-billing" onclick="nav('billing');setMN('billing')">💰<span>BILL</span></button>
+  <button class="mob-btn" id="mn-more" onclick="toggleMobMenu()">☰<span>MORE</span></button>
+</div>
+<div class="mob-more-overlay" id="mobMoreOverlay" onclick="toggleMobMenu()"></div>
+<div class="mob-more-menu" id="mobMoreMenu">
+  <div class="mob-more-item" onclick="nav('roster');setMN('roster');toggleMobMenu()">👥 Employee Roster</div>
+  <div class="mob-more-item" onclick="nav('pnl');setMN('pnl');toggleMobMenu()">📊 Profit &amp; Loss</div>
+  <div class="mob-more-item" onclick="nav('payments');setMN('payments');toggleMobMenu()">💳 Payment Log</div>
+  <div class="mob-more-item" onclick="nav('stock');setMN('stock');toggleMobMenu()">📦 Stock</div>
+  <div class="mob-more-item" onclick="nav('sales');setMN('sales');toggleMobMenu()">📈 Sales Log</div>
+  <div class="mob-more-item" onclick="nav('logs');setMN('logs');toggleMobMenu()">📋 Company Logs</div>
+  <div class="mob-more-item" onclick="nav('debug');setMN('debug');toggleMobMenu()">🔬 Debug</div>
+  <div class="mob-more-item" onclick="nav('admin');setMN('admin');toggleMobMenu()">🛡 Admin</div>
+</div>
 </div><!-- /shell -->
 
 <!-- MODALS -->
@@ -881,7 +914,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 <script>
 'use strict';
 const APP_VERSION='v1.0.0';
-const APP_CHANGELOG=[{v:'v1.0.0',date:'2026-04-21',notes:['Complete overhaul — HighVibes Company Dashboard v1','Sidebar layout with 12 navigation sections','Syne/JetBrains Mono/Inter design system, full dark industrial theme','Company Logs panel with category filtering','Profit & Loss tracker with income/expense entries','Payment log with received/pending/overdue status and CSV export','Stock inventory with low-stock alerts and total valuation','Sales log with auto stock qty decrement and CSV export','Configurable train slots 1-10 with position selectors and pivot-on-override','Debug panel: log console, store inspector, allocator test, sim all','Admin panel: company config, storage keys, bulk actions, changelog','Fixed INV-STILL-BROKEN: API stats populate progress.man/int/end','Storage migrated to hvDashboard_v1']}];
+const APP_CHANGELOG=[{v:'v1.0.0',date:'2026-04-21 07:43:33',notes:['Complete overhaul — HighVibes Company Dashboard v1','Sidebar layout with 12 navigation sections','Syne/JetBrains Mono/Inter design system, full dark industrial theme','Company Logs panel with category filtering','Profit & Loss tracker with income/expense entries','Payment log with received/pending/overdue status and CSV export','Stock inventory with low-stock alerts and total valuation','Sales log with auto stock qty decrement and CSV export','Configurable train slots 1-10 with position selectors and pivot-on-override','Debug panel: log console, store inspector, allocator test, sim all','Admin panel: company config, storage keys, bulk actions, changelog','Fixed INV-STILL-BROKEN: API stats populate progress.man/int/end','Storage migrated to hvDashboard_v1']}];
 const STORE_KEY='hvDashboard_v1',NEWS_KEY='hvDashboard_v1_news',MEMB_KEY='hvDashboard_v1_members';
 const LEGACY=['tornTracker_v3','tornTracker_v8','hvTraining_v5'];
 const COMPANIES={
@@ -1231,7 +1264,7 @@ async function runApiSync(){
   try{
     const sr=await fetch(`https://api.torn.com/user/?selections=basic&key=${key}`);const sd=await sr.json();
     if(sd.error)throw new Error(`API Error ${sd.error.code}: ${sd.error.error}`);
-    const cid=sd.job&&sd.job.company_id;if(!cid)throw new Error('You are not employed at a company.');
+    const cid=(sd.job&&sd.job.company_id)||(sd.company&&sd.company.id);if(!cid)throw new Error('You are not a member or director of a company. Check your API key has Limited Access or higher.');
     dbgLog(`Company ID: ${cid}`,'api');
     setAS('\u27F3 Fetching employee roster\u2026','loading');
     const er=await fetch(`https://api.torn.com/company/${cid}?selections=employees&key=${key}`);const ed=await er.json();
@@ -1398,6 +1431,10 @@ function admChangeTpd(d){changeTpd(d);renderAdmin();}
 function admSetPrice(){const v=+document.getElementById('admPriceI').value||0;STORE.pricePerTrain=v;document.getElementById('admPrice').textContent=fmtC(v);saveStore();}
 function admResetEmp(){if(!confirm(`Reset ${ae().name}?`))return;confirmReset();}
 function admNuke(){if(!confirm('RESET ALL DATA?'))return;STORE=defStore();saveStore();syncModeUI();render();renderAdmin();showToast('Reset','err');}
+
+function setMN(page){document.querySelectorAll('.mob-btn').forEach(b=>b.classList.remove('active'));const b=document.getElementById('mn-'+page);if(b)b.classList.add('active');}
+let _mobMenuOpen=false;
+function toggleMobMenu(){_mobMenuOpen=!_mobMenuOpen;document.getElementById('mobMoreMenu').classList.toggle('open',_mobMenuOpen);document.getElementById('mobMoreOverlay').classList.toggle('open',_mobMenuOpen);}
 
 // ── BOOT ──────────────────────────────────────────────────
 (async()=>{
