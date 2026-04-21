@@ -91,6 +91,24 @@
         "pct": 0,
         "label": "0% \u2014 new tool"
       }
+    },
+    {
+      "id": "companyDashboard",
+      "name": "Company Dashboard",
+      "shortName": "Company Dashboard",
+      "description": "",
+      "status": "In Progress",
+      "badge": "In Progress",
+      "badgeStyle": "wip",
+      "currentFolder": "CompanyDashboard/current/",
+      "features": [],
+      "stats": [],
+      "heroStyle": false,
+      "devOnly": false,
+      "progress": {
+        "pct": 0,
+        "label": "0% \u2014 new tool"
+      }
     }
   ]
 }
