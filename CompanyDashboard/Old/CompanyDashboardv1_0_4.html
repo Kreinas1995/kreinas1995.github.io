@@ -319,25 +319,40 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 .data-row{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap;}
 .mob-nav{display:none;}
 @media(max-width:768px){
-  .shell{grid-template-columns:1fr;grid-template-rows:52px 1fr 56px;}
+  html{font-size:18px;}
+  .shell{grid-template-columns:1fr;grid-template-rows:58px 1fr 62px;}
   .sidebar{display:none;}
-  .mob-nav{display:flex;position:fixed;bottom:0;left:0;right:0;height:56px;background:var(--bg1);border-top:1px solid var(--border);z-index:60;align-items:stretch;}
-  .mob-btn{flex:1;background:none;border:none;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:.6rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 0;transition:color .15s;}
-  .mob-btn span{font-size:.45rem;letter-spacing:.05em;}
+  .topbar{height:58px;padding:0 14px;gap:8px;}
+  .tb-chip{font-size:.6rem;padding:5px 9px;}
+  .day-pill{font-size:.65rem;padding:4px 10px;}
+  .mob-nav{display:flex;position:fixed;bottom:0;left:0;right:0;height:62px;background:var(--bg1);border-top:1px solid var(--border);z-index:60;align-items:stretch;}
+  .mob-btn{flex:1;background:none;border:none;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:.58rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:4px 0;transition:color .15s;}
+  .mob-btn span{font-size:.46rem;letter-spacing:.05em;}
   .mob-btn.active{color:var(--gold2);}
   .mob-btn:hover{color:var(--text);}
   .mob-more-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:70;}
   .mob-more-overlay.open{display:block;}
-  .mob-more-menu{display:none;position:fixed;bottom:56px;left:0;right:0;background:var(--card);border-top:1px solid var(--border);z-index:80;padding:8px 0;}
+  .mob-more-menu{display:none;position:fixed;bottom:62px;left:0;right:0;background:var(--card);border-top:1px solid var(--border);z-index:80;padding:8px 0;}
   .mob-more-menu.open{display:block;}
-  .mob-more-item{padding:12px 20px;font-family:'Inter',sans-serif;font-size:.84rem;color:var(--text2);cursor:pointer;border-bottom:1px solid var(--border);}
+  .mob-more-item{padding:14px 20px;font-family:'Inter',sans-serif;font-size:.82rem;color:var(--text2);cursor:pointer;border-bottom:1px solid var(--border);}
   .mob-more-item:last-child{border-bottom:none;}
   .mob-more-item:hover{background:var(--gdim);color:var(--gold2);}
-  .main{padding-bottom:72px;}
+  .main{padding:18px 14px 80px;}
+  .card{padding:14px 14px;}
+  .mc{padding:14px 12px;}
+  .mc-val{font-size:1.6rem;}
+  .sc-val{font-size:1.45rem;}
+  .mem-name{font-size:.88rem;}
+  .ph-title{font-size:1.1rem;}
   .g2,.g3,.g4{grid-template-columns:1fr;}
   .stat3{grid-template-columns:1fr 1fr;}
   .dbg-grid{grid-template-columns:1fr 1fr;}
   .eff-strip{grid-template-columns:1fr;}.es{display:none;}
+  .modal{margin:20px 12px;padding:18px;}
+  .log-row{padding:10px 12px;}
+  .log-msg{font-size:.6rem;}
+  .tbl{font-size:.62rem;}
+  .tbl th{font-size:.54rem;}
 }
 </style>
 </head>
@@ -923,8 +938,8 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VERSION='v1.0.3';
-const APP_CHANGELOG=[{v:'v1.0.3',date:'2026-04-22 22:53:30',notes:['API: replaced single regex train parser with multi-pattern parseTrainCounts() shared across sync/billing/CSV — logs first 5 raw news samples to Debug on each sync','API: added Staff panel (👥 CURRENT STAFF / 📋 TRAINING RESULTS toggle) showing all live members with stats, effectiveness, and one-click CREATE profile','API: staff view opens by default after sync when no training events found; training results view opens when trains detected']},{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
+const APP_VERSION='v1.0.4';
+const APP_CHANGELOG=[{v:'v1.0.4',date:'2026-04-21',notes:['Mobile: bump html base font-size to 18px inside breakpoint — all rem units scale up proportionally','Mobile: increase topbar/nav-bar tap target height, loosen card/main padding, enlarge metric values and stat numbers']},{v:'v1.0.3',date:'2026-04-22 22:53:30',notes:['API: replaced single regex train parser with multi-pattern parseTrainCounts() shared across sync/billing/CSV — logs first 5 raw news samples to Debug on each sync','API: added Staff panel (👥 CURRENT STAFF / 📋 TRAINING RESULTS toggle) showing all live members with stats, effectiveness, and one-click CREATE profile','API: staff view opens by default after sync when no training events found; training results view opens when trains detected']},{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
 {v:'v1.0.1',date:'2026-04-21 09:08:19',notes:['API: try all company ID fields (job.company_id, company.id, company_id) for director support','API: log raw user object keys to debug console on sync failure','Mobile: bottom nav bar with MORE overflow menu']},{v:'v1.0.0',date:'2026-04-21',notes:['Complete overhaul — HighVibes Company Dashboard v1','Sidebar layout with 12 navigation sections','Syne/JetBrains Mono/Inter design system, full dark industrial theme','Company Logs panel with category filtering','Profit & Loss tracker with income/expense entries','Payment log with received/pending/overdue status and CSV export','Stock inventory with low-stock alerts and total valuation','Sales log with auto stock qty decrement and CSV export','Configurable train slots 1-10 with position selectors and pivot-on-override','Debug panel: log console, store inspector, allocator test, sim all','Admin panel: company config, storage keys, bulk actions, changelog','Fixed INV-STILL-BROKEN: API stats populate progress.man/int/end','Storage migrated to hvDashboard_v1']}];
 const STORE_KEY='hvDashboard_v1',NEWS_KEY='hvDashboard_v1_news',MEMB_KEY='hvDashboard_v1_members';
 const LEGACY=['tornTracker_v3','tornTracker_v8','hvTraining_v5'];
