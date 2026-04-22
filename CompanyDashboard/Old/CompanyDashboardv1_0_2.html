@@ -913,8 +913,9 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VERSION='v1.0.1';
-const APP_CHANGELOG=[{v:'v1.0.1',date:'2026-04-21 09:08:19',notes:['API: try all company ID fields (job.company_id, company.id, company_id) for director support','API: log raw user object keys to debug console on sync failure','Mobile: bottom nav bar with MORE overflow menu']},{v:'v1.0.0',date:'2026-04-21',notes:['Complete overhaul — HighVibes Company Dashboard v1','Sidebar layout with 12 navigation sections','Syne/JetBrains Mono/Inter design system, full dark industrial theme','Company Logs panel with category filtering','Profit & Loss tracker with income/expense entries','Payment log with received/pending/overdue status and CSV export','Stock inventory with low-stock alerts and total valuation','Sales log with auto stock qty decrement and CSV export','Configurable train slots 1-10 with position selectors and pivot-on-override','Debug panel: log console, store inspector, allocator test, sim all','Admin panel: company config, storage keys, bulk actions, changelog','Fixed INV-STILL-BROKEN: API stats populate progress.man/int/end','Storage migrated to hvDashboard_v1']}];
+const APP_VERSION='v1.0.2';
+const APP_CHANGELOG=[{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
+{v:'v1.0.1',date:'2026-04-21 09:08:19',notes:['API: try all company ID fields (job.company_id, company.id, company_id) for director support','API: log raw user object keys to debug console on sync failure','Mobile: bottom nav bar with MORE overflow menu']},{v:'v1.0.0',date:'2026-04-21',notes:['Complete overhaul — HighVibes Company Dashboard v1','Sidebar layout with 12 navigation sections','Syne/JetBrains Mono/Inter design system, full dark industrial theme','Company Logs panel with category filtering','Profit & Loss tracker with income/expense entries','Payment log with received/pending/overdue status and CSV export','Stock inventory with low-stock alerts and total valuation','Sales log with auto stock qty decrement and CSV export','Configurable train slots 1-10 with position selectors and pivot-on-override','Debug panel: log console, store inspector, allocator test, sim all','Admin panel: company config, storage keys, bulk actions, changelog','Fixed INV-STILL-BROKEN: API stats populate progress.man/int/end','Storage migrated to hvDashboard_v1']}];
 const STORE_KEY='hvDashboard_v1',NEWS_KEY='hvDashboard_v1_news',MEMB_KEY='hvDashboard_v1_members';
 const LEGACY=['tornTracker_v3','tornTracker_v8','hvTraining_v5'];
 const COMPANIES={
@@ -1262,16 +1263,15 @@ async function runApiSync(){
   const btn=document.getElementById('apiSyncBtn');btn.disabled=true;
   setAS('\u27F3 Fetching company data\u2026','loading');dbgLog('API sync started','api');
   try{
-    const sr=await fetch(`https://api.torn.com/user/?selections=basic&key=${key}`);const sd=await sr.json();
-    if(sd.error)throw new Error(`API Error ${sd.error.code}: ${sd.error.error}`);
-    const cid=(sd.job&&sd.job.company_id)||(sd.company&&sd.company.id)||sd.company_id;
-    dbgLog(`API user keys: ${Object.keys(sd).join(', ')}`,'debug');
-    if(!cid)throw new Error(`No company found on this key. Keys returned: ${Object.keys(sd).join(', ')} — ensure Limited Access or higher.`);
+    const cr=await fetch(`https://api.torn.com/company/?selections=profile,employees&key=${key}`);const cd=await cr.json();
+    if(cd.error)throw new Error(`API Error ${cd.error.code}: ${cd.error.error}`);
+    dbgLog(`API company keys: ${Object.keys(cd).join(', ')}`,'debug');
+    const cid=(cd.company&&(cd.company.ID||cd.company.id))||null;
+    if(!cid)throw new Error(`No company found on this key. Keys returned: ${Object.keys(cd).join(', ')} — ensure key has company access (Limited Access+).`);
     dbgLog(`Company ID: ${cid}`,'api');
-    setAS('\u27F3 Fetching employee roster\u2026','loading');
-    const er=await fetch(`https://api.torn.com/company/${cid}?selections=employees&key=${key}`);const ed=await er.json();
-    if(ed.error)throw new Error(`API Error ${ed.error.code}: ${ed.error.error}`);
-    const empObj=ed.employees||{};saveMC({companyId:cid,fetchedAt:Date.now(),employees:empObj});dbgLog(`Employees: ${Object.keys(empObj).length}`,'api');
+    const empObj=cd.company_employees||cd.employees||{};
+    if(!Object.keys(empObj).length)throw new Error('Company found but employee roster empty — key may lack employee read permission.');
+    saveMC({companyId:cid,fetchedAt:Date.now(),employees:empObj});dbgLog(`Employees: ${Object.keys(empObj).length}`,'api');
     let cache=loadNC();if(!cache||cache.companyId!==cid)cache={companyId:cid,lastTimestamp:0,entries:[]};
     const fromTs=Math.max(cache.lastTimestamp,startTs-86400);setAS(`\u27F3 Loading news for company #${cid}\u2026`,'loading');
     let allNew=[],fetchFrom=fromTs,page=0;
