@@ -188,7 +188,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 .dsep{border:none;border-top:1px solid var(--border);margin:4px 0;}
 /* SCHEDULE */
 .sched{background:var(--card2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:14px;}
-.sr{display:grid;grid-template-columns:44px 1fr 56px 64px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);gap:8px;}
+.sr{display:grid;grid-template-columns:44px 1fr 58px auto;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);gap:8px;}
 .sr:last-child{border-bottom:none;}
 .sr.hdr{background:var(--bg2);padding:5px 12px;font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);letter-spacing:.08em;}
 .sr.cur{background:var(--gdim);border-left:2px solid var(--gold);padding-left:10px;}
@@ -196,7 +196,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 .sr-desc{font-family:'Inter',sans-serif;font-weight:600;font-size:.72rem;}
 .sr-desc small{display:block;font-family:'JetBrains Mono',monospace;font-size:.48rem;color:var(--text3);font-weight:400;margin-top:1px;}
 .sr-gains{font-family:'JetBrains Mono',monospace;font-size:.54rem;text-align:right;}
-.sr-stats{font-family:'JetBrains Mono',monospace;font-size:.48rem;color:var(--text3);text-align:right;}
+.sr-stats{font-family:'JetBrains Mono',monospace;font-size:.44rem;color:var(--text3);text-align:right;white-space:nowrap;}
 /* MISC */
 .phase-tag{display:inline-block;margin-bottom:10px;background:var(--gold);color:#000;font-family:'JetBrains Mono',monospace;font-size:.56rem;font-weight:700;padding:2px 10px;border-radius:3px;letter-spacing:.06em;}
 .done-banner{background:rgba(66,204,126,.06);border:1px solid rgba(66,204,126,.25);border-radius:10px;padding:18px;text-align:center;margin-bottom:14px;display:none;}
@@ -372,8 +372,12 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
   <div class="tb-sp"></div>
   <div class="day-pill" id="dayPill">DAY 0</div>
   <button class="tb-chip" id="tbEmpChip" onclick="openEmpModal()">👤 <span id="tbEmpName">—</span></button>
-  <div class="tb-chip" id="tbApiChip">⚡ OFFLINE</div>
-  <button class="tb-chip warn" onclick="nav('debug')">⚙ DEBUG</button>
+>>> END
+
+<<< FIND
+  <div class="logo">HIGHVIBES<span>COMPANY DASHBOARD</span></div>
+===
+  <div class="logo" id="topbarLogo">COMPANY<span>DASHBOARD</span></div>
 </div>
 
 <!-- SIDEBAR -->
@@ -395,7 +399,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
   <div class="nav-sec">SYSTEM</div>
   <div class="nav-item dbg" id="nav-debug" onclick="nav('debug')"><span class="nav-icon">🔬</span> Debug</div>
   <div class="nav-item adm" id="nav-admin" onclick="nav('admin')"><span class="nav-icon">🛡</span> Admin</div>
-  <div class="sb-foot"><div class="sb-ver" id="sbVer">v1.0.0 · HighVibes</div></div>
+  <div class="sb-foot"><div class="sb-ver" id="sbVer">v1.1.3</div></div>
 </div>
 
 <!-- MAIN -->
@@ -958,8 +962,8 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VERSION='v1.1.2';
-const APP_CHANGELOG=[{v:'v1.1.2',date:'2026-04-25 13:05:20',notes:['Fix: strip HTML tags from news log at storage time and in all parsers — Torn wraps player names in anchor tags which broke every regex','Fix: purge stale blank-log cache entries on sync to clear noise from old code','Fix: second fetch to company/{id}?selections=profile retrieves advertising_budget and popularity; auto-populates STORE.adBudgetPerDay','Fix: auto-upsert all API employees into STORE.employees on sync — roster and dashboard now populate without manual CREATE']},{v:'v1.1.1',date:'2026-04-25 12:47:39',notes:['API: fix news text field — probe news/text/message/log variants; log raw entry keys+value to Debug on first page fetch so field name is always visible','Training parser: rewritten using dynamic position-name strip list — correctly extracts player name from "[Position] [Name] has been trained by the director"','Director start auto-detection: scan news for "[Name] has been made the new director", store timestamp, use as effective sync floor replacing manual start date requirement','Analytics: parse daily income/customer reports from Main News; show last 7 days + averages on Dashboard; capture daily_income/customers/weekly/rating from confirmed company API keys']},{v:'v1.1.0',date:'2026-04-25 12:04:16',notes:['API: fetch company/detailed on sync — logs all field names to Debug so training field discovery is automatic; falls back to news-text parsing if detailed counts absent','Fix: CREATE button now opens goal-setting form immediately after creating employee from API sync or staff view','Mobile: fix button/chip overflow — topbar chips truncate, ph-act wraps, btn-row wraps, mob-btn min-width guards added','Analytics: company snapshots (eff/popularity/cleanliness/adBudget/dailyIncome) stored on each sync, shown on Dashboard with trend indicators','P&L: Auto Breakdown panel — training mrevenue, employee wages (API), ad budget, stock costs, manual entries all in one net-profit summary']},{v:'v1.0.5',date:'2026-04-21',notes:['Fix: missing closing backtick in dbgLog call caused SyntaxError crashing all JS','Mobile: force mrow to 2-col grid and hide logo subtitle to prevent topbar/horizontal scroll']},{v:'v1.0.4',date:'2026-04-21',notes:['Mobile: bump html base font-size to 18px inside breakpoint — all rem units scale up proportionally','Mobile: increase topbar/nav-bar tap target height, loosen card/main padding, enlarge metric values and stat numbers']},{v:'v1.0.3',date:'2026-04-22 22:53:30',notes:['API: replaced single regex train parser with multi-pattern parseTrainCounts() shared across sync/billing/CSV — logs first 5 raw news samples to Debug on each sync','API: added Staff panel (👥 CURRENT STAFF / 📋 TRAINING RESULTS toggle) showing all live members with stats, effectiveness, and one-click CREATE profile','API: staff view opens by default after sync when no training events found; training results view opens when trains detected']},{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
+const APP_VERSION='v1.1.3';
+const APP_CHANGELOG=[{v:'v1.1.3',date:'2026-04-25 13:20:58',notes:['Branding: topbar now shows live company name from API (falls back to company type name)','UI: removed API Mode and Debug topbar chips — both accessible via More menu and sidebar','Routing: all API calls switched to tornapi.tornplayground.eu proxy','Allocator: tiebreak by least remaining gap across all 3 stats — minimises overshoot on multi-stat goals','Schedule: stats column uses auto width + nowrap so all 3 stats always fit on one line']},{v:'v1.1.2',date:'2026-04-25 13:05:20',notes:['Fix: strip HTML tags from news log at storage time and in all parsers — Torn wraps player names in anchor tags which broke every regex','Fix: purge stale blank-log cache entries on sync to clear noise from old code','Fix: second fetch to company/{id}?selections=profile retrieves advertising_budget and popularity; auto-populates STORE.adBudgetPerDay','Fix: auto-upsert all API employees into STORE.employees on sync — roster and dashboard now populate without manual CREATE']},{v:'v1.1.1',date:'2026-04-25 12:47:39',notes:['API: fix news text field — probe news/text/message/log variants; log raw entry keys+value to Debug on first page fetch so field name is always visible','Training parser: rewritten using dynamic position-name strip list — correctly extracts player name from "[Position] [Name] has been trained by the director"','Director start auto-detection: scan news for "[Name] has been made the new director", store timestamp, use as effective sync floor replacing manual start date requirement','Analytics: parse daily income/customer reports from Main News; show last 7 days + averages on Dashboard; capture daily_income/customers/weekly/rating from confirmed company API keys']},{v:'v1.1.0',date:'2026-04-25 12:04:16',notes:['API: fetch company/detailed on sync — logs all field names to Debug so training field discovery is automatic; falls back to news-text parsing if detailed counts absent','Fix: CREATE button now opens goal-setting form immediately after creating employee from API sync or staff view','Mobile: fix button/chip overflow — topbar chips truncate, ph-act wraps, btn-row wraps, mob-btn min-width guards added','Analytics: company snapshots (eff/popularity/cleanliness/adBudget/dailyIncome) stored on each sync, shown on Dashboard with trend indicators','P&L: Auto Breakdown panel — training mrevenue, employee wages (API), ad budget, stock costs, manual entries all in one net-profit summary']},{v:'v1.0.5',date:'2026-04-21',notes:['Fix: missing closing backtick in dbgLog call caused SyntaxError crashing all JS','Mobile: force mrow to 2-col grid and hide logo subtitle to prevent topbar/horizontal scroll']},{v:'v1.0.4',date:'2026-04-21',notes:['Mobile: bump html base font-size to 18px inside breakpoint — all rem units scale up proportionally','Mobile: increase topbar/nav-bar tap target height, loosen card/main padding, enlarge metric values and stat numbers']},{v:'v1.0.3',date:'2026-04-22 22:53:30',notes:['API: replaced single regex train parser with multi-pattern parseTrainCounts() shared across sync/billing/CSV — logs first 5 raw news samples to Debug on each sync','API: added Staff panel (👥 CURRENT STAFF / 📋 TRAINING RESULTS toggle) showing all live members with stats, effectiveness, and one-click CREATE profile','API: staff view opens by default after sync when no training events found; training results view opens when trains detected']},{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
 {v:'v1.0.1',date:'2026-04-21 09:08:19',notes:['API: try all company ID fields (job.company_id, company.id, company_id) for director support','API: log raw user object keys to debug console on sync failure','Mobile: bottom nav bar with MORE overflow menu']},{v:'v1.0.0',date:'2026-04-21',notes:['Complete overhaul — HighVibes Company Dashboard v1','Sidebar layout with 12 navigation sections','Syne/JetBrains Mono/Inter design system, full dark industrial theme','Company Logs panel with category filtering','Profit & Loss tracker with income/expense entries','Payment log with received/pending/overdue status and CSV export','Stock inventory with low-stock alerts and total valuation','Sales log with auto stock qty decrement and CSV export','Configurable train slots 1-10 with position selectors and pivot-on-override','Debug panel: log console, store inspector, allocator test, sim all','Admin panel: company config, storage keys, bulk actions, changelog','Fixed INV-STILL-BROKEN: API stats populate progress.man/int/end','Storage migrated to hvDashboard_v1']}];
 const STORE_KEY='hvDashboard_v1',NEWS_KEY='hvDashboard_v1_news',MEMB_KEY='hvDashboard_v1_members';
 const LEGACY=['tornTracker_v3','tornTracker_v8','hvTraining_v5'];
@@ -1007,11 +1011,22 @@ function allocate(s,goals,ck,maxT,passPos,ovr){
   for(let t=0;t<maxT;t++){
     if(ovr&&ovr[t]){const o=ovr[t];out.push(o);com[o.pri]+=o.priAmt;com[o.sec]+=o.secAmt;continue;}
     const pr={man:s.man+pass.man+com.man,int:s.int+pass.int+com.int,end:s.end+pass.end+com.end};
-    const g={man:goals.man>0?Math.max(0,goals.man-pr.man):0,int:goals.int>0?Math.max(0,goals.int-pr.int):0,end:goals.end>0?Math.max(0,goals.end-pr.end):0};
-    if(!g.man&&!g.int&&!g.end){out.push(null);continue;}
+    const rem={man:goals.man>0?Math.max(0,goals.man-pr.man):0,int:goals.int>0?Math.max(0,goals.int-pr.int):0,end:goals.end>0?Math.max(0,goals.end-pr.end):0};
+    if(!rem.man&&!rem.int&&!rem.end){out.push(null);continue;}
     let best=null,bs=-1;
-    for(const p of tp){const sc=Math.min(p.priAmt,g[p.pri])*2+Math.min(p.secAmt,g[p.sec]);if(sc>bs){bs=sc;best=p;}}
-    if(bs<=0){out.push(null);continue;}
+    for(const p of tp){
+      const priUseful=Math.min(p.priAmt,rem[p.pri]);
+      const secUseful=Math.min(p.secAmt,rem[p.sec]);
+      const useful=priUseful*2+secUseful;
+      if(useful<=0)continue;
+      // Tiebreak: prefer the slot that leaves less total remaining gap (minimises overshoot)
+      const remAfter=(rem.man-(p.pri==='man'?priUseful:p.sec==='man'?secUseful:0))
+                    +(rem.int-(p.pri==='int'?priUseful:p.sec==='int'?secUseful:0))
+                    +(rem.end-(p.pri==='end'?priUseful:p.sec==='end'?secUseful:0));
+      const score=useful*1000000-remAfter;
+      if(score>bs){bs=score;best=p;}
+    }
+    if(!best){out.push(null);continue;}
     out.push(best);com[best.pri]+=best.priAmt;com[best.sec]+=best.secAmt;
   }
   return{assignments:out,totalGains:{man:pass.man+com.man,int:pass.int+com.int,end:pass.end+com.end},passive:pass,trainGains:com};
@@ -1330,7 +1345,9 @@ function renderAnalytics(){
 // ── DASHBOARD ─────────────────────────────────────────────
 function renderDash(){
   const e=ae(),s=ap(),pos=apos(),g=ag(),tpd=e.trainsPerDay||5,co=COMPANIES[ack()];
-  document.getElementById('dashTitle').textContent=co.name.toUpperCase()+' DASHBOARD';
+  const coDisplayName=STORE.apiCompanyName||co.name;
+  document.getElementById('dashTitle').textContent=coDisplayName.toUpperCase()+' DASHBOARD';
+  const tl=document.getElementById('topbarLogo');if(tl)tl.innerHTML=coDisplayName.toUpperCase()+'<span>DASHBOARD</span>';
   document.getElementById('dashSub').textContent=`ACTIVE: ${e.name.toUpperCase()}`;
   document.getElementById('kpiEmp').textContent=Object.keys(STORE.employees).length;
   document.getElementById('kpiTrains').textContent=Object.values(STORE.employees).reduce((a,x)=>a+x.progress.totalTrains,0);
@@ -1378,11 +1395,13 @@ async function runApiSync(){
   setAS('\u27F3 Fetching company data\u2026','loading');dbgLog('API sync started','api');
   try{
     // Fetch profile+employees+detailed in one call
-    const cr=await fetch(`https://api.torn.com/company/?selections=profile,employees,detailed&key=${key}`);const cd=await cr.json();
+    const cr=await fetch(`https://tornapi.tornplayground.eu/company/?selections=profile,employees,detailed&key=${key}`);const cd=await cr.json();
     if(cd.error)throw new Error(`API Error ${cd.error.code}: ${cd.error.error}`);
     dbgLog(`API top-level keys: ${Object.keys(cd).join(', ')}`,'debug');
     const cid=(cd.company&&(cd.company.ID||cd.company.id))||(cd.company_details&&(cd.company_details.ID||cd.company_details.id))||null;
     if(!cid)throw new Error(`No company found on this key. Keys returned: ${Object.keys(cd).join(', ')} — ensure key has company access (Limited Access+).`);
+    const apiCoName=(cd.company&&cd.company.name)||(cd.company_details&&cd.company_details.name)||'';
+    if(apiCoName){STORE.apiCompanyName=apiCoName;const tl=document.getElementById('topbarLogo');if(tl)tl.innerHTML=apiCoName.toUpperCase()+'<span>COMPANY DASHBOARD</span>';}
     dbgLog(`Company ID: ${cid}`,'api');
     // Log detailed keys for diagnostics
     if(cd.company_details){dbgLog(`company_details keys: ${Object.keys(cd.company_details).join(', ')}`,'debug');}
@@ -1419,7 +1438,7 @@ async function runApiSync(){
     // Fetch full profile by explicit company ID — advertising_budget + popularity only
     // appear in the full profile call with an explicit ID, not the ownerless endpoint
     try{
-      const pr=await fetch(`https://api.torn.com/company/${cid}?selections=profile&key=${key}`);
+      const pr=await fetch(`https://tornapi.tornplayground.eu/company/${cid}?selections=profile&key=${key}`);
       const pd=await pr.json();
       if(!pd.error){
         const prof=pd.company||pd.company_details||pd||{};
@@ -1470,7 +1489,7 @@ async function runApiSync(){
     const stripHtml=s=>(s||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
     let allNew=[],fetchFrom=fromTs,page=0;
     while(page<20){
-      const resp=await fetch(`https://api.torn.com/company/${cid}?selections=news&key=${key}&from=${fetchFrom}`);
+      const resp=await fetch(`https://tornapi.tornplayground.eu/company/${cid}?selections=news&key=${key}&from=${fetchFrom}`);
       const data=await resp.json();
       if(data.error)throw new Error(`API Error ${data.error.code}: ${data.error.error}`);
       const raw=Object.values(data.news||{});
