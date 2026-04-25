@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>HighVibes — Company Dashboard v1</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#04060a;--bg1:#070b10;--bg2:#0a0f17;
+  --card:#111822;--card2:#141d28;
+  --border:#1a2535;--border2:#22304a;
+  --gold:#d4a843;--gold2:#f0c76a;
+  --gdim:rgba(212,168,67,.10);--gglow:rgba(212,168,67,.22);
+  --man:#4da6e8;--mdim:rgba(77,166,232,.10);
+  --int:#9b6bd4;--idim:rgba(155,107,212,.10);
+  --end:#42cc7e;--edim:rgba(66,204,126,.10);
+  --passive:#e07840;
+  --danger:#d44;--ddim:rgba(221,68,68,.10);
+  --ok:#42cc7e;
+  --api:#38c9a0;--adim:rgba(56,201,160,.10);
+  --debug:#e8823a;--dbdim:rgba(232,130,58,.10);
+  --text:#c8d6e8;--text2:#7a90aa;--text3:#3d5068;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;overflow-x:hidden;}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(ellipse 60% 30% at 50% 0%,rgba(212,168,67,.05) 0%,transparent 60%),
+    linear-gradient(rgba(212,168,67,.013) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(212,168,67,.013) 1px,transparent 1px);
+  background-size:100% 100%,48px 48px,48px 48px;}
+.shell{position:relative;z-index:1;display:grid;grid-template-columns:220px 1fr;grid-template-rows:52px 1fr;min-height:100vh;}
+/* TOPBAR */
+.topbar{grid-column:1/-1;background:var(--bg1);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px;gap:12px;position:sticky;top:0;z-index:50;}
+.logo{font-family:'Syne',sans-serif;font-size:.9rem;font-weight:800;color:var(--gold2);letter-spacing:.06em;text-shadow:0 0 28px var(--gglow);white-space:nowrap;}
+.logo span{color:var(--text3);font-weight:400;font-size:.68rem;margin-left:8px;font-family:'JetBrains Mono',monospace;}
+.tb-sp{flex:1;}
+.tb-chip{display:inline-flex;align-items:center;gap:5px;background:var(--card);border:1px solid var(--border2);border-radius:6px;padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:.58rem;color:var(--text2);cursor:pointer;transition:all .15s;white-space:nowrap;}
+.tb-chip:hover{border-color:var(--gold);color:var(--gold);}
+.tb-chip.on{border-color:var(--api);color:var(--api);background:var(--adim);}
+.tb-chip.warn{border-color:var(--debug);color:var(--debug);background:var(--dbdim);}
+.day-pill{background:var(--gold);color:#000;font-family:'Syne',sans-serif;font-size:.62rem;font-weight:800;padding:3px 10px;border-radius:4px;letter-spacing:.06em;}
+/* SIDEBAR */
+.sidebar{background:var(--bg1);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:14px 0;overflow-y:auto;position:sticky;top:52px;height:calc(100vh - 52px);}
+.nav-sec{font-family:'JetBrains Mono',monospace;font-size:.5rem;letter-spacing:.14em;color:var(--text3);padding:10px 18px 4px;text-transform:uppercase;}
+.nav-item{display:flex;align-items:center;gap:9px;padding:9px 18px;font-size:.76rem;font-weight:500;color:var(--text2);cursor:pointer;transition:all .12s;border-left:2px solid transparent;user-select:none;}
+.nav-item:hover{color:var(--text);background:rgba(255,255,255,.03);}
+.nav-item.active{color:var(--gold2);border-left-color:var(--gold);background:var(--gdim);}
+.nav-item.dbg.active{color:var(--debug);border-left-color:var(--debug);background:var(--dbdim);}
+.nav-item.adm.active{color:var(--int);border-left-color:var(--int);background:var(--idim);}
+.nav-icon{font-size:.88rem;width:16px;text-align:center;flex-shrink:0;}
+.sb-foot{margin-top:auto;padding:12px 18px;border-top:1px solid var(--border);}
+.sb-ver{font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);}
+/* MAIN */
+.main{padding:22px 20px 60px;overflow-y:auto;min-width:0;}
+.page{display:none;}
+.page.active{display:block;animation:fadeUp .18s ease;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+/* PAGE HEADER */
+.ph{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;gap:12px;flex-wrap:wrap;}
+.ph-title{font-family:'Syne',sans-serif;font-size:1.25rem;font-weight:800;color:var(--text);}
+.ph-sub{font-family:'JetBrains Mono',monospace;font-size:.56rem;color:var(--text3);margin-top:3px;letter-spacing:.06em;}
+.ph-act{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-width:0;}
+/* METRICS */
+.mrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px;}
+.mc{background:var(--card);border:1px solid var(--border);border-radius:9px;padding:14px;position:relative;overflow:hidden;}
+.mc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:2px 2px 0 0;}
+.mc.gold::before{background:var(--gold);}
+.mc.man::before{background:var(--man);}
+.mc.int::before{background:var(--int);}
+.mc.end::before{background:var(--end);}
+.mc.grn::before{background:var(--ok);}
+.mc.red::before{background:var(--danger);}
+.mc.api::before{background:var(--api);}
+.mc.dbg::before{background:var(--debug);}
+.mc-lbl{font-family:'JetBrains Mono',monospace;font-size:.5rem;letter-spacing:.1em;color:var(--text3);margin-bottom:6px;text-transform:uppercase;}
+.mc-val{font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;line-height:1;color:var(--text);margin-bottom:4px;}
+.mc-sub{font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);}
+/* CARDS */
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;}
+.card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.ct{font-family:'Syne',sans-serif;font-size:.76rem;font-weight:700;color:var(--gold);letter-spacing:.08em;text-transform:uppercase;display:flex;align-items:center;gap:8px;}
+.ct::before{content:'';width:3px;height:13px;background:var(--gold);border-radius:2px;display:inline-block;}
+.ct.api{color:var(--api);}.ct.api::before{background:var(--api);}
+.ct.dbg{color:var(--debug);}.ct.dbg::before{background:var(--debug);}
+.ct.adm{color:var(--int);}.ct.adm::before{background:var(--int);}
+.ct.red{color:var(--danger);}.ct.red::before{background:var(--danger);}
+.ct.grn{color:var(--ok);}.ct.grn::before{background:var(--ok);}
+.sec-lbl{font-family:'JetBrains Mono',monospace;font-size:.52rem;letter-spacing:.1em;color:var(--text3);text-transform:uppercase;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+/* INPUTS */
+.lbl{display:block;font-family:'JetBrains Mono',monospace;font-size:.52rem;color:var(--text3);letter-spacing:.08em;margin-bottom:4px;}
+input,select,textarea{width:100%;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:.72rem;padding:8px 11px;outline:none;transition:border-color .15s;}
+input:focus,select:focus,textarea:focus{border-color:var(--gold);}
+input.mf:focus{border-color:var(--man);}
+input.if:focus{border-color:var(--int);}
+input.ef:focus{border-color:var(--end);}
+select option{background:var(--card);}
+textarea{resize:vertical;min-height:70px;line-height:1.5;}
+.irow{display:flex;gap:6px;align-items:flex-end;}
+.irow>*{flex:1;}
+.irow>button{flex:0 0 auto;}
+.fld{margin-bottom:10px;}
+/* BUTTONS */
+.btn{font-family:'JetBrains Mono',monospace;font-size:.62rem;font-weight:600;letter-spacing:.08em;padding:9px 16px;border-radius:6px;border:none;cursor:pointer;transition:all .15s;text-transform:uppercase;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
+.btn-g{background:var(--gold);color:#000;}.btn-g:hover{background:var(--gold2);transform:translateY(-1px);}
+.btn-g:disabled{opacity:.3;cursor:not-allowed;transform:none;}
+.btn-o{background:transparent;border:1px solid var(--border2);color:var(--text2);}.btn-o:hover{border-color:var(--gold);color:var(--gold);}
+.btn-api{background:var(--api);color:#000;}.btn-api:hover{opacity:.85;}.btn-api:disabled{opacity:.35;cursor:not-allowed;}
+.btn-red{background:transparent;border:1px solid rgba(221,68,68,.3);color:var(--danger);}.btn-red:hover{background:var(--ddim);}
+.btn-dbg{background:var(--dbdim);border:1px solid rgba(232,130,58,.3);color:var(--debug);}.btn-dbg:hover{background:rgba(232,130,58,.15);}
+.btn-adm{background:var(--idim);border:1px solid rgba(155,107,212,.3);color:var(--int);}.btn-adm:hover{background:rgba(155,107,212,.18);}
+.btn-sm{padding:5px 10px;font-size:.54rem;}
+.btn-xs{padding:3px 7px;font-size:.5rem;}
+.btn-full{width:100%;justify-content:center;}
+/* TABS */
+.tab-bar{display:flex;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:3px;margin-bottom:16px;}
+.tab-btn{flex:1;background:none;border:none;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:.58rem;letter-spacing:.06em;color:var(--text3);padding:7px 6px;cursor:pointer;transition:all .14s;text-align:center;}
+.tab-btn:hover{color:var(--text);}
+.tab-btn.active{background:var(--card2);color:var(--gold2);border:1px solid var(--border2);}
+/* TABLES */
+.tbl-wrap{overflow-x:auto;}
+.tbl{width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:.6rem;}
+.tbl th{text-align:left;padding:7px 10px;background:var(--bg2);color:var(--text3);font-size:.52rem;letter-spacing:.08em;border-bottom:1px solid var(--border2);font-weight:500;}
+.tbl td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text2);}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:rgba(255,255,255,.02);}
+.tbl .nc{color:var(--text);font-weight:500;font-family:'Inter',sans-serif;font-size:.74rem;}
+.tbl .num{text-align:right;}
+.tbl .pos{color:var(--ok);}
+.tbl .neg{color:var(--danger);}
+.tbl .gld{color:var(--gold2);}
+/* STAT CARDS */
+.stat3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
+.sc{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:13px;position:relative;overflow:hidden;}
+.sc::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+.sc.man::after{background:var(--man);}.sc.int::after{background:var(--int);}.sc.end::after{background:var(--end);}
+.sc-lbl{font-family:'JetBrains Mono',monospace;font-size:.5rem;letter-spacing:.1em;margin-bottom:5px;}
+.sc.man .sc-lbl{color:var(--man);}.sc.int .sc-lbl{color:var(--int);}.sc.end .sc-lbl{color:var(--end);}
+.sc-val{font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;line-height:1;margin-bottom:3px;}
+.sc.man .sc-val{color:var(--man);}.sc.int .sc-val{color:var(--int);}.sc.end .sc-val{color:var(--end);}
+.sc-goal{font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);margin-bottom:6px;}
+.bar{height:3px;background:var(--bg);border-radius:2px;overflow:hidden;}
+.bar-f{height:100%;border-radius:2px;transition:width .4s;}
+.sc.man .bar-f{background:var(--man);}.sc.int .bar-f{background:var(--int);}.sc.end .bar-f{background:var(--end);}
+.sc-rem{font-family:'JetBrains Mono',monospace;font-size:.48rem;color:var(--text3);margin-top:4px;}
+.goal-hit{color:var(--end)!important;}
+/* EFF STRIP */
+.eff-strip{display:grid;grid-template-columns:1fr 1px 1fr 1px 1fr;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;align-items:center;}
+.ei{text-align:center;padding:0 8px;}
+.es{background:var(--border2);height:28px;}
+.ei-lbl{font-family:'JetBrains Mono',monospace;font-size:.48rem;color:var(--text3);letter-spacing:.08em;margin-bottom:3px;}
+.ei-val{font-family:'Syne',sans-serif;font-size:.95rem;font-weight:800;color:var(--gold2);}
+.ei-sub{font-family:'JetBrains Mono',monospace;font-size:.46rem;color:var(--text3);margin-top:1px;}
+/* PASSIVE BOX */
+.pass-box{background:rgba(224,120,64,.06);border:1px solid rgba(224,120,64,.18);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-family:'JetBrains Mono',monospace;font-size:.58rem;line-height:1.9;color:var(--text2);}
+.pass-box strong{color:var(--passive);}
+.cm{color:var(--man);}.ci{color:var(--int);}.ce{color:var(--end);}
+/* TRAIN SLOTS */
+.slot-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.stepper{display:flex;align-items:center;gap:6px;}
+.step-btn{width:22px;height:22px;background:var(--card2);border:1px solid var(--border2);border-radius:4px;color:var(--text2);font-size:.85rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s;}
+.step-btn:hover{border-color:var(--gold);color:var(--gold);}
+.step-val{font-family:'Syne',sans-serif;font-size:.9rem;font-weight:800;color:var(--gold2);min-width:18px;text-align:center;}
+.tslots{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;}
+.tslot{background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:9px 12px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:all .15s;user-select:none;}
+.tslot:hover{border-color:var(--border2);}
+.tslot.done{border-color:var(--gold);background:var(--gdim);}
+.tslot.skip{opacity:.3;cursor:default;}
+.ts-num{font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--text3);min-width:22px;}
+.ts-name{font-family:'Inter',sans-serif;font-size:.74rem;font-weight:600;flex:1;}
+.ts-gains{font-family:'JetBrains Mono',monospace;font-size:.52rem;line-height:1.5;text-align:right;}
+.ts-check{font-size:.7rem;color:var(--gold);opacity:0;transition:opacity .15s;}
+.tslot.done .ts-check{opacity:1;}
+.ts-sel{background:var(--card);border:1px solid var(--border2);border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:.54rem;padding:3px 6px;outline:none;cursor:pointer;transition:border-color .15s;width:auto;max-width:155px;}
+.ts-sel:focus{border-color:var(--gold);}
+.ovr-badge{font-family:'JetBrains Mono',monospace;font-size:.46rem;color:var(--gold);background:var(--gdim);border:1px solid rgba(212,168,67,.25);padding:1px 5px;border-radius:2px;}
+/* PROG */
+.prog-wrap{height:3px;background:var(--bg);border-radius:2px;overflow:hidden;margin-bottom:6px;}
+.prog-fill{height:100%;background:var(--gold);border-radius:2px;transition:width .3s;}
+.prog-row{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--text3);margin-bottom:10px;}
+/* DAILY BOX */
+.daily-box{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-family:'JetBrains Mono',monospace;font-size:.58rem;line-height:2;}
+.dr{display:flex;justify-content:space-between;align-items:center;}
+.dr-lbl{color:var(--text3);}
+.dsep{border:none;border-top:1px solid var(--border);margin:4px 0;}
+/* SCHEDULE */
+.sched{background:var(--card2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:14px;}
+.sr{display:grid;grid-template-columns:44px 1fr 58px auto;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);gap:8px;}
+.sr:last-child{border-bottom:none;}
+.sr.hdr{background:var(--bg2);padding:5px 12px;font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);letter-spacing:.08em;}
+.sr.cur{background:var(--gdim);border-left:2px solid var(--gold);padding-left:10px;}
+.sr-num{font-family:'JetBrains Mono',monospace;font-size:.56rem;color:var(--gold);}
+.sr-desc{font-family:'Inter',sans-serif;font-weight:600;font-size:.72rem;}
+.sr-desc small{display:block;font-family:'JetBrains Mono',monospace;font-size:.48rem;color:var(--text3);font-weight:400;margin-top:1px;}
+.sr-gains{font-family:'JetBrains Mono',monospace;font-size:.54rem;text-align:right;}
+.sr-stats{font-family:'JetBrains Mono',monospace;font-size:.44rem;color:var(--text3);text-align:right;white-space:nowrap;}
+/* MISC */
+.phase-tag{display:inline-block;margin-bottom:10px;background:var(--gold);color:#000;font-family:'JetBrains Mono',monospace;font-size:.56rem;font-weight:700;padding:2px 10px;border-radius:3px;letter-spacing:.06em;}
+.done-banner{background:rgba(66,204,126,.06);border:1px solid rgba(66,204,126,.25);border-radius:10px;padding:18px;text-align:center;margin-bottom:14px;display:none;}
+.done-banner.show{display:block;}
+.done-banner h2{font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:var(--end);margin-bottom:5px;}
+.done-banner p{font-family:'JetBrains Mono',monospace;font-size:.58rem;color:var(--text3);}
+.mode-bar{display:flex;align-items:center;gap:12px;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:11px 14px;margin-bottom:14px;}
+.m-lbl{font-family:'JetBrains Mono',monospace;font-size:.6rem;letter-spacing:.08em;transition:all .15s;}
+.m-lbl.on{color:var(--gold2);}.m-lbl.off{color:var(--text3);}
+.tog{position:relative;width:42px;height:22px;cursor:pointer;flex-shrink:0;}
+.tog input{opacity:0;width:0;height:0;}
+.tog-track{position:absolute;inset:0;background:var(--border2);border-radius:11px;transition:background .2s;}
+.tog input:checked+.tog-track{background:var(--api);}
+.tog-knob{position:absolute;top:3px;left:3px;width:16px;height:16px;background:#fff;border-radius:50%;transition:transform .2s;pointer-events:none;}
+.tog input:checked~.tog-knob{transform:translateX(20px);}
+.emp-bar{display:flex;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:3px;margin-bottom:14px;}
+.emp-btn{flex:1;background:none;border:none;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:.58rem;letter-spacing:.06em;color:var(--text3);padding:7px 6px;cursor:pointer;transition:all .14s;text-align:center;}
+.emp-btn:hover{color:var(--text);}
+.emp-btn.active{background:var(--card2);color:var(--gold2);border:1px solid var(--border2);}
+.sv{text-align:center;}
+.sv-lbl{font-family:'JetBrains Mono',monospace;font-size:.48rem;letter-spacing:.1em;margin-bottom:3px;}
+.sv-lbl.man{color:var(--man);}.sv-lbl.int{color:var(--int);}.sv-lbl.end{color:var(--end);}
+.sv-val{font-family:'Syne',sans-serif;font-size:.9rem;font-weight:800;}
+.sv-val.man{color:var(--man);}.sv-val.int{color:var(--int);}.sv-val.end{color:var(--end);}
+.sv-d{font-family:'JetBrains Mono',monospace;font-size:.46rem;color:var(--text3);margin-top:1px;}
+.sv-d.pos{color:var(--ok);}
+.sdate-nat{position:absolute;opacity:0;width:0;height:0;pointer-events:none;}
+.sdate-sub{font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);margin-top:5px;}
+.sdate-sub.on{color:var(--gold);}
+/* API */
+.api-panel{background:rgba(56,201,160,.04);border:1px solid rgba(56,201,160,.18);border-radius:10px;padding:14px;margin-bottom:14px;}
+.api-st{font-family:'JetBrains Mono',monospace;font-size:.56rem;padding:7px 10px;border-radius:5px;background:var(--bg2);border:1px solid var(--border);display:none;margin-top:8px;}
+.api-st.show{display:block;}
+.api-st.ok{color:var(--api);border-color:rgba(56,201,160,.25);}
+.api-st.err{color:var(--danger);border-color:rgba(221,68,68,.25);}
+.api-st.loading{color:var(--gold);border-color:rgba(212,168,67,.25);animation:blink 1.4s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.5}}
+.api-cache{font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);margin-top:6px;line-height:1.6;}
+/* MEMBER CARDS */
+.mem-card{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:11px 13px;margin-bottom:7px;transition:border-color .15s;}
+.mem-card:hover{border-color:var(--border2);}
+.mem-card.active{border-color:var(--gold);background:var(--gdim);}
+.mem-name{font-family:'Inter',sans-serif;font-weight:600;font-size:.84rem;color:var(--text);margin-bottom:3px;}
+.mem-pos{font-family:'JetBrains Mono',monospace;font-size:.52rem;color:var(--gold);margin-bottom:2px;}
+.mem-stats{font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);line-height:1.6;}
+.mem-right{display:flex;flex-direction:column;align-items:flex-end;gap:4px;}
+.mem-big{font-family:'Syne',sans-serif;font-size:1rem;font-weight:800;color:var(--gold2);}
+.mem-lbl-s{font-family:'JetBrains Mono',monospace;font-size:.46rem;color:var(--text3);}
+.aply-btn{background:transparent;border:1px solid var(--api);border-radius:4px;color:var(--api);font-family:'JetBrains Mono',monospace;font-size:.5rem;padding:3px 8px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.aply-btn:hover{background:var(--adim);}
+.aply-btn.done{border-color:var(--text3);color:var(--text3);cursor:default;}
+/* BILLING */
+.bill-cfg{background:var(--gdim);border:1px solid rgba(212,168,67,.2);border-radius:10px;padding:14px;margin-bottom:14px;}
+.seg{display:flex;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:3px;}
+.seg-btn{flex:1;background:none;border:none;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:.54rem;letter-spacing:.06em;color:var(--text3);padding:6px 6px;cursor:pointer;transition:all .14s;text-align:center;}
+.seg-btn.active{background:var(--card2);color:var(--gold2);border:1px solid var(--border2);}
+.inv-row{display:grid;grid-template-columns:1fr auto auto auto auto;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);margin-bottom:5px;font-family:'JetBrains Mono',monospace;font-size:.58rem;}
+.inv-name{font-family:'Inter',sans-serif;font-weight:600;font-size:.8rem;color:var(--text);}
+.inv-tot{background:var(--gdim);border-color:rgba(212,168,67,.25);}
+/* LOG ROWS */
+.log-row{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;}
+.log-row:last-child{border-bottom:none;}
+.log-ico{font-size:.85rem;flex-shrink:0;margin-top:1px;}
+.log-msg{font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--text2);flex:1;word-break:break-word;}
+.log-ts{font-family:'JetBrains Mono',monospace;font-size:.48rem;color:var(--text3);margin-top:2px;}
+/* BADGES */
+.badge{display:inline-block;padding:1px 7px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:.48rem;letter-spacing:.06em;}
+.b-ok{background:var(--edim);color:var(--ok);border:1px solid rgba(66,204,126,.2);}
+.b-warn{background:var(--dbdim);color:var(--debug);border:1px solid rgba(232,130,58,.2);}
+.b-low{background:var(--ddim);color:var(--danger);border:1px solid rgba(221,68,68,.2);}
+.b-gold{background:var(--gdim);color:var(--gold);border:1px solid rgba(212,168,67,.2);}
+.b-api{background:var(--adim);color:var(--api);border:1px solid rgba(56,201,160,.2);}
+/* LOG CONSOLE */
+.log-console{background:var(--bg);border:1px solid var(--border2);border-radius:7px;padding:10px 12px;height:200px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:.56rem;line-height:1.75;margin-bottom:10px;}
+.log-console::-webkit-scrollbar{width:4px;}
+.log-console::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+.lc-row{display:flex;gap:8px;margin-bottom:1px;}
+.lc-ts{color:var(--text3);min-width:56px;flex-shrink:0;}
+.lc-msg.info{color:var(--text2);}.lc-msg.ok{color:var(--ok);}.lc-msg.warn{color:var(--gold);}.lc-msg.err{color:var(--danger);}.lc-msg.debug{color:var(--debug);}.lc-msg.api{color:var(--api);}
+/* STORE VIEWER */
+.store-view{background:var(--bg);border:1px solid var(--border2);border-radius:7px;padding:10px 12px;max-height:260px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:.52rem;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-all;}
+.store-view::-webkit-scrollbar{width:4px;}
+.store-view::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+/* DEBUG CARDS */
+.dbg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
+.dbg-card{background:var(--bg2);border:1px solid var(--border2);border-radius:7px;padding:11px;}
+.dbg-lbl{font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--debug);letter-spacing:.08em;margin-bottom:5px;}
+.dbg-val{font-family:'Syne',sans-serif;font-size:1rem;font-weight:800;color:var(--text);}
+.dbg-sub{font-family:'JetBrains Mono',monospace;font-size:.46rem;color:var(--text3);margin-top:2px;}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.sim-out{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:.56rem;color:var(--text2);line-height:1.7;margin-top:8px;display:none;}
+.sim-out.show{display:block;}
+/* ADMIN */
+.adm-row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:.58rem;}
+.adm-row:last-child{border-bottom:none;}
+.adm-lbl{color:var(--text2);flex:1;}
+.adm-val{color:var(--int);margin-right:12px;}
+.cache-row{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:5px;border:1px solid var(--border);background:var(--bg2);margin-bottom:5px;font-family:'JetBrains Mono',monospace;font-size:.54rem;}
+.ck{color:var(--text3);flex:1;word-break:break-all;}
+.cs{color:var(--int);margin-right:10px;}
+/* CHANGELOG */
+.cl-entry{margin-bottom:12px;}
+.cl-ver{font-family:'Syne',sans-serif;font-size:.72rem;font-weight:800;color:var(--gold2);}
+.cl-date{font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);margin-left:8px;}
+.cl-notes{font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--text2);margin-top:5px;line-height:1.8;padding-left:12px;list-style:none;}
+.cl-notes li{padding-left:10px;position:relative;}.cl-notes li::before{content:'›';position:absolute;left:0;color:var(--gold);}
+/* TOAST */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--card2);border:1px solid var(--gold);border-radius:8px;padding:10px 20px;font-family:'JetBrains Mono',monospace;font-size:.62rem;color:var(--gold2);z-index:999;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap;box-shadow:0 10px 40px rgba(0,0,0,.6);}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.ok{border-color:var(--ok);color:var(--ok);}
+.toast.err{border-color:var(--danger);color:var(--danger);}
+/* MODALS */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;overflow-y:auto;}
+.overlay.open{display:block;}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:12px;max-width:440px;margin:44px auto;padding:20px;}
+.modal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.modal-title{font-family:'Syne',sans-serif;font-size:.88rem;font-weight:800;color:var(--gold2);}
+.divider{border:none;border-top:1px solid var(--border);margin:14px 0;}
+.muted{color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:.58rem;}
+.data-row{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap;}
+.mob-nav{display:none;}
+@media(max-width:768px){
+  html{font-size:18px;}
+  .shell{grid-template-columns:1fr;grid-template-rows:58px 1fr 62px;}
+  .sidebar{display:none;}
+  .topbar{height:58px;padding:0 14px;gap:6px;overflow:hidden;}
+  .tb-chip{font-size:.58rem;padding:4px 7px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .day-pill{font-size:.62rem;padding:3px 8px;flex-shrink:0;}
+  .mob-nav{display:flex;position:fixed;bottom:0;left:0;right:0;height:62px;background:var(--bg1);border-top:1px solid var(--border);z-index:60;align-items:stretch;}
+  .mob-btn{flex:1;background:none;border:none;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:.56rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:4px 2px;transition:color .15s;min-width:0;overflow:hidden;}
+  .mob-btn span{font-size:.46rem;letter-spacing:.05em;}
+  .mob-btn.active{color:var(--gold2);}
+  .mob-btn:hover{color:var(--text);}
+  .mob-more-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:70;}
+  .mob-more-overlay.open{display:block;}
+  .mob-more-menu{display:none;position:fixed;bottom:62px;left:0;right:0;background:var(--card);border-top:1px solid var(--border);z-index:80;padding:8px 0;}
+  .mob-more-menu.open{display:block;}
+  .mob-more-item{padding:14px 20px;font-family:'Inter',sans-serif;font-size:.82rem;color:var(--text2);cursor:pointer;border-bottom:1px solid var(--border);}
+  .mob-more-item:last-child{border-bottom:none;}
+  .mob-more-item:hover{background:var(--gdim);color:var(--gold2);}
+  .main{padding:18px 14px 80px;overflow-x:hidden;max-width:100vw;}
+  .ph{flex-wrap:wrap;gap:8px;}
+  .ph-act{flex-wrap:wrap;width:100%;gap:6px;}
+  .ph-act .btn{flex:1;min-width:0;justify-content:center;}
+  .btn-row{flex-wrap:wrap;}
+  .mrow{grid-template-columns:1fr 1fr;}
+  .topbar{overflow:hidden;}
+  .logo span{display:none;}
+  .card{padding:14px 14px;}
+  .mc{padding:14px 12px;}
+  .mc-val{font-size:1.6rem;}
+  .sc-val{font-size:1.45rem;}
+  .mem-name{font-size:.88rem;}
+  .ph-title{font-size:1.1rem;}
+  .g2,.g3,.g4{grid-template-columns:1fr;}
+  .stat3{grid-template-columns:1fr 1fr;}
+  .dbg-grid{grid-template-columns:1fr 1fr;}
+  .eff-strip{grid-template-columns:1fr;}.es{display:none;}
+  .modal{margin:20px 12px;padding:18px;}
+  .log-row{padding:10px 12px;}
+  .log-msg{font-size:.6rem;}
+  .tbl{font-size:.62rem;}
+  .tbl th{font-size:.54rem;}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo">HIGHVIBES<span>COMPANY DASHBOARD</span></div>
+  <div class="tb-sp"></div>
+  <div class="day-pill" id="dayPill">DAY 0</div>
+  <button class="tb-chip" id="tbEmpChip" onclick="openEmpModal()">👤 <span id="tbEmpName">—</span></button>
+>>> END
+
+<<< FIND
+  <div class="logo">HIGHVIBES<span>COMPANY DASHBOARD</span></div>
+===
+  <div class="logo" id="topbarLogo">COMPANY<span>DASHBOARD</span></div>
+</div>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="nav-sec">OVERVIEW</div>
+  <div class="nav-item active" id="nav-dashboard" onclick="nav('dashboard')"><span class="nav-icon">▦</span> Dashboard</div>
+  <div class="nav-sec">TRAINING</div>
+  <div class="nav-item" id="nav-tracker" onclick="nav('tracker')"><span class="nav-icon">⚡</span> Tracker</div>
+  <div class="nav-item" id="nav-roster" onclick="nav('roster')"><span class="nav-icon">👥</span> Employee Roster</div>
+  <div class="nav-item" id="nav-apisync" onclick="nav('apisync')"><span class="nav-icon">↻</span> API Sync</div>
+  <div class="nav-sec">FINANCE</div>
+  <div class="nav-item" id="nav-billing" onclick="nav('billing')"><span class="nav-icon">💰</span> Billing &amp; Invoices</div>
+  <div class="nav-item" id="nav-pnl" onclick="nav('pnl')"><span class="nav-icon">📊</span> Profit &amp; Loss</div>
+  <div class="nav-item" id="nav-payments" onclick="nav('payments')"><span class="nav-icon">💳</span> Payment Log</div>
+  <div class="nav-sec">OPERATIONS</div>
+  <div class="nav-item" id="nav-stock" onclick="nav('stock')"><span class="nav-icon">📦</span> Stock</div>
+  <div class="nav-item" id="nav-sales" onclick="nav('sales')"><span class="nav-icon">📈</span> Sales Log</div>
+  <div class="nav-item" id="nav-logs" onclick="nav('logs')"><span class="nav-icon">📋</span> Company Logs</div>
+  <div class="nav-sec">SYSTEM</div>
+  <div class="nav-item dbg" id="nav-debug" onclick="nav('debug')"><span class="nav-icon">🔬</span> Debug</div>
+  <div class="nav-item adm" id="nav-admin" onclick="nav('admin')"><span class="nav-icon">🛡</span> Admin</div>
+  <div class="sb-foot"><div class="sb-ver" id="sbVer">v1.1.3</div></div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+<!-- DASHBOARD -->
+<div class="page active" id="page-dashboard">
+  <div class="ph">
+    <div><div class="ph-title" id="dashTitle">COMPANY DASHBOARD</div><div class="ph-sub" id="dashSub">OVERVIEW</div></div>
+    <div class="ph-act">
+      <button class="btn btn-o btn-sm" onclick="nav('apisync')">↻ SYNC</button>
+      <button class="btn btn-g btn-sm" onclick="openEmpModal()">+ EMPLOYEE</button>
+    </div>
+  </div>
+  <div class="mrow">
+    <div class="mc gold"><div class="mc-lbl">EMPLOYEES</div><div class="mc-val" id="kpiEmp">0</div><div class="mc-sub">tracked</div></div>
+    <div class="mc grn"><div class="mc-lbl">TOTAL TRAINS</div><div class="mc-val" id="kpiTrains">0</div><div class="mc-sub">all employees</div></div>
+    <div class="mc api"><div class="mc-lbl">REVENUE</div><div class="mc-val" id="kpiRev">$0</div><div class="mc-sub">payments + P&L income</div></div>
+    <div class="mc red"><div class="mc-lbl">OUTSTANDING</div><div class="mc-val" id="kpiOut">$0</div><div class="mc-sub">pending + overdue</div></div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="ct">ACTIVE EMPLOYEE</div><button class="btn btn-o btn-sm" onclick="openEmpModal()">SWITCH</button></div>
+      <div id="dashEmp" class="muted">No employee selected.</div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="ct">TODAY'S TRAINING</div><button class="btn btn-o btn-sm" onclick="nav('tracker')">OPEN</button></div>
+      <div id="dashToday" class="muted">—</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-hdr"><div class="ct">ROSTER SNAPSHOT</div><button class="btn btn-o btn-sm" onclick="nav('roster')">VIEW ALL</button></div>
+    <div id="dashRoster"></div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="ct grn">RECENT PAYMENTS</div><button class="btn btn-o btn-sm" onclick="nav('payments')">ALL</button></div>
+      <div id="dashPayments" class="muted">No payments logged.</div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="ct">RECENT ACTIVITY</div><button class="btn btn-o btn-sm" onclick="nav('logs')">ALL LOGS</button></div>
+      <div id="dashLogs"></div>
+    </div>
+  </div>
+  <div class="card" id="dashAnalyticsCard" style="display:none">
+    <div class="card-hdr"><div class="ct api">COMPANY ANALYTICS</div><button class="btn btn-o btn-sm" onclick="clearSnapshots()">CLEAR</button></div>
+    <div id="dashAnalytics"></div>
+  </div>
+</div>
+
+<!-- TRACKER -->
+<div class="page" id="page-tracker">
+  <div class="ph">
+    <div><div class="ph-title">TRAINING TRACKER</div><div class="ph-sub">GOAL &amp; TRAIN MANAGEMENT</div></div>
+    <div class="ph-act"><button class="btn btn-o btn-sm" onclick="openEmpModal()">👤 <span id="trkEmpName">—</span></button></div>
+  </div>
+  <div class="mode-bar">
+    <span class="m-lbl on" id="mLblMan">MANUAL</span>
+    <label class="tog"><input type="checkbox" id="modeToggle" onchange="onModeToggle()"><div class="tog-track"></div><div class="tog-knob"></div></label>
+    <span class="m-lbl off" id="mLblApi">API SYNC</span>
+    <span class="badge b-api" id="apiBadge" style="display:none">LIVE</span>
+    <div style="flex:1"></div>
+    <button class="btn btn-o btn-sm" onclick="nav('apisync')">↻ SYNC</button>
+  </div>
+  <div class="card" style="padding:12px 14px">
+    <div class="lbl" style="margin-bottom:6px">📅 TRACKING START DATE</div>
+    <div id="directorStartBanner" style="display:none;margin-bottom:8px;padding:7px 10px;background:var(--adim);border:1px solid rgba(56,201,160,.25);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--api)"></div>
+    <div class="irow" style="position:relative">
+      <input type="text" id="sdDisp" placeholder="DD/MM/YYYY (manual override)" maxlength="10" oninput="onSdInput(this)" onblur="onSdBlur(this)"/>
+      <input type="date" class="sdate-nat" id="sdNative" onchange="onSdNative(this)"/>
+      <button class="btn btn-o btn-sm" style="flex:0 0 auto" onclick="document.getElementById('sdNative').showPicker?document.getElementById('sdNative').showPicker():document.getElementById('sdNative').click()">📅</button>
+    </div>
+    <div class="sdate-sub" id="sdSub">Sync first to auto-detect your director start date, or enter manually</div>
+  </div>
+  <div class="card">
+    <div class="card-hdr"><div class="ct">SESSION STARTING STATS</div><button class="btn btn-o btn-sm" onclick="toggleStartsEdit()">EDIT</button></div>
+    <div class="g3" id="startsDisplay">
+      <div class="sv"><div class="sv-lbl man">MANUAL</div><div class="sv-val man" id="sStMan">—</div><div class="sv-d" id="sGMan"></div></div>
+      <div class="sv"><div class="sv-lbl int">INTEL</div><div class="sv-val int" id="sStInt">—</div><div class="sv-d" id="sGInt"></div></div>
+      <div class="sv"><div class="sv-lbl end">ENDURANCE</div><div class="sv-val end" id="sStEnd">—</div><div class="sv-d" id="sGEnd"></div></div>
+    </div>
+    <div id="startsForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+      <div class="g3">
+        <div class="fld"><label class="lbl">MAN START</label><input type="number" id="seMan" placeholder="0" min="0" class="mf"/></div>
+        <div class="fld"><label class="lbl">INT START</label><input type="number" id="seInt" placeholder="0" min="0" class="if"/></div>
+        <div class="fld"><label class="lbl">END START</label><input type="number" id="seEnd" placeholder="0" min="0" class="ef"/></div>
+      </div>
+      <button class="btn btn-g btn-full btn-sm" onclick="saveStartingStats()">SAVE STARTING STATS</button>
+    </div>
+  </div>
+  <div class="done-banner" id="doneBanner"><h2>🕯️ ALL GOALS REACHED</h2><p>All target stats achieved. Training complete.</p></div>
+  <div class="emp-bar">
+    <button class="emp-btn active" id="emBtnTrains" onclick="setEmpMode('trains')"># TRAINS MODE</button>
+    <button class="emp-btn" id="emBtnGoal" onclick="setEmpMode('goal')">🎯 GOAL MODE</button>
+  </div>
+  <div class="stat3">
+    <div class="sc man"><div class="sc-lbl">MANUAL</div><div class="sc-val" id="vMan">0</div><div class="sc-goal" id="gMan">GOAL: —</div><div class="bar"><div class="bar-f" id="bMan"></div></div><div class="sc-rem" id="rMan"></div></div>
+    <div class="sc int"><div class="sc-lbl">INTELLIGENCE</div><div class="sc-val" id="vInt">0</div><div class="sc-goal" id="gInt">GOAL: —</div><div class="bar"><div class="bar-f" id="bInt"></div></div><div class="sc-rem" id="rInt"></div></div>
+    <div class="sc end"><div class="sc-lbl">ENDURANCE</div><div class="sc-val" id="vEnd">0</div><div class="sc-goal" id="gEnd">GOAL: —</div><div class="bar"><div class="bar-f" id="bEnd"></div></div><div class="sc-rem" id="rEnd"></div></div>
+  </div>
+  <!-- TRAINS MODE -->
+  <div id="trainsModeDiv" style="display:none">
+    <div class="mrow" style="grid-template-columns:repeat(4,1fr)">
+      <div class="mc gold"><div class="mc-lbl">TOTAL TRAINS</div><div class="mc-val" id="tmTot">0</div><div class="mc-sub">lifetime</div></div>
+      <div class="mc grn"><div class="mc-lbl">DAYS ELAPSED</div><div class="mc-val" id="tmDays">0</div><div class="mc-sub" id="tmDaysSub">since start</div></div>
+      <div class="mc api"><div class="mc-lbl">TRAINS/DAY</div><div class="mc-val" id="tmRate">—</div><div class="mc-sub">actual avg</div></div>
+      <div class="mc man"><div class="mc-lbl">TARGET/DAY</div><div class="mc-val" id="tmTgt">—</div><div class="mc-sub">configured</div></div>
+    </div>
+    <div class="card">
+      <div class="sec-lbl">GROWTH SINCE START</div>
+      <div class="g3" style="margin-bottom:14px">
+        <div class="sv"><div class="sv-lbl man">MANUAL</div><div class="sv-val man" id="tmGMan">+0</div><div class="mc-sub" id="tmCMan">—</div></div>
+        <div class="sv"><div class="sv-lbl int">INTEL</div><div class="sv-val int" id="tmGInt">+0</div><div class="mc-sub" id="tmCInt">—</div></div>
+        <div class="sv"><div class="sv-lbl end">ENDURANCE</div><div class="sv-val end" id="tmGEnd">+0</div><div class="mc-sub" id="tmCEnd">—</div></div>
+      </div>
+      <div class="sec-lbl">LOG TRAINS TODAY</div>
+      <div id="tmSlots" style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:12px"></div>
+      <div class="prog-wrap"><div class="prog-fill" id="tmProg" style="width:0%"></div></div>
+      <div class="prog-row"><span id="tmProgLbl">0 trains marked</span></div>
+      <button class="btn btn-g btn-full" id="tmApplyBtn" onclick="applyDayTM()">APPLY &amp; ADVANCE DAY</button>
+    </div>
+    <button class="btn btn-red btn-full" onclick="confirmReset()" style="margin-bottom:14px">⚠ RESET CURRENT EMPLOYEE PROGRESS</button>
+  </div>
+  <!-- GOAL MODE -->
+  <div id="goalModeDiv">
+    <div class="eff-strip">
+      <div class="ei"><div class="ei-lbl">EFFECTIVENESS</div><div class="ei-val" id="eEff">—</div><div class="ei-sub" id="eEffSub">—</div></div>
+      <div class="es"></div>
+      <div class="ei"><div class="ei-lbl">PASSIVE %</div><div class="ei-val" id="eEffPct">—</div><div class="ei-sub">cap: 90</div></div>
+      <div class="es"></div>
+      <div class="ei"><div class="ei-lbl">TODAY PASSIVE</div><div class="ei-val" id="eTodayPass">—</div><div class="ei-sub" id="ePassSub">—</div></div>
+    </div>
+    <div class="pass-box" id="passNote"></div>
+    <div class="card">
+      <div class="slot-hdr">
+        <div class="ct" style="margin-bottom:0">TODAY'S TRAINS</div>
+        <div class="stepper">
+          <button class="step-btn" onclick="changeTpd(-1)">−</button>
+          <div class="step-val" id="slotsCount">5</div>
+          <button class="step-btn" onclick="changeTpd(1)">+</button>
+        </div>
+      </div>
+      <div class="phase-tag" id="phaseTag">—</div>
+      <div class="tslots" id="trainSlots"></div>
+      <div class="prog-wrap"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
+      <div class="prog-row"><span id="trainCount">—</span><span id="trainPreview"></span></div>
+      <div class="daily-box" id="dailyBox"></div>
+      <button class="btn btn-g btn-full" id="applyBtn" onclick="applyDay()">APPLY TRAINS + PASSIVE &amp; ADVANCE DAY</button>
+    </div>
+    <div class="card">
+      <div class="ct" style="margin-bottom:12px">UPCOMING SCHEDULE</div>
+      <div class="sched" id="schedTable"><div class="sr hdr"><span>DAY</span><span>ASSIGNMENT</span><span style="text-align:right">GAINS</span><span style="text-align:right">STATS</span></div></div>
+    </div>
+    <div class="mrow" style="grid-template-columns:repeat(4,1fr)">
+      <div class="mc gold"><div class="mc-lbl">DAYS ELAPSED</div><div class="mc-val" id="pDays">0</div><div class="mc-sub">since start</div></div>
+      <div class="mc end"><div class="mc-lbl">DAYS REMAINING</div><div class="mc-val" id="pRem">—</div><div class="mc-sub">est. to goals</div></div>
+      <div class="mc man"><div class="mc-lbl">TRAINS APPLIED</div><div class="mc-val" id="pTrains">0</div><div class="mc-sub">total</div></div>
+      <div class="mc int"><div class="mc-lbl">PHASE</div><div class="mc-val" id="pPhase">—</div><div class="mc-sub" id="pPhaseSub">—</div></div>
+    </div>
+    <button class="btn btn-red btn-full" onclick="confirmReset()" style="margin-bottom:14px">⚠ RESET PROGRESS</button>
+  </div>
+  <div class="data-row">
+    <button class="btn btn-o" onclick="exportData()">⬇ EXPORT JSON</button>
+    <button class="btn btn-o" onclick="document.getElementById('importFile').click()">⬆ IMPORT JSON</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)"/>
+  </div>
+</div>
+
+<!-- ROSTER -->
+<div class="page" id="page-roster">
+  <div class="ph">
+    <div><div class="ph-title">EMPLOYEE ROSTER</div><div class="ph-sub">FULL ROSTER MANAGEMENT</div></div>
+    <div class="ph-act"><button class="btn btn-g btn-sm" onclick="openEmpModal()">+ ADD EMPLOYEE</button></div>
+  </div>
+  <div id="rosterList"></div>
+</div>
+
+<!-- API SYNC -->
+<div class="page" id="page-apisync">
+  <div class="ph"><div><div class="ph-title">API SYNC</div><div class="ph-sub">TORN API INTEGRATION</div></div></div>
+  <div class="api-panel">
+    <div class="ct api" style="margin-bottom:12px">⚡ API CONNECTION</div>
+    <div class="fld">
+      <label class="lbl">API KEY (Limited Access or higher)</label>
+      <div class="irow">
+        <input type="password" id="apiKeyInput" placeholder="Paste API key…" autocomplete="off"/>
+        <a href="https://www.torn.com/preferences.php#tab=api" target="_blank" class="btn btn-o btn-sm" style="text-decoration:none;flex:0 0 auto">🔑 GET KEY</a>
+      </div>
+    </div>
+    <div class="api-st" id="apiSt"></div>
+    <button class="btn btn-api btn-full" id="apiSyncBtn" onclick="runApiSync()" style="margin-top:10px">⟳ SYNC COMPANY DATA</button>
+    <div class="api-cache" id="apiCacheNote"></div>
+  </div>
+  <div id="apiMemberSec" style="display:none">
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn btn-o btn-sm" id="apiViewTrainsBtn" onclick="setApiView('trains')" style="flex:1">📋 TRAINING RESULTS</button>
+      <button class="btn btn-o btn-sm" id="apiViewStaffBtn" onclick="setApiView('staff')" style="flex:1">👥 CURRENT STAFF</button>
+    </div>
+    <div id="apiTrainsView">
+      <div class="sec-lbl">TRAINING RESULTS — NEWS DERIVED</div>
+      <div id="apiResultsList"></div>
+    </div>
+    <div id="apiStaffView" style="display:none">
+      <div class="sec-lbl">CURRENT STAFF — LIVE DATA</div>
+      <div id="apiStaffList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- BILLING -->
+<div class="page" id="page-billing">
+  <div class="ph">
+    <div><div class="ph-title">BILLING &amp; INVOICES</div><div class="ph-sub">TRAIN BILLING CALCULATOR</div></div>
+    <div class="ph-act"><button class="btn btn-o btn-sm" onclick="exportInvoiceCsv()">⬇ CSV</button></div>
+  </div>
+  <div class="bill-cfg">
+    <div class="ct" style="margin-bottom:12px">💰 BILLING CONFIG</div>
+    <div class="g2" style="margin-bottom:10px">
+      <div class="fld"><label class="lbl">PRICE PER TRAIN ($)</label><input type="number" id="pricePerTrain" placeholder="500000" min="0" oninput="onBillChange()"/></div>
+      <div class="fld"><label class="lbl">PERIOD (DAYS)</label><input type="number" id="billingPeriod" placeholder="7" min="1" oninput="onBillChange()"/></div>
+    </div>
+    <div class="seg">
+      <button class="seg-btn active" id="billByDays" onclick="setBillMode('BY_DAYS')">BY DAYS</button>
+      <button class="seg-btn" id="billBySess" onclick="setBillMode('BY_SESSIONS')">BY SESSIONS</button>
+    </div>
+  </div>
+  <div class="sec-lbl">INVOICE — <span id="billPeriodLbl">7-DAY PERIOD</span></div>
+  <div id="billingTable"></div>
+</div>
+
+<!-- P&L -->
+<div class="page" id="page-pnl">
+  <div class="ph">
+    <div><div class="ph-title">PROFIT &amp; LOSS</div><div class="ph-sub">FINANCIAL OVERVIEW</div></div>
+    <div class="ph-act"><button class="btn btn-g btn-sm" onclick="openPnlModal()">+ ADD ENTRY</button></div>
+  </div>
+  <div class="mrow">
+    <div class="mc grn"><div class="mc-lbl">TOTAL REVENUE</div><div class="mc-val" id="pnlRev">$0</div><div class="mc-sub">all income</div></div>
+    <div class="mc red"><div class="mc-lbl">TOTAL EXPENSES</div><div class="mc-val" id="pnlExp">$0</div><div class="mc-sub">all expenses</div></div>
+    <div class="mc gold"><div class="mc-lbl">NET PROFIT</div><div class="mc-val" id="pnlNet">$0</div><div class="mc-sub">revenue − expenses</div></div>
+    <div class="mc api"><div class="mc-lbl">MARGIN</div><div class="mc-val" id="pnlMargin">—</div><div class="mc-sub">profit %</div></div>
+  </div>
+  <div class="card" id="pnlAutoCard">
+    <div class="card-hdr"><div class="ct api">AUTO P&amp;L BREAKDOWN</div><span class="muted" style="font-size:.52rem">from API sync data</span></div>
+    <div class="g2" style="margin-bottom:12px">
+      <div class="fld"><label class="lbl">AD BUDGET / DAY ($)</label><input type="number" id="pnlAdBudget" placeholder="0" min="0" oninput="onAdBudgetChange()"/></div>
+      <div class="fld"><label class="lbl">STOCK COST / DAY ($)</label><input type="number" id="pnlStockCost" placeholder="0" min="0" oninput="onAdBudgetChange()"/></div>
+    </div>
+    <div id="pnlAutoBreakdown"></div>
+  </div>
+  <div class="card">
+    <div class="card-hdr"><div class="ct grn">INCOME</div><button class="btn btn-o btn-sm" onclick="openPnlModal('income')">+ INCOME</button></div>
+    <div id="pnlIncTable"></div>
+  </div>
+  <div class="card">
+    <div class="card-hdr"><div class="ct red">EXPENSES</div><button class="btn btn-o btn-sm" onclick="openPnlModal('expense')">+ EXPENSE</button></div>
+    <div id="pnlExpTable"></div>
+  </div>
+</div>
+
+<!-- PAYMENTS -->
+<div class="page" id="page-payments">
+  <div class="ph">
+    <div><div class="ph-title">PAYMENT LOG</div><div class="ph-sub">EMPLOYEE PAYMENTS &amp; TRANSACTIONS</div></div>
+    <div class="ph-act"><button class="btn btn-g btn-sm" onclick="openPayModal()">+ LOG PAYMENT</button></div>
+  </div>
+  <div class="mrow">
+    <div class="mc grn"><div class="mc-lbl">TOTAL RECEIVED</div><div class="mc-val" id="payRec">$0</div><div class="mc-sub">all payments</div></div>
+    <div class="mc red"><div class="mc-lbl">OUTSTANDING</div><div class="mc-val" id="payOut">$0</div><div class="mc-sub">pending + overdue</div></div>
+    <div class="mc gold"><div class="mc-lbl">THIS WEEK</div><div class="mc-val" id="payWk">0</div><div class="mc-sub">last 7 days</div></div>
+  </div>
+  <div class="card">
+    <div class="card-hdr"><div class="ct grn">PAYMENT HISTORY</div><button class="btn btn-o btn-sm" onclick="exportPayCsv()">⬇ CSV</button></div>
+    <div id="payTable"></div>
+  </div>
+</div>
+
+<!-- STOCK -->
+<div class="page" id="page-stock">
+  <div class="ph">
+    <div><div class="ph-title">STOCK INVENTORY</div><div class="ph-sub">ITEM TRACKING &amp; VALUATION</div></div>
+    <div class="ph-act"><button class="btn btn-g btn-sm" onclick="openStockModal()">+ ADD ITEM</button></div>
+  </div>
+  <div class="mrow">
+    <div class="mc gold"><div class="mc-lbl">TOTAL SKUS</div><div class="mc-val" id="stItems">0</div><div class="mc-sub">tracked</div></div>
+    <div class="mc grn"><div class="mc-lbl">TOTAL VALUE</div><div class="mc-val" id="stVal">$0</div><div class="mc-sub">at cost</div></div>
+    <div class="mc dbg"><div class="mc-lbl">LOW STOCK</div><div class="mc-val" id="stLow">0</div><div class="mc-sub">below threshold</div></div>
+  </div>
+  <div class="card">
+    <div class="card-hdr"><div class="ct">INVENTORY</div></div>
+    <div id="stockTable"></div>
+  </div>
+</div>
+
+<!-- SALES -->
+<div class="page" id="page-sales">
+  <div class="ph">
+    <div><div class="ph-title">SALES LOG</div><div class="ph-sub">COMPANY SALES HISTORY</div></div>
+    <div class="ph-act"><button class="btn btn-g btn-sm" onclick="openSaleModal()">+ LOG SALE</button></div>
+  </div>
+  <div class="mrow">
+    <div class="mc grn"><div class="mc-lbl">TOTAL SALES</div><div class="mc-val" id="saleTot">$0</div><div class="mc-sub">all time</div></div>
+    <div class="mc api"><div class="mc-lbl">TRANSACTIONS</div><div class="mc-val" id="saleCnt">0</div><div class="mc-sub">logged</div></div>
+    <div class="mc gold"><div class="mc-lbl">AVG SALE</div><div class="mc-val" id="saleAvg">$0</div><div class="mc-sub">per transaction</div></div>
+  </div>
+  <div class="card">
+    <div class="card-hdr"><div class="ct">SALES HISTORY</div><button class="btn btn-o btn-sm" onclick="exportSalesCsv()">⬇ CSV</button></div>
+    <div id="salesTable"></div>
+  </div>
+</div>
+
+<!-- LOGS -->
+<div class="page" id="page-logs">
+  <div class="ph">
+    <div><div class="ph-title">COMPANY LOGS</div><div class="ph-sub">ACTIVITY &amp; EVENT HISTORY</div></div>
+    <div class="ph-act">
+      <button class="btn btn-o btn-sm" onclick="openLogNoteModal()">+ ADD NOTE</button>
+      <button class="btn btn-o btn-sm" onclick="clearLogs()">CLEAR</button>
+    </div>
+  </div>
+  <div class="tab-bar">
+    <button class="tab-btn active" id="ltAll" onclick="switchLogTab('all')">ALL</button>
+    <button class="tab-btn" id="ltTrain" onclick="switchLogTab('train')">TRAINING</button>
+    <button class="tab-btn" id="ltFinance" onclick="switchLogTab('finance')">FINANCE</button>
+    <button class="tab-btn" id="ltStock" onclick="switchLogTab('stock')">STOCK</button>
+    <button class="tab-btn" id="ltNote" onclick="switchLogTab('note')">NOTES</button>
+  </div>
+  <div id="logsContainer"></div>
+</div>
+
+<!-- DEBUG -->
+<div class="page" id="page-debug">
+  <div class="ph"><div><div class="ph-title" style="color:var(--debug)">DEBUG PANEL</div><div class="ph-sub">SYSTEM DIAGNOSTICS</div></div></div>
+  <div class="card" style="border-color:rgba(232,130,58,.3)">
+    <div class="card-hdr"><div class="ct dbg">SYSTEM STATUS</div><button class="btn btn-dbg btn-sm" onclick="dbgRefresh()">⟳ REFRESH</button></div>
+    <div class="dbg-grid">
+      <div class="dbg-card"><div class="dbg-lbl">VERSION</div><div class="dbg-val" id="dbgVer">—</div><div class="dbg-sub">Company Dashboard</div></div>
+      <div class="dbg-card"><div class="dbg-lbl">EMPLOYEES</div><div class="dbg-val" id="dbgEmp">—</div><div class="dbg-sub">tracked</div></div>
+      <div class="dbg-card"><div class="dbg-lbl">STORE SIZE</div><div class="dbg-val" id="dbgStore">—</div><div class="dbg-sub">bytes</div></div>
+      <div class="dbg-card"><div class="dbg-lbl">NEWS CACHE</div><div class="dbg-val" id="dbgNews">—</div><div class="dbg-sub">entries</div></div>
+      <div class="dbg-card"><div class="dbg-lbl">API MODE</div><div class="dbg-val" id="dbgApi">OFF</div><div class="dbg-sub">state</div></div>
+      <div class="dbg-card"><div class="dbg-lbl">COMPANY LOGS</div><div class="dbg-val" id="dbgLogs">—</div><div class="dbg-sub">entries</div></div>
+      <div class="dbg-card"><div class="dbg-lbl">P&amp;L ENTRIES</div><div class="dbg-val" id="dbgPnl">—</div><div class="dbg-sub">total</div></div>
+      <div class="dbg-card"><div class="dbg-lbl">PAYMENTS</div><div class="dbg-val" id="dbgPay">—</div><div class="dbg-sub">logged</div></div>
+      <div class="dbg-card"><div class="dbg-lbl">STOCK SKUS</div><div class="dbg-val" id="dbgStk">—</div><div class="dbg-sub">tracked</div></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-dbg" onclick="dbgRunAll()">▶ RUN ALL TESTS</button>
+      <button class="btn btn-dbg" onclick="dbgSimAll()">📊 SIM ALL EMPLOYEES</button>
+      <button class="btn btn-dbg" onclick="dbgTestAlloc()">🧠 TEST ALLOCATOR</button>
+      <button class="btn btn-dbg" onclick="exportData()">⬇ DUMP STORE</button>
+      <button class="btn btn-red btn-sm" onclick="dbgClearNews()">✕ CLEAR NEWS CACHE</button>
+    </div>
+    <div class="sim-out" id="simOut"></div>
+  </div>
+  <div class="card" style="border-color:rgba(232,130,58,.3)">
+    <div class="card-hdr">
+      <div class="ct dbg">LOG CONSOLE</div>
+      <div class="btn-row" style="margin:0;gap:6px">
+        <button class="btn btn-dbg btn-sm" onclick="clearLog()">CLEAR</button>
+        <button class="btn btn-dbg btn-sm" onclick="copyLog()">COPY</button>
+      </div>
+    </div>
+    <div class="log-console" id="logConsole"><div class="lc-row"><span class="lc-ts">00:00:00</span><span class="lc-msg info">Console ready.</span></div></div>
+  </div>
+  <div class="card" style="border-color:rgba(232,130,58,.3)">
+    <div class="card-hdr"><div class="ct dbg">STORE INSPECTOR</div></div>
+    <div class="btn-row">
+      <button class="btn btn-dbg btn-sm" onclick="dbgShowStore()">STORE</button>
+      <button class="btn btn-dbg btn-sm" onclick="dbgShowNews()">NEWS CACHE</button>
+      <button class="btn btn-dbg btn-sm" onclick="dbgShowMembers()">MEMBERS</button>
+      <button class="btn btn-dbg btn-sm" onclick="dbgShowPnl()">P&amp;L</button>
+      <button class="btn btn-dbg btn-sm" onclick="dbgShowPayments()">PAYMENTS</button>
+      <button class="btn btn-red btn-sm" onclick="dbgNukeAll()">⚠ NUKE STORAGE</button>
+    </div>
+    <div class="store-view" id="storeView">// Click an inspector button</div>
+  </div>
+</div>
+
+<!-- ADMIN -->
+<div class="page" id="page-admin">
+  <div class="ph"><div><div class="ph-title" style="color:var(--int)">ADMIN PANEL</div><div class="ph-sub">CONFIGURATION &amp; SYSTEM MANAGEMENT</div></div></div>
+  <div class="card" style="border-color:rgba(155,107,212,.25)">
+    <div class="card-hdr"><div class="ct adm">COMPANY CONFIG</div></div>
+    <div class="adm-row"><span class="adm-lbl">Company Type</span><span class="adm-val" id="admCo">—</span><select id="admCoSel" onchange="admSetCo()" style="max-width:140px;font-size:.6rem;padding:5px 7px;"></select></div>
+    <div class="adm-row"><span class="adm-lbl">Active Employee</span><span class="adm-val" id="admEmp">—</span></div>
+    <div class="adm-row"><span class="adm-lbl">Trains Per Day</span><span class="adm-val" id="admTpd">—</span>
+      <div class="stepper"><button class="step-btn" onclick="admChangeTpd(-1)">−</button><button class="step-btn" onclick="admChangeTpd(1)">+</button></div>
+    </div>
+    <div class="adm-row"><span class="adm-lbl">Price Per Train</span><span class="adm-val" id="admPrice">—</span><input type="number" id="admPriceI" style="max-width:120px;font-size:.6rem;padding:5px 7px;" oninput="admSetPrice()"/></div>
+    <div class="adm-row"><span class="adm-lbl">API Key</span><span class="adm-val" id="admKey">—</span></div>
+  </div>
+  <div class="card" style="border-color:rgba(155,107,212,.25)">
+    <div class="card-hdr"><div class="ct adm">STORAGE KEYS</div></div>
+    <div id="admKeys"></div>
+  </div>
+  <div class="card" style="border-color:rgba(155,107,212,.25)">
+    <div class="card-hdr"><div class="ct adm">BULK ACTIONS</div></div>
+    <div class="btn-row">
+      <button class="btn btn-adm" onclick="exportData()">⬇ EXPORT FULL STORE</button>
+      <button class="btn btn-adm" onclick="admResetEmp()">↺ RESET ACTIVE EMPLOYEE</button>
+      <button class="btn btn-red" onclick="admNuke()">⚠ RESET ALL DATA</button>
+    </div>
+  </div>
+  <div class="card" style="border-color:rgba(155,107,212,.25)">
+    <div class="card-hdr"><div class="ct adm">CHANGELOG</div></div>
+    <div id="admChangelog"></div>
+  </div>
+</div>
+
+</div><!-- /main -->
+<!-- MOBILE BOTTOM NAV -->
+<div class="mob-nav" id="mobNav">
+  <button class="mob-btn active" id="mn-dashboard" onclick="nav('dashboard');setMN('dashboard')">▦<span>HOME</span></button>
+  <button class="mob-btn" id="mn-tracker" onclick="nav('tracker');setMN('tracker')">⚡<span>TRACK</span></button>
+  <button class="mob-btn" id="mn-apisync" onclick="nav('apisync');setMN('apisync')">↻<span>SYNC</span></button>
+  <button class="mob-btn" id="mn-billing" onclick="nav('billing');setMN('billing')">💰<span>BILL</span></button>
+  <button class="mob-btn" id="mn-more" onclick="toggleMobMenu()">☰<span>MORE</span></button>
+</div>
+<div class="mob-more-overlay" id="mobMoreOverlay" onclick="toggleMobMenu()"></div>
+<div class="mob-more-menu" id="mobMoreMenu">
+  <div class="mob-more-item" onclick="nav('roster');setMN('roster');toggleMobMenu()">👥 Employee Roster</div>
+  <div class="mob-more-item" onclick="nav('pnl');setMN('pnl');toggleMobMenu()">📊 Profit &amp; Loss</div>
+  <div class="mob-more-item" onclick="nav('payments');setMN('payments');toggleMobMenu()">💳 Payment Log</div>
+  <div class="mob-more-item" onclick="nav('stock');setMN('stock');toggleMobMenu()">📦 Stock</div>
+  <div class="mob-more-item" onclick="nav('sales');setMN('sales');toggleMobMenu()">📈 Sales Log</div>
+  <div class="mob-more-item" onclick="nav('logs');setMN('logs');toggleMobMenu()">📋 Company Logs</div>
+  <div class="mob-more-item" onclick="nav('debug');setMN('debug');toggleMobMenu()">🔬 Debug</div>
+  <div class="mob-more-item" onclick="nav('admin');setMN('admin');toggleMobMenu()">🛡 Admin</div>
+</div>
+</div><!-- /shell -->
+
+<!-- MODALS -->
+<div class="overlay" id="empModal" onclick="closeOvBg('empModal')">
+<div class="modal" onclick="event.stopPropagation()">
+  <div class="modal-hdr"><div class="modal-title">EMPLOYEE SETTINGS</div><button class="btn btn-o btn-sm" onclick="closeModal('empModal')">✕</button></div>
+  <div id="empListView">
+    <div class="sec-lbl">ACTIVE TRACKERS</div>
+    <div id="empList"></div>
+    <button class="btn btn-g btn-full" style="margin-top:8px" onclick="showEmpForm(null)">+ ADD EMPLOYEE</button>
+  </div>
+  <div id="empFormView" style="display:none">
+    <div style="font-family:'Syne',sans-serif;font-size:.84rem;font-weight:800;color:var(--gold2);margin-bottom:14px" id="empFormTitle">NEW EMPLOYEE</div>
+    <div class="fld"><label class="lbl">PLAYER NAME</label><input type="text" id="fName" placeholder="e.g. Kush_McLoud"/></div>
+    <div class="fld"><label class="lbl">MODE</label>
+      <select id="fMode"><option value="goal">🎯 GOAL MODE — Full calculator</option><option value="trains"># TRAINS MODE — Simple count</option></select>
+    </div>
+    <div class="fld"><label class="lbl">PASSIVE ROLE</label><select id="fRole"></select></div>
+    <div class="sec-lbl">CURRENT STATS</div>
+    <div class="g3">
+      <div class="fld"><label class="lbl">MANUAL</label><input type="number" id="fMan" placeholder="0" min="0" class="mf"/></div>
+      <div class="fld"><label class="lbl">INTELLIGENCE</label><input type="number" id="fInt" placeholder="0" min="0" class="if"/></div>
+      <div class="fld"><label class="lbl">ENDURANCE</label><input type="number" id="fEnd" placeholder="0" min="0" class="ef"/></div>
+    </div>
+    <div class="sec-lbl">GOAL STATS (0 = none)</div>
+    <div class="g3">
+      <div class="fld"><label class="lbl">MAN GOAL</label><input type="number" id="fGMan" placeholder="0" min="0" class="mf"/></div>
+      <div class="fld"><label class="lbl">INT GOAL</label><input type="number" id="fGInt" placeholder="0" min="0" class="if"/></div>
+      <div class="fld"><label class="lbl">END GOAL</label><input type="number" id="fGEnd" placeholder="0" min="0" class="ef"/></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-g" style="flex:1" onclick="saveEmployee()">SAVE &amp; SELECT</button>
+      <button class="btn btn-o" onclick="cancelEmpForm()">CANCEL</button>
+    </div>
+  </div>
+  <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+    <div class="sec-lbl">COMPANY</div>
+    <div class="fld"><select id="coSelect" onchange="onCoChange()"></select></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+      <span class="lbl" style="flex:1;margin:0">TRAINS PER DAY</span>
+      <div class="stepper"><button class="step-btn" onclick="changeTpdModal(-1)">−</button><div class="step-val" id="tpdDisp">5</div><button class="step-btn" onclick="changeTpdModal(1)">+</button></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="overlay" id="pnlModal" onclick="closeOvBg('pnlModal')">
+<div class="modal" onclick="event.stopPropagation()">
+  <div class="modal-hdr"><div class="modal-title" id="pnlModalTitle">ADD P&amp;L ENTRY</div><button class="btn btn-o btn-sm" onclick="closeModal('pnlModal')">✕</button></div>
+  <div class="fld"><label class="lbl">TYPE</label><select id="pnlType"><option value="income">Income</option><option value="expense">Expense</option></select></div>
+  <div class="fld"><label class="lbl">DESCRIPTION</label><input type="text" id="pnlDesc" placeholder="e.g. Train billing — Week 3"/></div>
+  <div class="fld"><label class="lbl">AMOUNT ($)</label><input type="number" id="pnlAmt" placeholder="0" min="0"/></div>
+  <div class="fld"><label class="lbl">DATE</label><input type="date" id="pnlDate"/></div>
+  <div class="fld"><label class="lbl">NOTES</label><textarea id="pnlNotes" placeholder="Optional…"></textarea></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-g" style="flex:1" onclick="savePnl()">SAVE ENTRY</button>
+    <button class="btn btn-o" onclick="closeModal('pnlModal')">CANCEL</button>
+  </div>
+</div>
+</div>
+
+<div class="overlay" id="payModal" onclick="closeOvBg('payModal')">
+<div class="modal" onclick="event.stopPropagation()">
+  <div class="modal-hdr"><div class="modal-title">LOG PAYMENT</div><button class="btn btn-o btn-sm" onclick="closeModal('payModal')">✕</button></div>
+  <div class="fld"><label class="lbl">EMPLOYEE NAME</label><input type="text" id="payEmp" placeholder="Employee name"/></div>
+  <div class="fld"><label class="lbl">AMOUNT ($)</label><input type="number" id="payAmt" placeholder="0" min="0"/></div>
+  <div class="fld"><label class="lbl">TRAINS COVERED</label><input type="number" id="payTrains" placeholder="0" min="0"/></div>
+  <div class="fld"><label class="lbl">DATE</label><input type="date" id="payDate"/></div>
+  <div class="fld"><label class="lbl">STATUS</label><select id="payStatus"><option value="received">Received</option><option value="pending">Pending</option><option value="overdue">Overdue</option></select></div>
+  <div class="fld"><label class="lbl">NOTES</label><textarea id="payNotes" placeholder="Optional…"></textarea></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-g" style="flex:1" onclick="savePayment()">SAVE PAYMENT</button>
+    <button class="btn btn-o" onclick="closeModal('payModal')">CANCEL</button>
+  </div>
+</div>
+</div>
+
+<div class="overlay" id="stockModal" onclick="closeOvBg('stockModal')">
+<div class="modal" onclick="event.stopPropagation()">
+  <div class="modal-hdr"><div class="modal-title" id="stockModalTitle">ADD STOCK ITEM</div><button class="btn btn-o btn-sm" onclick="closeModal('stockModal')">✕</button></div>
+  <div class="fld"><label class="lbl">ITEM NAME</label><input type="text" id="stName" placeholder="e.g. Candles — Premium"/></div>
+  <div class="g2">
+    <div class="fld"><label class="lbl">QUANTITY</label><input type="number" id="stQty" placeholder="0" min="0"/></div>
+    <div class="fld"><label class="lbl">UNIT COST ($)</label><input type="number" id="stCost" placeholder="0" min="0"/></div>
+  </div>
+  <div class="g2">
+    <div class="fld"><label class="lbl">SELL PRICE ($)</label><input type="number" id="stSell" placeholder="0" min="0"/></div>
+    <div class="fld"><label class="lbl">LOW THRESHOLD</label><input type="number" id="stThresh" placeholder="5" min="0"/></div>
+  </div>
+  <div class="fld"><label class="lbl">CATEGORY</label><input type="text" id="stCat" placeholder="e.g. Raw Materials"/></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-g" style="flex:1" onclick="saveStock()">SAVE ITEM</button>
+    <button class="btn btn-o" onclick="closeModal('stockModal')">CANCEL</button>
+  </div>
+</div>
+</div>
+
+<div class="overlay" id="saleModal" onclick="closeOvBg('saleModal')">
+<div class="modal" onclick="event.stopPropagation()">
+  <div class="modal-hdr"><div class="modal-title">LOG SALE</div><button class="btn btn-o btn-sm" onclick="closeModal('saleModal')">✕</button></div>
+  <div class="fld"><label class="lbl">ITEM / DESCRIPTION</label><input type="text" id="slName" placeholder="What was sold…"/></div>
+  <div class="g2">
+    <div class="fld"><label class="lbl">QUANTITY</label><input type="number" id="slQty" placeholder="1" min="1"/></div>
+    <div class="fld"><label class="lbl">SALE PRICE ($)</label><input type="number" id="slPrice" placeholder="0" min="0"/></div>
+  </div>
+  <div class="g2">
+    <div class="fld"><label class="lbl">BUYER</label><input type="text" id="slBuyer" placeholder="Optional"/></div>
+    <div class="fld"><label class="lbl">DATE</label><input type="date" id="slDate"/></div>
+  </div>
+  <div class="fld"><label class="lbl">NOTES</label><textarea id="slNotes" placeholder="Optional…"></textarea></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-g" style="flex:1" onclick="saveSale()">LOG SALE</button>
+    <button class="btn btn-o" onclick="closeModal('saleModal')">CANCEL</button>
+  </div>
+</div>
+</div>
+
+<div class="overlay" id="logNoteModal" onclick="closeOvBg('logNoteModal')">
+<div class="modal" onclick="event.stopPropagation()">
+  <div class="modal-hdr"><div class="modal-title">ADD COMPANY NOTE</div><button class="btn btn-o btn-sm" onclick="closeModal('logNoteModal')">✕</button></div>
+  <div class="fld"><label class="lbl">CATEGORY</label><select id="noteType"><option value="note">General Note</option><option value="train">Training</option><option value="finance">Finance</option><option value="stock">Stock</option></select></div>
+  <div class="fld"><label class="lbl">MESSAGE</label><textarea id="noteMsg" placeholder="Enter note…" style="min-height:90px"></textarea></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-g" style="flex:1" onclick="saveLogNote()">SAVE NOTE</button>
+    <button class="btn btn-o" onclick="closeModal('logNoteModal')">CANCEL</button>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+'use strict';
+const APP_VERSION='v1.1.3';
+const APP_CHANGELOG=[{v:'v1.1.3',date:'2026-04-25 13:20:58',notes:['Branding: topbar now shows live company name from API (falls back to company type name)','UI: removed API Mode and Debug topbar chips — both accessible via More menu and sidebar','Routing: all API calls switched to tornapi.tornplayground.eu proxy','Allocator: tiebreak by least remaining gap across all 3 stats — minimises overshoot on multi-stat goals','Schedule: stats column uses auto width + nowrap so all 3 stats always fit on one line']},{v:'v1.1.2',date:'2026-04-25 13:05:20',notes:['Fix: strip HTML tags from news log at storage time and in all parsers — Torn wraps player names in anchor tags which broke every regex','Fix: purge stale blank-log cache entries on sync to clear noise from old code','Fix: second fetch to company/{id}?selections=profile retrieves advertising_budget and popularity; auto-populates STORE.adBudgetPerDay','Fix: auto-upsert all API employees into STORE.employees on sync — roster and dashboard now populate without manual CREATE']},{v:'v1.1.1',date:'2026-04-25 12:47:39',notes:['API: fix news text field — probe news/text/message/log variants; log raw entry keys+value to Debug on first page fetch so field name is always visible','Training parser: rewritten using dynamic position-name strip list — correctly extracts player name from "[Position] [Name] has been trained by the director"','Director start auto-detection: scan news for "[Name] has been made the new director", store timestamp, use as effective sync floor replacing manual start date requirement','Analytics: parse daily income/customer reports from Main News; show last 7 days + averages on Dashboard; capture daily_income/customers/weekly/rating from confirmed company API keys']},{v:'v1.1.0',date:'2026-04-25 12:04:16',notes:['API: fetch company/detailed on sync — logs all field names to Debug so training field discovery is automatic; falls back to news-text parsing if detailed counts absent','Fix: CREATE button now opens goal-setting form immediately after creating employee from API sync or staff view','Mobile: fix button/chip overflow — topbar chips truncate, ph-act wraps, btn-row wraps, mob-btn min-width guards added','Analytics: company snapshots (eff/popularity/cleanliness/adBudget/dailyIncome) stored on each sync, shown on Dashboard with trend indicators','P&L: Auto Breakdown panel — training mrevenue, employee wages (API), ad budget, stock costs, manual entries all in one net-profit summary']},{v:'v1.0.5',date:'2026-04-21',notes:['Fix: missing closing backtick in dbgLog call caused SyntaxError crashing all JS','Mobile: force mrow to 2-col grid and hide logo subtitle to prevent topbar/horizontal scroll']},{v:'v1.0.4',date:'2026-04-21',notes:['Mobile: bump html base font-size to 18px inside breakpoint — all rem units scale up proportionally','Mobile: increase topbar/nav-bar tap target height, loosen card/main padding, enlarge metric values and stat numbers']},{v:'v1.0.3',date:'2026-04-22 22:53:30',notes:['API: replaced single regex train parser with multi-pattern parseTrainCounts() shared across sync/billing/CSV — logs first 5 raw news samples to Debug on each sync','API: added Staff panel (👥 CURRENT STAFF / 📋 TRAINING RESULTS toggle) showing all live members with stats, effectiveness, and one-click CREATE profile','API: staff view opens by default after sync when no training events found; training results view opens when trains detected']},{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
+{v:'v1.0.1',date:'2026-04-21 09:08:19',notes:['API: try all company ID fields (job.company_id, company.id, company_id) for director support','API: log raw user object keys to debug console on sync failure','Mobile: bottom nav bar with MORE overflow menu']},{v:'v1.0.0',date:'2026-04-21',notes:['Complete overhaul — HighVibes Company Dashboard v1','Sidebar layout with 12 navigation sections','Syne/JetBrains Mono/Inter design system, full dark industrial theme','Company Logs panel with category filtering','Profit & Loss tracker with income/expense entries','Payment log with received/pending/overdue status and CSV export','Stock inventory with low-stock alerts and total valuation','Sales log with auto stock qty decrement and CSV export','Configurable train slots 1-10 with position selectors and pivot-on-override','Debug panel: log console, store inspector, allocator test, sim all','Admin panel: company config, storage keys, bulk actions, changelog','Fixed INV-STILL-BROKEN: API stats populate progress.man/int/end','Storage migrated to hvDashboard_v1']}];
+const STORE_KEY='hvDashboard_v1',NEWS_KEY='hvDashboard_v1_news',MEMB_KEY='hvDashboard_v1_members';
+const LEGACY=['tornTracker_v3','tornTracker_v8','hvTraining_v5'];
+const COMPANIES={
+  candle_shop:{name:'Candle Shop',positions:[
+    {name:'Salesperson',pri:'end',priReq:1500,sec:'int',secReq:750,passiveMax:{man:0,int:17,end:34}},
+    {name:'Chandler',pri:'man',priReq:4500,sec:'int',secReq:2250,passiveMax:{man:42,int:21,end:0}},
+    {name:'Cleaner',pri:'man',priReq:1000,sec:'end',secReq:500,passiveMax:{man:30,int:0,end:15}},
+    {name:'Quality Controller',pri:'end',priReq:3000,sec:'int',secReq:1500,passiveMax:{man:0,int:20,end:39}},
+    {name:'Bookkeeper',pri:'end',priReq:2500,sec:'int',secReq:1250,passiveMax:{man:0,int:19,end:38}},
+    {name:'Trainer',pri:'int',priReq:4500,sec:'end',secReq:2250,passiveMax:{man:0,int:42,end:21}}
+  ]},
+  adult_novelties:{name:'Adult Novelties',positions:[
+    {name:'Human Resources',pri:'int',priReq:12000,sec:'end',secReq:6000,passiveMax:{man:0,int:50,end:25}},
+    {name:'Sexpert',pri:'int',priReq:10000,sec:'end',secReq:5000,passiveMax:{man:0,int:49,end:25}},
+    {name:'Store Manager',pri:'end',priReq:8000,sec:'int',secReq:4000,passiveMax:{man:0,int:24,end:47}},
+    {name:'Marketing Manager',pri:'int',priReq:8000,sec:'end',secReq:4000,passiveMax:{man:0,int:47,end:24}},
+    {name:'Receptionist',pri:'end',priReq:6000,sec:'int',secReq:3000,passiveMax:{man:0,int:23,end:45}},
+    {name:'Sales Assistant',pri:'end',priReq:4000,sec:'man',secReq:2000,passiveMax:{man:21,int:0,end:41}},
+    {name:'Cleaner',pri:'man',priReq:2000,sec:'end',secReq:1000,passiveMax:{man:36,int:0,end:18}}
+  ]},
+  amusement_park:{name:'Amusement Park',positions:[
+    {name:'Inspector',pri:'int',priReq:135000,sec:'end',secReq:67500,passiveMax:{man:0,int:70,end:35}},
+    {name:'Manager',pri:'end',priReq:90000,sec:'int',secReq:45000,passiveMax:{man:0,int:33,end:66}},
+    {name:'Marketer',pri:'int',priReq:90000,sec:'end',secReq:45000,passiveMax:{man:0,int:66,end:33}},
+    {name:'Security Guard',pri:'man',priReq:79000,sec:'end',secReq:39500,passiveMax:{man:65,int:0,end:33}},
+    {name:'Mechanic',pri:'man',priReq:67500,sec:'int',secReq:33750,passiveMax:{man:64,int:32,end:0}},
+    {name:'Accountant',pri:'end',priReq:67500,sec:'int',secReq:33750,passiveMax:{man:0,int:32,end:64}},
+    {name:'Ride Attendant',pri:'end',priReq:45000,sec:'int',secReq:22500,passiveMax:{man:0,int:31,end:61}},
+    {name:'Entertainer',pri:'man',priReq:34000,sec:'end',secReq:17000,passiveMax:{man:58,int:0,end:29}},
+    {name:'Ticket Agent',pri:'end',priReq:22500,sec:'int',secReq:11250,passiveMax:{man:0,int:28,end:55}},
+    {name:'Janitor',pri:'man',priReq:22500,sec:'end',secReq:11250,passiveMax:{man:55,int:0,end:28}}
+  ]}
+};
+const EFF_CAP=90;
+
+// ── CALC ENGINE ──────────────────────────────────────────
+function effComp(stat,req){if(req<=0||stat<=0)return 0;return Math.floor(Math.min(45,(45/req)*stat))+Math.floor(Math.max(0,5*Math.log2(stat/req)));}
+function calcEff(s,pos){return effComp(s[pos.pri],pos.priReq)+effComp(s[pos.sec],pos.secReq);}
+function calcPassive(s,pos){const e=calcEff(s,pos);const p=Math.min(EFF_CAP,e)/EFF_CAP;return{man:Math.ceil(p*pos.passiveMax.man),int:Math.ceil(p*pos.passiveMax.int),end:Math.ceil(p*pos.passiveMax.end)};}
+function buildTP(ck){const seen=new Set(),r=[];for(const p of COMPANIES[ck].positions){const k=p.pri+'_'+p.sec;if(!seen.has(k)){seen.add(k);r.push({name:p.name,pri:p.pri,priAmt:50,sec:p.sec,secAmt:25});}}return r;}
+function allocate(s,goals,ck,maxT,passPos,ovr){
+  const tp=buildTP(ck);const pass=passPos?calcPassive(s,passPos):{man:0,int:0,end:0};
+  const com={man:0,int:0,end:0};const out=[];
+  for(let t=0;t<maxT;t++){
+    if(ovr&&ovr[t]){const o=ovr[t];out.push(o);com[o.pri]+=o.priAmt;com[o.sec]+=o.secAmt;continue;}
+    const pr={man:s.man+pass.man+com.man,int:s.int+pass.int+com.int,end:s.end+pass.end+com.end};
+    const rem={man:goals.man>0?Math.max(0,goals.man-pr.man):0,int:goals.int>0?Math.max(0,goals.int-pr.int):0,end:goals.end>0?Math.max(0,goals.end-pr.end):0};
+    if(!rem.man&&!rem.int&&!rem.end){out.push(null);continue;}
+    let best=null,bs=-1;
+    for(const p of tp){
+      const priUseful=Math.min(p.priAmt,rem[p.pri]);
+      const secUseful=Math.min(p.secAmt,rem[p.sec]);
+      const useful=priUseful*2+secUseful;
+      if(useful<=0)continue;
+      // Tiebreak: prefer the slot that leaves less total remaining gap (minimises overshoot)
+      const remAfter=(rem.man-(p.pri==='man'?priUseful:p.sec==='man'?secUseful:0))
+                    +(rem.int-(p.pri==='int'?priUseful:p.sec==='int'?secUseful:0))
+                    +(rem.end-(p.pri==='end'?priUseful:p.sec==='end'?secUseful:0));
+      const score=useful*1000000-remAfter;
+      if(score>bs){bs=score;best=p;}
+    }
+    if(!best){out.push(null);continue;}
+    out.push(best);com[best.pri]+=best.priAmt;com[best.sec]+=best.secAmt;
+  }
+  return{assignments:out,totalGains:{man:pass.man+com.man,int:pass.int+com.int,end:pass.end+com.end},passive:pass,trainGains:com};
+}
+function simDays(s,goals,ck,maxT,pp){
+  let sim={...s};let d=0;
+  const done=()=>['man','int','end'].every(k=>goals[k]===0||sim[k]>=goals[k]);
+  while(!done()&&d<3000){const{totalGains}=allocate(sim,goals,ck,maxT,pp,null);if(!totalGains.man&&!totalGains.int&&!totalGains.end)break;sim.man=Math.min(sim.man+totalGains.man,999999);sim.int=Math.min(sim.int+totalGains.int,999999);sim.end=Math.min(sim.end+totalGains.end,999999);d++;}
+  return d;
+}
+function descSched(a){const c={};let sk=0;for(const x of a){if(!x){sk++;continue;}c[x.name]=(c[x.name]||0)+1;}const p=Object.entries(c).map(([n,x])=>`${x}\xD7 ${n}`);if(sk)p.push(`skip ${sk}`);return p.join(', ')||'no trains needed';}
+
+// ── STORE ─────────────────────────────────────────────────
+function defStore(){return{companyKey:'candle_shop',activeId:'emp_default',apiMode:false,apiKey:'',pricePerTrain:500000,billingPeriod:7,billMode:'BY_DAYS',employees:{emp_default:{id:'emp_default',name:'Employee',companyKey:'candle_shop',passiveRoleIdx:0,trainsPerDay:5,trackMode:'goal',starts:{man:0,int:0,end:0},startDate:'',slotOverrides:{},goals:{man:0,int:0,end:0},progress:{man:0,int:0,end:0,day:0,totalTrains:0,checks:Array(5).fill(false)}}},pnl:[],payments:[],stock:[],sales:[],companyLogs:[]};}
+async function loadStore(){
+  if(window.storage){try{const r=await window.storage.get(STORE_KEY);if(r&&r.value)return JSON.parse(r.value);}catch(e){}}
+  try{const r=localStorage.getItem(STORE_KEY);if(r)return JSON.parse(r);}catch(e){}
+  for(const k of LEGACY){try{const r=localStorage.getItem(k);if(r){const d=JSON.parse(r);['pnl','payments','stock','sales','companyLogs'].forEach(f=>{if(!d[f])d[f]=[];});if(!d.pricePerTrain)d.pricePerTrain=500000;if(!d.billingPeriod)d.billingPeriod=7;if(!d.billMode)d.billMode='BY_DAYS';return d;}}catch(e){}}
+  return defStore();
+}
+async function saveStore(){try{localStorage.setItem(STORE_KEY,JSON.stringify(STORE));}catch(e){}if(window.storage){try{await window.storage.set(STORE_KEY,JSON.stringify(STORE));}catch(e){}}}
+function loadNC(){try{const r=localStorage.getItem(NEWS_KEY);if(r)return JSON.parse(r);}catch(e){}return null;}
+function saveNC(c){try{localStorage.setItem(NEWS_KEY,JSON.stringify(c));}catch(e){}if(window.storage)window.storage.set(NEWS_KEY,JSON.stringify(c)).catch(()=>{});}
+function loadMC(){try{const r=localStorage.getItem(MEMB_KEY);if(r)return JSON.parse(r);}catch(e){}return null;}
+function saveMC(c){try{localStorage.setItem(MEMB_KEY,JSON.stringify(c));}catch(e){}}
+
+let STORE=defStore();
+const ae=()=>STORE.employees[STORE.activeId];
+const ap=()=>ae().progress;
+const ag=()=>ae().goals;
+const ack=()=>ae().companyKey||STORE.companyKey;
+const apos=()=>{const co=COMPANIES[ack()];const idx=ae().passiveRoleIdx||0;return co.positions[Math.min(idx,co.positions.length-1)];};
+const fmt=n=>Math.floor(n).toLocaleString();
+const fmtC=n=>'$'+Math.floor(n).toLocaleString();
+const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+const toDay=()=>new Date().toISOString().slice(0,10);
+
+// ── TOAST ─────────────────────────────────────────────────
+let _tt=null;
+function showToast(msg,type=''){const el=document.getElementById('toast');if(!el)return;el.textContent=msg;el.className='toast show'+(type?' '+type:'');clearTimeout(_tt);_tt=setTimeout(()=>el.classList.remove('show'),2800);}
+
+// ── DEBUG LOG ─────────────────────────────────────────────
+const LB=[];
+function dbgLog(msg,level='info'){const ts=new Date().toTimeString().slice(0,8);LB.push({ts,msg,level});if(LB.length>500)LB.shift();const c=document.getElementById('logConsole');if(!c)return;const e=document.createElement('div');e.className='lc-row';e.innerHTML=`<span class="lc-ts">${ts}</span><span class="lc-msg ${level}">${msg}</span>`;c.appendChild(e);c.scrollTop=c.scrollHeight;}
+function clearLog(){LB.length=0;const c=document.getElementById('logConsole');if(c)c.innerHTML='<div class="lc-row"><span class="lc-ts">--:--:--</span><span class="lc-msg info">Log cleared.</span></div>';}
+function copyLog(){navigator.clipboard.writeText(LB.map(e=>`[${e.ts}] ${e.msg}`).join('\n')).then(()=>showToast('Copied'));}
+
+// ── NAV ───────────────────────────────────────────────────
+function nav(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  const pg=document.getElementById('page-'+page);if(pg)pg.classList.add('active');
+  const ni=document.getElementById('nav-'+page);if(ni)ni.classList.add('active');
+  if(page==='dashboard')renderDash();
+  if(page==='roster')renderRoster();
+  if(page==='billing')renderBilling();
+  if(page==='pnl')renderPnl();
+  if(page==='payments')renderPayments();
+  if(page==='stock')renderStock();
+  if(page==='sales')renderSales();
+  if(page==='logs')renderLogs();
+  if(page==='debug')dbgRefresh();
+  if(page==='admin')renderAdmin();
+}
+
+// ── MODALS ────────────────────────────────────────────────
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+function closeOvBg(id){closeModal(id);}
+
+// ── EMPLOYEE MODAL ────────────────────────────────────────
+let _eId=null;
+function openEmpModal(){renderEmpList();syncCoModal();openModal('empModal');}
+function showEmpForm(id){
+  _eId=id;
+  document.getElementById('empListView').style.display='none';
+  document.getElementById('empFormView').style.display='block';
+  document.getElementById('empFormTitle').textContent=id?'EDIT EMPLOYEE':'NEW EMPLOYEE';
+  const ck=id&&STORE.employees[id]?STORE.employees[id].companyKey||STORE.companyKey:ack();
+  if(id&&STORE.employees[id]){const e=STORE.employees[id];['fName'].forEach(f=>document.getElementById(f).value=e.name);document.getElementById('fMan').value=e.starts.man;document.getElementById('fInt').value=e.starts.int;document.getElementById('fEnd').value=e.starts.end;document.getElementById('fGMan').value=e.goals.man;document.getElementById('fGInt').value=e.goals.int;document.getElementById('fGEnd').value=e.goals.end;document.getElementById('fMode').value=e.trackMode||'goal';fillPR(ck,e.passiveRoleIdx||0);}
+  else{['fName','fMan','fInt','fEnd','fGMan','fGInt','fGEnd'].forEach(i=>document.getElementById(i).value='');document.getElementById('fMode').value='goal';fillPR(ck,0);}
+}
+function cancelEmpForm(){_eId=null;document.getElementById('empListView').style.display='block';document.getElementById('empFormView').style.display='none';}
+function saveEmployee(){
+  const name=document.getElementById('fName').value.trim()||'Employee';
+  const man=+document.getElementById('fMan').value||0,int_=+document.getElementById('fInt').value||0,end=+document.getElementById('fEnd').value||0;
+  const gm=+document.getElementById('fGMan').value||0,gi=+document.getElementById('fGInt').value||0,ge=+document.getElementById('fGEnd').value||0;
+  const ri=+document.getElementById('fRole').value||0,tm=document.getElementById('fMode').value||'goal';
+  const ck=ack(),tpd=ae().trainsPerDay||5;
+  if(_eId&&STORE.employees[_eId]){const e=STORE.employees[_eId];e.name=name;e.starts={man,int:int_,end};e.goals={man:gm,int:gi,end:ge};e.passiveRoleIdx=ri;e.companyKey=ck;e.trackMode=tm;const p=e.progress;p.man=Math.max(man,p.man);p.int=Math.max(int_,p.int);p.end=Math.max(end,p.end);STORE.activeId=_eId;}
+  else{const id='emp_'+Date.now();STORE.employees[id]={id,name,companyKey:ck,passiveRoleIdx:ri,trainsPerDay:tpd,trackMode:tm,starts:{man,int:int_,end},startDate:'',slotOverrides:{},goals:{man:gm,int:gi,end:ge},progress:{man,int:int_,end,day:0,totalTrains:0,checks:Array(tpd).fill(false)}};STORE.activeId=id;}
+  clog('train',`Employee saved: ${name}`);saveStore();cancelEmpForm();renderEmpList();render();showToast('\u2713 SAVED','ok');
+}
+function renderEmpList(){
+  const el=document.getElementById('empList');if(!el)return;el.innerHTML='';
+  const cnt=Object.keys(STORE.employees).length;
+  for(const[id,e]of Object.entries(STORE.employees)){
+    const co=COMPANIES[e.companyKey||STORE.companyKey];
+    const d=document.createElement('div');d.className='mem-card'+(id===STORE.activeId?' active':'');
+    d.innerHTML=`<div><div class="mem-name">${e.name}</div><div class="mem-pos">${co.name} \xB7 ${co.positions[Math.min(e.passiveRoleIdx||0,co.positions.length-1)].name}</div><div class="mem-stats"><span class="cm">${fmt(e.progress.man)}</span> / <span class="ci">${fmt(e.progress.int)}</span> / <span class="ce">${fmt(e.progress.end)}</span> \xB7 Day ${e.progress.day}</div></div><div class="mem-right"><button class="btn btn-o btn-xs" onclick="switchEmp('${id}')">USE</button><button class="btn btn-o btn-xs" onclick="showEmpForm('${id}')">EDIT</button>${cnt>1?`<button class="btn btn-red btn-xs" onclick="delEmp('${id}')">&#x2715;</button>`:''}</div>`;
+    el.appendChild(d);
+  }
+}
+function switchEmp(id){STORE.activeId=id;saveStore();renderEmpList();syncCoModal();syncModeUI();render();syncSD();syncEMUI();closeModal('empModal');showToast('Active: '+STORE.employees[id].name);}
+function delEmp(id){if(!confirm(`Delete ${STORE.employees[id].name}?`))return;clog('train','Deleted: '+STORE.employees[id].name);delete STORE.employees[id];if(STORE.activeId===id)STORE.activeId=Object.keys(STORE.employees)[0];saveStore();renderEmpList();render();}
+function fillPR(ck,sel){const el=document.getElementById('fRole');el.innerHTML='';COMPANIES[ck].positions.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=`${p.name} (${p.pri.toUpperCase()} pri)`;if(i===sel)o.selected=true;el.appendChild(o);});}
+function syncCoModal(){const s=document.getElementById('coSelect');s.innerHTML='';for(const[k,co]of Object.entries(COMPANIES)){const o=document.createElement('option');o.value=k;o.textContent=co.name;if(k===ack())o.selected=true;s.appendChild(o);}document.getElementById('tpdDisp').textContent=ae().trainsPerDay||5;}
+function onCoChange(){const k=document.getElementById('coSelect').value;ae().companyKey=k;STORE.companyKey=k;saveStore();render();}
+function changeTpdModal(d){changeTpd(d);document.getElementById('tpdDisp').textContent=ae().trainsPerDay||5;}
+function changeTpd(d){const v=Math.min(20,Math.max(1,(ae().trainsPerDay||5)+d));ae().trainsPerDay=v;ap().checks=Array(v).fill(false);ae().slotOverrides={};saveStore();render();}
+
+// ── MODE ──────────────────────────────────────────────────
+function onModeToggle(){STORE.apiMode=document.getElementById('modeToggle').checked;syncModeUI();saveStore();}
+function syncModeUI(){const api=!!STORE.apiMode;document.getElementById('modeToggle').checked=api;document.getElementById('mLblMan').className='m-lbl '+(api?'off':'on');document.getElementById('mLblApi').className='m-lbl '+(api?'on':'off');const ab=document.getElementById('apiBadge');if(ab)ab.style.display=api?'inline-block':'none';const tc=document.getElementById('tbApiChip');if(tc){tc.textContent=api?'\u26A1 API MODE':'\u26A1 OFFLINE';tc.className='tb-chip'+(api?' on':'');}if(STORE.apiKey){const el=document.getElementById('apiKeyInput');if(el)el.value=STORE.apiKey;}}
+
+// ── START DATE ────────────────────────────────────────────
+function isoToDmy(iso){if(!iso)return'';const[y,m,d]=iso.split('-');return`${d}/${m}/${y}`;}
+function dmyToIso(dmy){if(!dmy)return'';const p=dmy.split('/');if(p.length!==3)return'';const[d,m,y]=p;if(!d||!m||!y||y.length<4)return'';return`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;}
+function daysSince(iso){if(!iso)return 0;const s=new Date(iso),n=new Date();s.setHours(0,0,0,0);n.setHours(0,0,0,0);return Math.max(0,Math.round((n-s)/86400000));}
+function syncDirectorStartUI(){
+  const banner=document.getElementById('directorStartBanner');
+  if(!banner)return;
+  if(STORE.directorTs&&STORE.directorName){
+    const dt=new Date(STORE.directorTs*1000).toLocaleDateString();
+    const days=Math.round((Date.now()/1000-STORE.directorTs)/86400);
+    banner.style.display='block';
+    banner.textContent=`\u2713 Auto-detected: ${STORE.directorName} became director on ${dt} (${days}d ago) \u2014 fetching all data from this date`;
+  }else{banner.style.display='none';}
+}
+function syncSD(){
+  const iso=ae().startDate||'';
+  const d=document.getElementById('sdDisp'),n=document.getElementById('sdNative'),s=document.getElementById('sdSub');
+  if(d)d.value=iso?isoToDmy(iso):'';
+  if(n)n.value=iso;
+  if(s){
+    if(iso){s.textContent=`Manual override: ${daysSince(iso)} days since ${isoToDmy(iso)}`;s.className='sdate-sub on';}
+    else if(STORE.directorTs){s.textContent='Using auto-detected director start (see above)';s.className='sdate-sub on';}
+    else{s.textContent='Sync first to auto-detect director start, or enter manually';s.className='sdate-sub';}
+  }
+  syncDirectorStartUI();
+}
+function onSdInput(el){let v=el.value.replace(/\D/g,'');if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);if(v.length>5)v=v.slice(0,5)+'/'+v.slice(5);if(v.length>10)v=v.slice(0,10);el.value=v;}
+function onSdBlur(el){const iso=dmyToIso(el.value);if(iso){ae().startDate=iso;saveStore();syncSD();render();}else if(!el.value){ae().startDate='';saveStore();syncSD();}}
+function onSdNative(el){ae().startDate=el.value;saveStore();syncSD();render();}
+
+// ── STARTING STATS ────────────────────────────────────────
+function renderStartsBox(){const e=ae(),s=ap(),st=e.starts;document.getElementById('sStMan').textContent=fmt(st.man);document.getElementById('sStInt').textContent=fmt(st.int);document.getElementById('sStEnd').textContent=fmt(st.end);for(const k of['man','int','end']){const el=document.getElementById('sG'+cap(k)),d=s[k]-st[k];if(d>0){el.textContent=`+${fmt(d)} gained`;el.className='sv-d pos';}else{el.textContent='';el.className='sv-d';}}document.getElementById('seMan').value=st.man||'';document.getElementById('seInt').value=st.int||'';document.getElementById('seEnd').value=st.end||'';}
+function toggleStartsEdit(){const f=document.getElementById('startsForm');f.style.display=f.style.display==='none'?'block':'none';}
+function saveStartingStats(){const e=ae(),man=+document.getElementById('seMan').value||0,int_=+document.getElementById('seInt').value||0,end=+document.getElementById('seEnd').value||0;e.starts={man,int:int_,end};const p=e.progress;p.man=Math.max(p.man,man);p.int=Math.max(p.int,int_);p.end=Math.max(p.end,end);document.getElementById('startsForm').style.display='none';clog('train','Starting stats updated');saveStore();render();showToast('\u2713 SAVED','ok');}
+
+// ── EMP MODE ──────────────────────────────────────────────
+function setEmpMode(m){ae().trackMode=m;saveStore();syncEMUI();render();}
+function syncEMUI(){const m=ae().trackMode||'goal';document.getElementById('emBtnTrains').className='emp-btn'+(m==='trains'?' active':'');document.getElementById('emBtnGoal').className='emp-btn'+(m==='goal'?' active':'');document.getElementById('goalModeDiv').style.display=m==='goal'?'block':'none';document.getElementById('trainsModeDiv').style.display=m==='trains'?'block':'none';}
+
+// ── TRAINS MODE ───────────────────────────────────────────
+function renderTM(){
+  const e=ae(),s=ap(),st=e.starts,tpd=e.trainsPerDay||5,iso=e.startDate||'';
+  const days=iso?daysSince(iso):s.day;
+  document.getElementById('tmTot').textContent=s.totalTrains;document.getElementById('tmDays').textContent=days;document.getElementById('tmDaysSub').textContent=iso?`since ${isoToDmy(iso)}`:'since day 1';document.getElementById('tmRate').textContent=days>0?(s.totalTrains/days).toFixed(1):'--';document.getElementById('tmTgt').textContent=tpd;
+  ['man','int','end'].forEach(k=>{const g=s[k]-st[k];document.getElementById('tmG'+cap(k)).textContent=g>=0?`+${fmt(g)}`:fmt(g);document.getElementById('tmC'+cap(k)).textContent=fmt(s[k]);});
+  const sl=document.getElementById('tmSlots');sl.innerHTML='';while(s.checks.length<tpd)s.checks.push(false);s.checks=s.checks.slice(0,tpd);sl.style.gridTemplateColumns=`repeat(${Math.min(tpd,5)},1fr)`;const mk=s.checks.filter(Boolean).length;
+  for(let i=0;i<tpd;i++){const d=document.createElement('div');d.className='tslot'+(s.checks[i]?' done':'');d.style.cssText='justify-content:center;text-align:center';d.onclick=()=>{s.checks[i]=!s.checks[i];saveStore();renderTM();};d.innerHTML=`<div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;color:${s.checks[i]?'var(--gold)':'var(--text3)'}">${i+1}</div><div class="ts-check">\u2713</div>`;sl.appendChild(d);}
+  document.getElementById('tmProg').style.width=(mk/tpd*100)+'%';document.getElementById('tmProgLbl').textContent=`${mk} / ${tpd} trains`;document.getElementById('tmApplyBtn').textContent=`APPLY ${mk} TRAIN${mk!==1?'S':''} & ADVANCE DAY`;
+}
+function applyDayTM(){const e=ae(),s=ap(),tpd=e.trainsPerDay||5,mk=s.checks.filter(Boolean).length;s.day++;s.totalTrains+=mk;s.checks=Array(tpd).fill(false);clog('train',`${e.name}: ${mk} trains. Day ${s.day}`);saveStore();render();showToast(`\u2713 DAY ${s.day}  \u2014 ${mk} TRAINS`,'ok');}
+
+// ── SLOT OVERRIDES ────────────────────────────────────────
+function onSlotOverride(i,pk){const e=ae();if(!e.slotOverrides)e.slotOverrides={};if(!pk){delete e.slotOverrides[i];}else{const pos=buildTP(ack()).find(p=>p.pri+'_'+p.sec===pk);if(pos)e.slotOverrides[i]=pos;}saveStore();render();showToast('Route recalculated');}
+
+// ── MAIN RENDER ───────────────────────────────────────────
+function render(){
+  const e=ae(),s=ap(),goals=ag(),pos=apos(),tpd=e.trainsPerDay||5;
+  syncSD();syncEMUI();
+  const done=['man','int','end'].every(k=>goals[k]===0||s[k]>=goals[k]);
+  const ovr=e.slotOverrides||{};
+  const{assignments,totalGains,passive,trainGains}=allocate(s,goals,ack(),tpd,pos,ovr);
+  const needed=assignments.filter(a=>a!==null).length;
+  const tn=document.getElementById('tbEmpName');if(tn)tn.textContent=e.name;
+  const te=document.getElementById('trkEmpName');if(te)te.textContent=e.name;
+  const dp=document.getElementById('dayPill');if(dp)dp.textContent=`DAY ${s.day}`;
+  const sc=document.getElementById('slotsCount');if(sc)sc.textContent=tpd;
+  const db=document.getElementById('doneBanner');if(db)db.className='done-banner'+(done&&(e.trackMode||'goal')==='goal'?' show':'');
+  renderStartsBox();renderTM();
+  for(const k of['man','int','end']){
+    const cur=s[k],goal=goals[k],hit=goal>0&&cur>=goal;
+    document.getElementById('g'+cap(k)).textContent=goal>0?`GOAL: ${fmt(goal)}`:'NO GOAL';
+    const vEl=document.getElementById('v'+cap(k));vEl.textContent=fmt(cur);vEl.className='sc-val'+(hit?' goal-hit':'');
+    document.getElementById('b'+cap(k)).style.width=goal>0?Math.min(100,(cur/goal)*100)+'%':'100%';
+    document.getElementById('r'+cap(k)).textContent=goal===0?'--':hit?'\u2713 GOAL REACHED':`${fmt(goal-cur)} remaining`;
+  }
+  const eff=calcEff(s,pos),pct=Math.min(EFF_CAP,eff)/EFF_CAP*100,full=eff>=EFF_CAP;
+  document.getElementById('eEff').textContent=eff;document.getElementById('eEffPct').textContent=pct.toFixed(0)+'%';document.getElementById('eEffSub').textContent=pos.name.toLowerCase();
+  const pp=[];if(passive.end)pp.push(`<span class="ce">+${passive.end}</span>`);if(passive.int)pp.push(`<span class="ci">+${passive.int}</span>`);if(passive.man)pp.push(`<span class="cm">+${passive.man}</span>`);
+  document.getElementById('eTodayPass').innerHTML=pp.join('/')||'--';
+  const ps=[];if(passive.end)ps.push('END');if(passive.int)ps.push('INT');if(passive.man)ps.push('MAN');
+  document.getElementById('ePassSub').textContent=ps.join('+')||'--';
+  const mx=[];if(pos.passiveMax.end)mx.push(`<span class="ce">+${pos.passiveMax.end} END</span>`);if(pos.passiveMax.int)mx.push(`<span class="ci">+${pos.passiveMax.int} INT</span>`);if(pos.passiveMax.man)mx.push(`<span class="cm">+${pos.passiveMax.man} MAN</span>`);
+  const td=[];if(passive.end)td.push(`<span class="ce">+${passive.end} END</span>`);if(passive.int)td.push(`<span class="ci">+${passive.int} INT</span>`);if(passive.man)td.push(`<span class="cm">+${passive.man} MAN</span>`);
+  document.getElementById('passNote').innerHTML=`<strong>${pos.name.toUpperCase()} PASSIVE</strong> (18:00 TCT) \xB7 Req: <span class="c${pos.pri}">${fmt(pos.priReq)} ${pos.pri.toUpperCase()}</span> / <span class="c${pos.sec}">${fmt(pos.secReq)} ${pos.sec.toUpperCase()}</span><br>Max@eff\u226590: ${mx.join(' / ')||'--'} \xB7 Today: ${td.join(' \xB7 ')||'--'}${full?' <span style="color:var(--end)">\u2713 SATURATED</span>':''}`;
+  document.getElementById('phaseTag').textContent=done?'COMPLETE':`TODAY: ${descSched(assignments)}`;
+  // train slots
+  const slotsEl=document.getElementById('trainSlots');slotsEl.innerHTML='';
+  while(s.checks.length<tpd)s.checks.push(false);s.checks=s.checks.slice(0,tpd);
+  const mc=s.checks.filter(Boolean).length;const tp=buildTP(ack());
+  for(let i=0;i<tpd;i++){
+    const a=assignments[i],skip=a===null,isDone=s.checks[i];
+    const div=document.createElement('div');div.className='tslot'+(isDone?' done':'')+(skip?' skip':'');
+    let selH='';
+    if(!skip){const ck2=ovr[i]?ovr[i].pri+'_'+ovr[i].sec:(a?a.pri+'_'+a.sec:'');selH=`<select class="ts-sel" onclick="event.stopPropagation()" onchange="onSlotOverride(${i},this.value)"><option value="">AUTO</option>`;for(const p of tp){const k=p.pri+'_'+p.sec;selH+=`<option value="${k}"${ck2===k?' selected':''}>${p.name} (+${p.priAmt}${p.pri}/+${p.secAmt}${p.sec})</option>`;}selH+='</select>';}
+    const gH=skip?`<span style="color:var(--text3);font-size:.5rem">skip</span>`:`<span class="c${a.pri}">+${a.priAmt} ${a.pri.toUpperCase()}</span><br><span class="c${a.sec}">+${a.secAmt} ${a.sec.toUpperCase()}</span>`;
+    div.innerHTML=`<div class="ts-num">#${i+1}</div><div class="ts-name" style="flex:1">${skip?'SKIP':a.name}${ovr[i]?' <span class="ovr-badge">OVR</span>':''}</div>${selH}<div class="ts-gains">${gH}</div><div class="ts-check">\u2713</div>`;
+    if(!skip)div.onclick=()=>toggleTrain(i);
+    slotsEl.appendChild(div);
+  }
+  document.getElementById('progFill').style.width=needed===0?'100%':(mc/Math.max(needed,1)*100)+'%';
+  document.getElementById('trainCount').textContent=needed===0?'no trains needed':`${mc} / ${needed} trains marked`;
+  const pv=[];for(let i=0;i<tpd;i++){if(s.checks[i]&&assignments[i]){const a=assignments[i];pv.push(`+${a.priAmt} ${a.pri.toUpperCase()}`);}}
+  document.getElementById('trainPreview').innerHTML=pv.length?` \xB7 <span style="color:var(--gold)">${pv.join(' ')}</span>`:'';
+  const db2=document.getElementById('dailyBox');
+  if(!done){
+    const tl=[trainGains.man?`<span class="cm">+${trainGains.man} MAN</span>`:null,trainGains.int?`<span class="ci">+${trainGains.int} INT</span>`:null,trainGains.end?`<span class="ce">+${trainGains.end} END</span>`:null].filter(Boolean).join(' ')||'--';
+    const pl=td.join(' ')||'--';
+    const tot=[totalGains.man?`<span class="cm">+${totalGains.man} MAN</span>`:null,totalGains.int?`<span class="ci">+${totalGains.int} INT</span>`:null,totalGains.end?`<span class="ce">+${totalGains.end} END</span>`:null].filter(Boolean).join(' ')||'--';
+    const pr=`<span class="cm">${fmt(s.man+totalGains.man)}</span>/<span class="ci">${fmt(s.int+totalGains.int)}</span>/<span class="ce">${fmt(s.end+totalGains.end)}</span>`;
+    db2.innerHTML=`<div class="dr"><span class="dr-lbl">TRAINS (${needed}\xD7)</span><span>${tl}</span></div><div class="dr"><span class="dr-lbl">PASSIVE (${pos.name})</span><span>${pl}</span></div><hr class="dsep"><div class="dr"><span class="dr-lbl" style="color:var(--gold)">TOTAL / DAY</span><span style="color:var(--gold2)">${tot}</span></div><div class="dr"><span class="dr-lbl">END OF DAY</span><span style="font-size:.54rem">${pr}</span></div>`;
+  }else{db2.innerHTML=`<div class="dr"><span style="color:var(--end)">\u2713 ALL GOALS COMPLETE</span></div>`;}
+  const btn=document.getElementById('applyBtn');btn.disabled=done;btn.textContent=done?'ALL GOALS COMPLETE':`APPLY ${needed} TRAINS + PASSIVE & ADVANCE DAY`;
+  renderSched(s,goals,ack(),tpd,pos);
+  const dfe=e.startDate?daysSince(e.startDate):s.day;
+  document.getElementById('pDays').textContent=dfe;document.getElementById('pTrains').textContent=s.totalTrains;
+  const rem=done?0:simDays(s,goals,ack(),tpd,pos);
+  document.getElementById('pRem').textContent=done?'\u2713 DONE':rem+'d';
+  const gaps=['man','int','end'].filter(k=>goals[k]>0&&s[k]<goals[k]).map(k=>({k,gap:goals[k]-s[k]})).sort((a,b)=>b.gap-a.gap);
+  document.getElementById('pPhase').textContent=done?'\u2713':(gaps[0]?gaps[0].k.toUpperCase():'--');
+  document.getElementById('pPhaseSub').textContent=done?'All goals reached':(gaps[0]?`${fmt(gaps[0].gap)} remaining`:'');
+}
+
+function renderSched(s,goals,ck,tpd,pp){
+  const tbl=document.getElementById('schedTable');while(tbl.children.length>1)tbl.removeChild(tbl.lastChild);
+  let sim={...s};const done=()=>['man','int','end'].every(k=>goals[k]===0||sim[k]>=goals[k]);
+  if(done()){const r=document.createElement('div');r.style.cssText='padding:12px;font-family:JetBrains Mono,monospace;font-size:.58rem;color:var(--ok)';r.textContent='All goals reached.';tbl.appendChild(r);return;}
+  for(let d=0;d<7&&!done();d++){
+    const{assignments,totalGains}=allocate(sim,goals,ck,tpd,pp,null);const used=assignments.filter(a=>a!==null).length;
+    const r=document.createElement('div');r.className='sr'+(d===0?' cur':'');
+    const gp=[totalGains.man?`<span class="cm">+${totalGains.man}</span>`:null,totalGains.int?`<span class="ci">+${totalGains.int}</span>`:null,totalGains.end?`<span class="ce">+${totalGains.end}</span>`:null].filter(Boolean).join(' ');
+    r.innerHTML=`<span class="sr-num">${d===0?'TODAY':'+'+d+'d'}</span><span class="sr-desc">${descSched(assignments)}<small>${used} trains</small></span><span class="sr-gains">${gp}</span><span class="sr-stats">${fmt(sim.man+totalGains.man)}/${fmt(sim.int+totalGains.int)}/${fmt(sim.end+totalGains.end)}</span>`;
+    tbl.appendChild(r);sim.man=Math.min(sim.man+totalGains.man,999999);sim.int=Math.min(sim.int+totalGains.int,999999);sim.end=Math.min(sim.end+totalGains.end,999999);
+  }
+}
+function toggleTrain(i){const s=ap(),g=ag();if(['man','int','end'].every(k=>g[k]===0||s[k]>=g[k]))return;s.checks[i]=!s.checks[i];saveStore();render();}
+function applyDay(){
+  const e=ae(),s=ap(),g=ag(),tpd=e.trainsPerDay||5,pos=apos();
+  if(['man','int','end'].every(k=>g[k]===0||s[k]>=g[k]))return;
+  const{totalGains,assignments}=allocate(s,g,ack(),tpd,pos,e.slotOverrides||{});
+  const used=assignments.filter(a=>a!==null).length;
+  s.man=Math.min(s.man+totalGains.man,999999);s.int=Math.min(s.int+totalGains.int,999999);s.end=Math.min(s.end+totalGains.end,999999);
+  s.day++;s.totalTrains+=used;s.checks=Array(tpd).fill(false);e.slotOverrides={};
+  clog('train',`${e.name}: Day ${s.day}. ${used} trains. MAN ${fmt(s.man)} INT ${fmt(s.int)} END ${fmt(s.end)}`);
+  saveStore();render();showToast(`\u2713 DAY ${s.day} COMPLETE`,'ok');
+}
+function confirmReset(){const e=ae();if(!confirm(`Reset progress for ${e.name}?`))return;const st=e.starts;e.progress={man:st.man,int:st.int,end:st.end,day:0,totalTrains:0,checks:Array(e.trainsPerDay||5).fill(false)};e.slotOverrides={};clog('train','Progress reset: '+e.name);saveStore();render();showToast('Reset');}
+
+// ── EXPORT / IMPORT ───────────────────────────────────────
+function exportData(){const b=new Blob([JSON.stringify(STORE,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`hv_${toDay()}.json`;a.click();showToast('\u2713 EXPORTED','ok');}
+function importData(ev){const file=ev.target.files[0];if(!file)return;const r=new FileReader();r.onload=async e=>{try{const d=JSON.parse(e.target.result);if(!d.employees||!d.activeId)throw new Error('invalid');['pnl','payments','stock','sales','companyLogs'].forEach(f=>{if(!d[f])d[f]=[];});STORE=d;await saveStore();syncModeUI();render();showToast('\u2713 IMPORTED','ok');}catch{showToast('\u2715 INVALID FILE','err');}};r.readAsText(file);ev.target.value='';}
+
+// ── COMPANY LOG ───────────────────────────────────────────
+function clog(type,msg){if(!STORE.companyLogs)STORE.companyLogs=[];STORE.companyLogs.unshift({id:'log_'+Date.now(),type,msg,ts:new Date().toISOString()});if(STORE.companyLogs.length>500)STORE.companyLogs=STORE.companyLogs.slice(0,500);}
+
+// ── ANALYTICS ────────────────────────────────────────────
+function clearSnapshots(){if(!confirm('Clear all analytics snapshots?'))return;STORE.companySnapshots=[];saveStore();renderDash();showToast('Snapshots cleared');}
+function renderAnalytics(){
+  const snaps=STORE.companySnapshots||[];
+  const reports=STORE.dailyReports||[];
+  const card=document.getElementById('dashAnalyticsCard');
+  const el=document.getElementById('dashAnalytics');
+  if(!card||!el)return;
+  if(!snaps.length&&!reports.length){card.style.display='none';return;}
+  card.style.display='block';
+  let html='';
+  // Director tenure banner
+  if(STORE.directorTs&&STORE.directorName){
+    const days=Math.round((Date.now()/1000-STORE.directorTs)/86400);
+    html+=`<div style="margin-bottom:10px;padding:7px 10px;background:var(--adim);border:1px solid rgba(56,201,160,.2);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--api)">\u2713 ${STORE.directorName} \xB7 Director for ${days} days \xB7 since ${new Date(STORE.directorTs*1000).toLocaleDateString()}</div>`;
+  }
+  // Daily income reports from Main News
+  if(reports.length){
+    const last7=reports.slice(0,7);
+    const avgInc=Math.round(last7.reduce((a,r)=>a+r.income,0)/last7.length);
+    const avgCust=Math.round(last7.reduce((a,r)=>a+r.customers,0)/last7.length);
+    html+=`<div class="sec-lbl" style="margin-bottom:6px">DAILY INCOME (last ${last7.length} reports)</div>`;
+    html+=`<div class="tbl-wrap" style="margin-bottom:12px"><table class="tbl"><thead><tr><th>DAY</th><th>DATE</th><th class="num">CUSTOMERS</th><th class="num">GROSS INCOME</th></tr></thead><tbody>`;
+    for(const r of last7){const dt=new Date(r.ts*1000).toLocaleDateString();html+=`<tr><td style="color:var(--gold)">${r.day}</td><td style="font-size:.5rem;color:var(--text3)">${dt}</td><td class="num" style="color:var(--int)">${r.customers.toLocaleString()}</td><td class="num pos">${fmtC(r.income)}</td></tr>`;}
+    html+=`<tr style="background:var(--bg2)"><td colspan="2" style="color:var(--text3);font-size:.5rem">7-DAY AVG</td><td class="num" style="color:var(--int)">${avgCust.toLocaleString()}</td><td class="num" style="color:var(--gold2);font-weight:700">${fmtC(avgInc)}</td></tr>`;
+    html+='</tbody></table></div>';
+  }
+  // Sync snapshots — company stats at time of each sync
+  if(snaps.length){
+    const last14=snaps.slice(-14).reverse();const newest=last14[0];
+    html+=`<div class="sec-lbl" style="margin-bottom:6px">COMPANY STATUS (last sync: ${new Date(newest.ts).toLocaleString()})</div>`;
+    html+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">`;
+    const sc=(lbl,val,color)=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:.46rem;color:var(--text3);margin-bottom:3px">${lbl}</div><div style="font-family:'Syne',sans-serif;font-size:.85rem;font-weight:800;color:${color}">${val}</div></div>`;
+    html+=sc('DAILY INCOME',newest.dailyIncome!=null?fmtC(newest.dailyIncome):'--','var(--ok)');
+    html+=sc('CUSTOMERS',newest.dailyCustomers!=null?newest.dailyCustomers.toLocaleString():'--','var(--int)');
+    html+=sc('WEEKLY',newest.weeklyIncome!=null?fmtC(newest.weeklyIncome):'--','var(--api)');
+    html+='</div>';
+    if(last14.length>=2){
+      const oldest=last14[last14.length-1];
+      const trend=(key,label)=>{const n=newest[key],o=oldest[key];if(n==null||o==null)return'';const d=n-o;if(d===0)return'';const arrow=d>0?'\u2197':'\u2198';return`<span style="color:${d>0?'var(--ok)':'var(--danger)'};font-family:'JetBrains Mono',monospace;font-size:.52rem;margin-right:10px">${arrow} ${label}: ${d>0?'+':''}${typeof d==='number'&&d>10000?fmtC(d):d}</span>`;};
+      html+=`<div style="padding:7px 10px;background:var(--bg2);border-radius:6px;margin-bottom:10px">${trend('dailyIncome','Daily $')}${trend('dailyCustomers','Customers')}${trend('weeklyIncome','Weekly $')}</div>`;
+    }
+  }
+  el.innerHTML=html;
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────
+function renderDash(){
+  const e=ae(),s=ap(),pos=apos(),g=ag(),tpd=e.trainsPerDay||5,co=COMPANIES[ack()];
+  const coDisplayName=STORE.apiCompanyName||co.name;
+  document.getElementById('dashTitle').textContent=coDisplayName.toUpperCase()+' DASHBOARD';
+  const tl=document.getElementById('topbarLogo');if(tl)tl.innerHTML=coDisplayName.toUpperCase()+'<span>DASHBOARD</span>';
+  document.getElementById('dashSub').textContent=`ACTIVE: ${e.name.toUpperCase()}`;
+  document.getElementById('kpiEmp').textContent=Object.keys(STORE.employees).length;
+  document.getElementById('kpiTrains').textContent=Object.values(STORE.employees).reduce((a,x)=>a+x.progress.totalTrains,0);
+  const totRev=(STORE.pnl||[]).filter(x=>x.type==='income').reduce((a,x)=>a+x.amount,0)+(STORE.payments||[]).filter(p=>p.status==='received').reduce((a,p)=>a+p.amount,0);
+  const out=(STORE.payments||[]).filter(p=>p.status==='pending'||p.status==='overdue').reduce((a,p)=>a+p.amount,0);
+  document.getElementById('kpiRev').textContent=fmtC(totRev);document.getElementById('kpiOut').textContent=fmtC(out);
+  const done=['man','int','end'].every(k=>g[k]===0||s[k]>=g[k]);const eff=calcEff(s,pos);
+  document.getElementById('dashEmp').innerHTML=`<div style="margin-bottom:8px"><span class="badge b-gold">${co.name}</span> &nbsp;<span class="badge b-api">Eff: ${eff}</span></div><div class="g3" style="margin-bottom:8px"><div class="sv"><div class="sv-lbl man">MANUAL</div><div class="sv-val man">${fmt(s.man)}</div></div><div class="sv"><div class="sv-lbl int">INTEL</div><div class="sv-val int">${fmt(s.int)}</div></div><div class="sv"><div class="sv-lbl end">END</div><div class="sv-val end">${fmt(s.end)}</div></div></div><div style="font-family:'JetBrains Mono',monospace;font-size:.56rem;color:var(--text3)">Day ${s.day} \xB7 ${s.totalTrains} trains \xB7 ${done?'<span style="color:var(--ok)">\u2713 ALL GOALS</span>':'In Progress'}</div>`;
+  const{assignments}=allocate(s,g,ack(),tpd,pos,e.slotOverrides||{});const needed=assignments.filter(a=>a!==null).length,mk=s.checks.filter(Boolean).length;
+  document.getElementById('dashToday').innerHTML=`<div style="font-family:'JetBrains Mono',monospace;font-size:.58rem;line-height:2;color:var(--text2)"><div>Trains needed: <span style="color:var(--gold2)">${needed}</span></div><div>Marked done: <span style="color:var(--ok)">${mk}/${needed}</span></div><div>Passive role: <span style="color:var(--passive)">${pos.name}</span></div><div>Mode: <span style="color:var(--gold)">${(e.trackMode||'goal').toUpperCase()}</span></div></div>`;
+  const rEl=document.getElementById('dashRoster');rEl.innerHTML='';
+  for(const[id,x]of Object.entries(STORE.employees).slice(0,5)){const coo=COMPANIES[x.companyKey||STORE.companyKey];const ag=['man','int','end'].every(k=>x.goals[k]===0||x.progress[k]>=x.goals[k]);rEl.innerHTML+=`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)"><div style="flex:1"><div style="font-weight:600;font-size:.82rem">${x.name}</div><div style="font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3)">${coo.name} \xB7 Day ${x.progress.day} \xB7 ${x.progress.totalTrains} trains</div></div><span class="badge ${ag?'b-ok':'b-gold'}">${ag?'DONE':'ACTIVE'}</span>${id===STORE.activeId?'<span class="badge b-api">ACTIVE</span>':''}</div>`;}
+  const pays=(STORE.payments||[]).slice(0,4);
+  document.getElementById('dashPayments').innerHTML=pays.length?pays.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:.56rem"><span style="color:var(--text2)">${p.employee}</span><span class="badge ${p.status==='received'?'b-ok':p.status==='overdue'?'b-low':'b-warn'}">${p.status}</span><span style="color:var(--ok)">${fmtC(p.amount)}</span></div>`).join(''):'<div class="muted">No payments.</div>';
+  const logs=(STORE.companyLogs||[]).slice(0,5);
+  document.getElementById('dashLogs').innerHTML=logs.length?logs.map(l=>{const d=new Date(l.ts);const ts=d.toLocaleDateString()+' '+d.toTimeString().slice(0,5);const col=l.type==='train'?'var(--gold)':l.type==='finance'?'var(--ok)':l.type==='stock'?'var(--passive)':'var(--text3)';return`<div style="padding:7px 0;border-bottom:1px solid var(--border)"><div style="font-family:'JetBrains Mono',monospace;font-size:.48rem;color:${col};margin-bottom:2px">${l.type.toUpperCase()} \xB7 ${ts}</div><div style="font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--text2)">${l.msg}</div></div>`;}).join(''):'<div class="muted">No recent activity.</div>';
+  renderAnalytics();
+}
+
+// ── ROSTER ────────────────────────────────────────────────
+function renderRoster(){
+  const el=document.getElementById('rosterList');el.innerHTML='';
+  for(const[id,e]of Object.entries(STORE.employees)){
+    const co=COMPANIES[e.companyKey||STORE.companyKey];const pos=co.positions[Math.min(e.passiveRoleIdx||0,co.positions.length-1)];
+    const g=e.goals,s=e.progress,done=['man','int','end'].every(k=>g[k]===0||s[k]>=g[k]);
+    const eff=calcEff(s,pos),pass=calcPassive(s,pos),rem=done?0:simDays(s,g,e.companyKey||STORE.companyKey,e.trainsPerDay||5,pos);
+    const card=document.createElement('div');card.className='card';card.style.marginBottom='12px';
+    card.innerHTML=`<div class="card-hdr"><div><div style="font-family:'Syne',sans-serif;font-size:1rem;font-weight:800;color:${id===STORE.activeId?'var(--gold2)':'var(--text)'}">${e.name} ${id===STORE.activeId?'<span class="badge b-api">ACTIVE</span>':''}</div><div style="font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--text3);margin-top:2px">${co.name} \xB7 ${pos.name} \xB7 Day ${s.day} \xB7 ${s.totalTrains} trains</div></div><div style="display:flex;gap:6px"><button class="btn btn-o btn-sm" onclick="switchEmp('${id}')">ACTIVATE</button><button class="btn btn-o btn-sm" onclick="openEmpModal();setTimeout(()=>showEmpForm('${id}'),50)">EDIT</button></div></div>
+    <div class="stat3"><div class="sc man"><div class="sc-lbl">MANUAL</div><div class="sc-val">${fmt(s.man)}</div>${g.man>0?`<div class="sc-goal">GOAL: ${fmt(g.man)}</div><div class="bar"><div class="bar-f" style="width:${Math.min(100,(s.man/g.man)*100).toFixed(1)}%"></div></div>`:''}</div><div class="sc int"><div class="sc-lbl">INTELLIGENCE</div><div class="sc-val">${fmt(s.int)}</div>${g.int>0?`<div class="sc-goal">GOAL: ${fmt(g.int)}</div><div class="bar"><div class="bar-f" style="width:${Math.min(100,(s.int/g.int)*100).toFixed(1)}%"></div></div>`:''}</div><div class="sc end"><div class="sc-lbl">ENDURANCE</div><div class="sc-val">${fmt(s.end)}</div>${g.end>0?`<div class="sc-goal">GOAL: ${fmt(g.end)}</div><div class="bar"><div class="bar-f" style="width:${Math.min(100,(s.end/g.end)*100).toFixed(1)}%"></div></div>`:''}</div></div>
+    <div class="g4" style="font-size:.54rem"><div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--text3);font-size:.48rem">EFFECTIVENESS</div><div style="color:var(--gold2);font-size:.85rem;font-weight:700">${eff}</div></div><div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--text3);font-size:.48rem">PASSIVE/DAY</div><div style="font-size:.75rem">${[pass.man?`<span class="cm">+${pass.man}</span>`:null,pass.int?`<span class="ci">+${pass.int}</span>`:null,pass.end?`<span class="ce">+${pass.end}</span>`:null].filter(Boolean).join(' ')||'--'}</div></div><div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--text3);font-size:.48rem">DAYS REM.</div><div style="color:${done?'var(--ok)':'var(--text)'};font-size:.85rem;font-weight:700">${done?'\u2713':rem+'d'}</div></div><div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--text3);font-size:.48rem">STATUS</div><span class="badge ${done?'b-ok':'b-gold'}">${done?'DONE':'ACTIVE'}</span></div></div>`;
+    el.appendChild(card);
+  }
+}
+
+// ── API SYNC ──────────────────────────────────────────────
+async function runApiSync(){
+  const key=document.getElementById('apiKeyInput').value.trim();
+  if(!key){setAS('Enter an API key first.','err');return;}
+  STORE.apiKey=key;saveStore();
+  // Use director start ts if auto-detected; fall back to manual date; 0 = fetch all available
+  const manualIso=ae().startDate||'';
+  const manualTs=manualIso?Math.floor(new Date(manualIso).getTime()/1000):0;
+  const effectiveStartTs=STORE.directorTs||manualTs||0;
+  const btn=document.getElementById('apiSyncBtn');btn.disabled=true;
+  setAS('\u27F3 Fetching company data\u2026','loading');dbgLog('API sync started','api');
+  try{
+    // Fetch profile+employees+detailed in one call
+    const cr=await fetch(`https://tornapi.tornplayground.eu/company/?selections=profile,employees,detailed&key=${key}`);const cd=await cr.json();
+    if(cd.error)throw new Error(`API Error ${cd.error.code}: ${cd.error.error}`);
+    dbgLog(`API top-level keys: ${Object.keys(cd).join(', ')}`,'debug');
+    const cid=(cd.company&&(cd.company.ID||cd.company.id))||(cd.company_details&&(cd.company_details.ID||cd.company_details.id))||null;
+    if(!cid)throw new Error(`No company found on this key. Keys returned: ${Object.keys(cd).join(', ')} — ensure key has company access (Limited Access+).`);
+    const apiCoName=(cd.company&&cd.company.name)||(cd.company_details&&cd.company_details.name)||'';
+    if(apiCoName){STORE.apiCompanyName=apiCoName;const tl=document.getElementById('topbarLogo');if(tl)tl.innerHTML=apiCoName.toUpperCase()+'<span>COMPANY DASHBOARD</span>';}
+    dbgLog(`Company ID: ${cid}`,'api');
+    // Log detailed keys for diagnostics
+    if(cd.company_details){dbgLog(`company_details keys: ${Object.keys(cd.company_details).join(', ')}`,'debug');}
+    if(cd.company){dbgLog(`company keys: ${Object.keys(cd.company).join(', ')}`,'debug');}
+    const empObj=cd.company_employees||cd.employees||{};
+    if(!Object.keys(empObj).length)throw new Error('Company found but employee roster empty — key may lack employee read permission.');
+    // Extract per-employee train counts from detailed data if available
+    const detailedTrains={};
+    if(cd.company_details&&cd.company_details.employees){
+      dbgLog(`company_details.employees keys sample: ${Object.keys(cd.company_details.employees).slice(0,3).join(', ')}`,'debug');
+      for(const[eid,ed]of Object.entries(cd.company_details.employees)){
+        const empName=empObj[eid]&&empObj[eid].name;
+        if(empName&&(ed.trains_since_joined||ed.trains_total||ed.train_count)){
+          const cnt=ed.trains_since_joined||ed.trains_total||ed.train_count||0;
+          detailedTrains[empName]=cnt;
+          dbgLog(`Detailed train count — ${empName}: ${cnt}`,'api');
+        }
+      }
+    }
+    // Also log first employee from empObj to show all available fields
+    const firstEmpId=Object.keys(empObj)[0];
+    if(firstEmpId)dbgLog(`First employee fields: ${Object.keys(empObj[firstEmpId]).join(', ')}`,'debug');
+    // Snapshot — pull known fields from summary response first
+    const snap={ts:Date.now(),eff:null,clean:null,pop:null,adBudget:null,dailyIncome:null,dailyCustomers:null,weeklyIncome:null,rating:null};
+    const det=cd.company||cd.company_details||{};
+    if(det.daily_income!=null)snap.dailyIncome=det.daily_income;
+    if(det.daily_customers!=null)snap.dailyCustomers=det.daily_customers;
+    if(det.weekly_income!=null)snap.weeklyIncome=det.weekly_income;
+    if(det.rating!=null)snap.rating=det.rating;
+    if(det.efficiency!=null)snap.eff=det.efficiency;
+    if(det.popularity!=null)snap.pop=det.popularity;
+    if(det.cleanliness!=null)snap.clean=det.cleanliness;
+    dbgLog(`Company snapshot (summary): daily_income=${det.daily_income} customers=${det.daily_customers} weekly=${det.weekly_income} rating=${det.rating}`,'api');
+    // Fetch full profile by explicit company ID — advertising_budget + popularity only
+    // appear in the full profile call with an explicit ID, not the ownerless endpoint
+    try{
+      const pr=await fetch(`https://tornapi.tornplayground.eu/company/${cid}?selections=profile&key=${key}`);
+      const pd=await pr.json();
+      if(!pd.error){
+        const prof=pd.company||pd.company_details||pd||{};
+        dbgLog(`Profile keys: ${Object.keys(prof).join(', ')}`,'debug');
+        if(prof.advertising_budget!=null){snap.adBudget=prof.advertising_budget;STORE.adBudgetPerDay=prof.advertising_budget;dbgLog(`Ad budget: $${prof.advertising_budget.toLocaleString()}`,'ok');}
+        if(prof.popularity!=null){snap.pop=prof.popularity;dbgLog(`Popularity: ${prof.popularity}`,'ok');}
+        if(prof.cleanliness!=null)snap.clean=prof.cleanliness;
+      }else{dbgLog(`Profile call: ${pd.error.error}`,'warn');}
+    }catch(pe){dbgLog(`Profile call failed: ${pe.message}`,'warn');}
+    if(snap.dailyIncome!=null||snap.weeklyIncome!=null||snap.rating!=null||snap.adBudget!=null||snap.pop!=null){
+      if(!STORE.companySnapshots)STORE.companySnapshots=[];
+      STORE.companySnapshots.push(snap);
+      if(STORE.companySnapshots.length>90)STORE.companySnapshots=STORE.companySnapshots.slice(-90);
+      dbgLog(`Snapshot saved: daily=$${snap.dailyIncome||0} adBudget=${snap.adBudget} pop=${snap.pop}`,'api');
+    }
+    // Auto-upsert all API employees into STORE.employees so Roster + Dashboard reflect live staff
+    let upserted=0,updated=0;
+    const tpd=ae().trainsPerDay||5;
+    for(const[,emp]of Object.entries(empObj)){
+      const ename=emp.name||'';if(!ename)continue;
+      const eman=emp.manual_labor||0,eint=emp.intelligence||0,eend=emp.endurance||0;
+      const existId=Object.keys(STORE.employees).find(id=>STORE.employees[id].name.toLowerCase()===ename.toLowerCase());
+      if(existId){
+        const ex=STORE.employees[existId];
+        ex.progress.man=Math.max(ex.progress.man,eman);
+        ex.progress.int=Math.max(ex.progress.int,eint);
+        ex.progress.end=Math.max(ex.progress.end,eend);
+        const coPos=COMPANIES[ex.companyKey||STORE.companyKey].positions;
+        const pi=coPos.findIndex(p=>p.name.toLowerCase()===(emp.position||'').toLowerCase());
+        if(pi>=0)ex.passiveRoleIdx=pi;
+        updated++;
+      }else{
+        const nid='emp_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+        const coPos=COMPANIES[STORE.companyKey].positions;
+        const pi=coPos.findIndex(p=>p.name.toLowerCase()===(emp.position||'').toLowerCase());
+        STORE.employees[nid]={id:nid,name:ename,companyKey:STORE.companyKey,passiveRoleIdx:Math.max(0,pi),trainsPerDay:tpd,trackMode:'trains',starts:{man:eman,int:eint,end:eend},startDate:ae().startDate||'',slotOverrides:{},goals:{man:0,int:0,end:0},progress:{man:eman,int:eint,end:eend,day:0,totalTrains:0,checks:Array(tpd).fill(false)}};
+        upserted++;
+      }
+    }
+    if(upserted||updated){dbgLog(`Roster: ${upserted} created, ${updated} updated`,'ok');saveStore();}
+    saveMC({companyId:cid,fetchedAt:Date.now(),employees:empObj});dbgLog(`Employees: ${Object.keys(empObj).length}`,'api');
+    // Fetch news — strip HTML from log text; purge stale blank entries from cache
+    let cache=loadNC();if(!cache||cache.companyId!==cid)cache={companyId:cid,lastTimestamp:0,entries:[]};
+    cache.entries=cache.entries.filter(e=>e.log&&e.log.length>0);// purge old blank-log entries
+    const fromTs=effectiveStartTs>0?Math.max(cache.lastTimestamp,effectiveStartTs-86400):cache.lastTimestamp;
+    const srcLabel=STORE.directorTs?'since director start':manualIso?'since manual date':'all available';
+    setAS(`\u27F3 Loading news (${srcLabel})\u2026`,'loading');
+    const stripHtml=s=>(s||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+    let allNew=[],fetchFrom=fromTs,page=0;
+    while(page<20){
+      const resp=await fetch(`https://tornapi.tornplayground.eu/company/${cid}?selections=news&key=${key}&from=${fetchFrom}`);
+      const data=await resp.json();
+      if(data.error)throw new Error(`API Error ${data.error.code}: ${data.error.error}`);
+      const raw=Object.values(data.news||{});
+      if(page===0&&raw.length){
+        dbgLog(`News entry keys: ${Object.keys(raw[0]).join(', ')}`,'debug');
+        dbgLog(`News entry[0] raw: ${JSON.stringify(raw[0])}`,'debug');
+      }
+      // Strip HTML from text field so player name links don't break regex matching
+      const entries=raw.map(e=>({timestamp:e.timestamp||0,log:stripHtml(e.news||e.text||e.message||e.log||'')})).sort((a,b)=>a.timestamp-b.timestamp);
+      if(!entries.length)break;
+      allNew=allNew.concat(entries);
+      const last=entries[entries.length-1].timestamp;
+      if(last<=fetchFrom)break;
+      fetchFrom=last;
+      if(raw.length<90)break;
+      page++;
+    }
+    const existing=new Set(cache.entries.map(e=>`${e.timestamp}|${e.log}`));
+    for(const e of allNew){if(!e.log)continue;const k=`${e.timestamp}|${e.log}`;if(!existing.has(k)){cache.entries.push({timestamp:e.timestamp,log:e.log});existing.add(k);}}
+    if(allNew.length)cache.lastTimestamp=Math.max(...allNew.map(e=>e.timestamp));
+    saveNC(cache);dbgLog(`News cache: ${cache.entries.length} entries`,'api');
+    const dirName=cd.company&&(cd.company.director||cd.company.name)||'';
+    detectDirectorStart(cache.entries,dirName);
+    parseDailyReports(cache.entries);
+    const inRange=cache.entries.filter(e=>e.timestamp>=effectiveStartTs);
+    dbgLog(`Entries in range: ${inRange.length} — sample: ${JSON.stringify(inRange.slice(0,3).map(e=>e.log))}`,'debug');
+    // Use detailed train counts if available, otherwise parse from news
+    let tc=detailedTrains;
+    const hasDetailed=Object.keys(detailedTrains).length>0;
+    if(!hasDetailed){
+      dbgLog('No detailed train counts — falling back to news text parsing','warn');
+      tc=parseTrainCounts(cache.entries,effectiveStartTs);
+    }else{
+      dbgLog(`Using detailed train counts for ${Object.keys(detailedTrains).length} employees`,'ok');
+    }
+    const ls=cache.lastTimestamp?new Date(cache.lastTimestamp*1000).toLocaleString():'never';
+    document.getElementById('apiCacheNote').textContent=`Cache: ${cache.entries.length} entries \xB7 Last: ${ls}${hasDetailed?' \xB7 \u2713 Detailed train counts':''}`;
+    document.getElementById('apiMemberSec').style.display='block';
+    renderApiStaff(empObj);
+    setApiView(Object.keys(tc).length?'trains':'staff');
+    if(!Object.keys(tc).length){setAS('No training data found \u2014 check Debug console for field names. If employees show 0 trains, they may not have been trained since start date.','warn');btn.disabled=false;return;}
+    renderApiResults(tc,empObj);setAS(`\u2713 Sync complete \u2014 ${Object.keys(tc).length} employee(s) \xB7 ${hasDetailed?'detailed':'news-parsed'}${Object.keys(snap).some(k=>snap[k]!=null)?` \xB7 snapshot saved`:''}`,'ok');
+    clog('train',`API sync: ${Object.keys(tc).length} employees${hasDetailed?' (detailed)':' (news-parsed)'}`);STORE.apiMode=true;syncModeUI();saveStore();
+  }catch(err){setAS('\u2715 '+err.message,'err');dbgLog('API error: '+err.message,'err');}
+  btn.disabled=false;
+}
+function getAllPositionNames(){
+  const s=new Set();
+  for(const co of Object.values(COMPANIES))for(const p of co.positions)s.add(p.name);
+  return [...s].sort((a,b)=>b.length-a.length);
+}
+function stripHtml(s){return(s||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();}
+function parseTrainCounts(entries,startTs){
+  // Confirmed Torn training news format (HTML stripped before matching):
+  // "[Position] [PlayerName] has been trained by the director"
+  const posNames=getAllPositionNames();
+  const posPfx=posNames.map(n=>n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+  const pat1=new RegExp(`^(?:${posPfx})\\s+(.+?)\\s+has\\s+been\\s+trained`,'i');
+  const pat2=/^(.+?)\s+has\s+been\s+trained/i;
+  const pat3=/^(.+?)\s+trained\s+at\b/i;
+  const pat4=/\btrained\s+([A-Z][^\s,.<[\]]+(?:\s+[A-Z][^\s,.<[\]]+)*)/;
+  const tc={};
+  for(const e of (entries||[])){
+    if(!e.log||e.timestamp<startTs)continue;
+    const txt=stripHtml(e.log);
+    let name=null;
+    const m1=txt.match(pat1);
+    if(m1){
+      name=m1[1].trim();
+    }else{
+      const m2=txt.match(pat2);
+      if(m2){
+        let raw=m2[1].trim();
+        for(const p of posNames){if(raw.toLowerCase().startsWith(p.toLowerCase()+' ')){raw=raw.slice(p.length).trim();break;}}
+        name=raw;
+      }else{
+        const m3=txt.match(pat3);
+        if(m3)name=m3[1].trim();
+        else{const m4=txt.match(pat4);if(m4)name=m4[1].trim();}
+      }
+    }
+    if(name&&name.length>1&&name.length<40)tc[name]=(tc[name]||0)+1;
+  }
+  return tc;
+}
+function detectDirectorStart(entries,directorName){
+  if(!directorName)return;
+  // "Sypharius has been made the new director."
+  const pat=/^(.+?)\s+has\s+been\s+made\s+the\s+new\s+director/i;
+  let best=null;
+  for(const e of (entries||[])){
+    if(!e.log)continue;
+    const m=stripHtml(e.log).match(pat);
+    if(m&&m[1].trim().toLowerCase()===directorName.toLowerCase()){
+      if(!best||e.timestamp>best.ts)best={ts:e.timestamp,name:m[1].trim()};
+    }
+  }
+  if(best&&best.ts!==STORE.directorTs){
+    STORE.directorTs=best.ts;
+    STORE.directorName=best.name;
+    const dt=new Date(best.ts*1000).toLocaleDateString();
+    dbgLog(`Director start auto-detected: ${best.name} on ${dt}`,'ok');
+    saveStore();
+    syncDirectorStartUI();
+  }
+}
+function parseDailyReports(entries){
+  // "Thursday report: We had a total of 2,077 customers and made a gross income of $869,661."
+  const pat=/^(\w+) report: We had a total of ([\d,]+) customers and made a gross income of \$([\d,]+)/i;
+  if(!STORE.dailyReports)STORE.dailyReports=[];
+  let added=0;
+  for(const e of (entries||[])){
+    if(!e.log)continue;
+    const m=stripHtml(e.log).match(pat);
+    if(!m)continue;
+    const ts=e.timestamp;
+    if(STORE.dailyReports.find(r=>r.ts===ts))continue;
+    STORE.dailyReports.push({ts,day:m[1],customers:parseInt(m[2].replace(/,/g,''),10),income:parseInt(m[3].replace(/,/g,''),10)});
+    added++;
+  }
+  if(added){
+    STORE.dailyReports.sort((a,b)=>b.ts-a.ts);
+    if(STORE.dailyReports.length>90)STORE.dailyReports=STORE.dailyReports.slice(0,90);
+    dbgLog(`Parsed ${added} daily report(s). Latest: $${STORE.dailyReports[0].income.toLocaleString()}`,'api');
+    saveStore();
+  }
+}
+function setApiView(v){
+  const trains=document.getElementById('apiTrainsView'),staff=document.getElementById('apiStaffView');
+  const tb=document.getElementById('apiViewTrainsBtn'),sb=document.getElementById('apiViewStaffBtn');
+  if(!trains||!staff)return;
+  trains.style.display=v==='trains'?'block':'none';
+  staff.style.display=v==='staff'?'block':'none';
+  if(tb)tb.className='btn btn-o btn-sm'+(v==='trains'?' active':'');
+  if(sb)sb.className='btn btn-o btn-sm'+(v==='staff'?' active':'');
+}
+function renderApiStaff(empObj){
+  const list=document.getElementById('apiStaffList');if(!list)return;list.innerHTML='';
+  const obj=empObj||((loadMC()||{}).employees)||{};
+  if(!Object.keys(obj).length){list.innerHTML='<div class="muted">No staff data \u2014 sync first.</div>';return;}
+  for(const[id,e]of Object.entries(obj)){
+    const already=Object.keys(STORE.employees).find(sid=>STORE.employees[sid].name.toLowerCase()===(e.name||'').toLowerCase());
+    const eff=e.effectiveness&&e.effectiveness.total!=null?e.effectiveness.total:'--';
+    const div=document.createElement('div');div.className='mem-card';div.id=`staff_${id}`;
+    div.innerHTML=`<div><div class="mem-name">${e.name||'Unknown'}</div><div class="mem-pos">${e.position||'--'}</div><div class="mem-stats"><span class="cm">${fmt(e.manual_labor||0)}</span>/<span class="ci">${fmt(e.intelligence||0)}</span>/<span class="ce">${fmt(e.endurance||0)}</span> &nbsp;Eff:<span style="color:var(--gold2)">${eff}</span></div></div><div class="mem-right">${already?`<span class="badge b-ok">\u2713 EXISTS</span>`:`<button class="aply-btn" onclick="createFromStaff('${id}',${JSON.stringify(e).replace(/'/g,'&#39;').replace(/"/g,'&quot;')})">+ CREATE</button>`}</div>`;
+    list.appendChild(div);
+  }
+}
+function createFromStaff(apiId,e){
+  if(typeof e==='string'){try{e=JSON.parse(e);}catch{return;}}
+  const already=Object.keys(STORE.employees).find(id=>STORE.employees[id].name.toLowerCase()===(e.name||'').toLowerCase());
+  if(already){showToast((e.name||'')+' already exists','warn');return;}
+  const id='emp_'+Date.now(),tpd=ae().trainsPerDay||5;
+  const man=e.manual_labor||0,int_=e.intelligence||0,end=e.endurance||0;
+  STORE.employees[id]={id,name:e.name||'Unknown',companyKey:STORE.companyKey,passiveRoleIdx:0,trainsPerDay:tpd,trackMode:'goal',starts:{man,int:int_,end},startDate:ae().startDate||'',slotOverrides:{},goals:{man:0,int:0,end:0},progress:{man,int:int_,end,day:0,totalTrains:0,checks:Array(tpd).fill(false)}};
+  STORE.activeId=id;clog('train',`Staff import: ${e.name||'Unknown'}`);saveStore();render();
+  const card=document.getElementById(`staff_${apiId}`);
+  if(card){const btn=card.querySelector('.aply-btn');if(btn)btn.outerHTML='<span class="badge b-ok">\u2713 CREATED</span>';}
+  // Open employee form so user can immediately set goals
+  setTimeout(()=>{openEmpModal();setTimeout(()=>showEmpForm(id),80);},150);
+  showToast(`\u2713 CREATED ${(e.name||'').toUpperCase()} \u2014 SET GOALS NOW`,'ok');
+}
+function setAS(msg,type){const el=document.getElementById('apiSt');if(!el)return;el.textContent=msg;el.className=`api-st show ${type}`;}
+function renderApiResults(tc,empObj){
+  const list=document.getElementById('apiResultsList');list.innerHTML='';
+  const nta={};for(const[id,e]of Object.entries(empObj))nta[e.name&&e.name.toLowerCase()]={...e,apiId:id};
+  for(const[name,count]of Object.entries(tc).sort((a,b)=>b[1]-a[1])){
+    const mid=Object.keys(STORE.employees).find(id=>STORE.employees[id].name.toLowerCase()===name.toLowerCase());
+    const ae2=nta[name.toLowerCase()];const div=document.createElement('div');div.className='mem-card';div.id=`apim_${name.replace(/\W/g,'_')}`;
+    const sl=ae2?`<span class="cm">${fmt(ae2.manual_labor||0)}</span>/<span class="ci">${fmt(ae2.intelligence||0)}</span>/<span class="ce">${fmt(ae2.endurance||0)}</span> Eff:${ae2.effectiveness&&ae2.effectiveness.total||'--'}`:'no live stats';
+    div.innerHTML=`<div><div class="mem-name">${name}</div><div class="mem-pos">${ae2&&ae2.position||'--'}</div><div class="mem-stats">${sl}</div></div><div class="mem-right"><div class="mem-big">${count}</div><div class="mem-lbl-s">trains</div><button class="aply-btn" onclick="applyApiT('${name}',${count},'apim_${name.replace(/\W/g,'_')}',${JSON.stringify(ae2||null).replace(/'/g,'&#39;')})">${mid?'UPDATE':'CREATE'}</button></div>`;
+    list.appendChild(div);
+  }
+}
+function applyApiT(name,count,itemId,apiE){
+  let tid=Object.keys(STORE.employees).find(id=>STORE.employees[id].name.toLowerCase()===name.toLowerCase());
+  if(tid){
+    const e=STORE.employees[tid];e.progress.totalTrains=count;e.progress.day=Math.floor(count/(e.trainsPerDay||5));
+    if(apiE&&typeof apiE==='object'){if(apiE.manual_labor)e.progress.man=apiE.manual_labor;if(apiE.intelligence)e.progress.int=apiE.intelligence;if(apiE.endurance)e.progress.end=apiE.endurance;if(!e.starts.man&&!e.starts.int&&!e.starts.end)e.starts={man:apiE.manual_labor||0,int:apiE.intelligence||0,end:apiE.endurance||0};}
+    STORE.activeId=tid;clog('train',`API updated ${name}: ${count} trains`);saveStore();render();showToast(`\u2713 UPDATED ${name.toUpperCase()}`,'ok');
+  }else{
+    const id='emp_'+Date.now(),tpd=ae().trainsPerDay||5;const man=apiE&&apiE.manual_labor||0,int_=apiE&&apiE.intelligence||0,end=apiE&&apiE.endurance||0;
+    STORE.employees[id]={id,name,companyKey:STORE.companyKey,passiveRoleIdx:0,trainsPerDay:tpd,trackMode:'goal',starts:{man,int:int_,end},startDate:ae().startDate||'',slotOverrides:{},goals:{man:0,int:0,end:0},progress:{man,int:int_,end,day:Math.floor(count/tpd),totalTrains:count,checks:Array(tpd).fill(false)}};
+    STORE.activeId=id;clog('train',`API created ${name}: ${count} trains`);saveStore();render();
+    // Open employee modal so user can set goals immediately after create
+    setTimeout(()=>{openEmpModal();setTimeout(()=>showEmpForm(id),80);},150);
+    showToast(`\u2713 CREATED ${name.toUpperCase()} \u2014 SET GOALS NOW`,'ok');
+  }
+  const btn=document.querySelector(`#${itemId} .aply-btn`);if(btn){btn.textContent='\u2713 DONE';btn.className='aply-btn done';btn.disabled=true;}
+}
+
+// ── BILLING ───────────────────────────────────────────────
+function onAdBudgetChange(){STORE.adBudgetPerDay=+document.getElementById('pnlAdBudget').value||0;STORE.stockCostPerDay=+document.getElementById('pnlStockCost').value||0;saveStore();renderPnl();}
+function renderPnlAuto(){
+  const el=document.getElementById('pnlAutoBreakdown');const adEl=document.getElementById('pnlAdBudget');const scEl=document.getElementById('pnlStockCost');
+  if(!el)return;
+  if(adEl)adEl.value=STORE.adBudgetPerDay||'';if(scEl)scEl.value=STORE.stockCostPerDay||'';
+  const cache=loadNC(),startIso=ae().startDate||'';const period=STORE.billingPeriod||7;const startTs=startIso?Math.floor(new Date(startIso).getTime()/1000)-period*86400:0;
+  const tc=parseTrainCounts(cache&&cache.entries?cache.entries:[],startTs);
+  const trainRev=Object.values(tc).reduce((a,c)=>a+c,0)*(STORE.pricePerTrain||0);
+  const manualIncome=(STORE.pnl||[]).filter(e=>e.type==='income').reduce((a,e)=>a+e.amount,0);
+  const manualExp=(STORE.pnl||[]).filter(e=>e.type==='expense').reduce((a,e)=>a+e.amount,0);
+  const empWages=Object.values((loadMC()||{employees:{}}).employees||{}).reduce((a,e)=>a+(e.wage||0),0);
+  const adExp=(STORE.adBudgetPerDay||0)*period;const stCost=(STORE.stockCostPerDay||0)*period;
+  const totInc=trainRev+manualIncome,totExp=manualExp+empWages+adExp+stCost,net=totInc-totExp;
+  const row=(lbl,val,color)=>`<div class="dr"><span class="dr-lbl">${lbl}</span><span style="color:${color||'var(--text2)'}">${fmtC(val)}</span></div>`;
+  el.innerHTML=`<div class="daily-box">${row('Training Revenue ('+Object.keys(tc).length+' emp × trains)',trainRev,'var(--ok)')}${row('Manual Income',manualIncome,'var(--ok)')}<hr class="dsep">${row('Employee Wages (API)',empWages,'var(--danger)')}${row('Ad Budget ('+period+'d)',adExp,'var(--danger)')}${row('Stock Costs ('+period+'d)',stCost,'var(--danger)')}${row('Manual Expenses',manualExp,'var(--danger)')}<hr class="dsep">${row('NET PROFIT',net,net>=0?'var(--ok)':'var(--danger)')}</div>`;
+}
+function onBillChange(){STORE.pricePerTrain=+document.getElementById('pricePerTrain').value||0;STORE.billingPeriod=+document.getElementById('billingPeriod').value||7;saveStore();renderBilling();}
+function setBillMode(m){STORE.billMode=m;saveStore();document.getElementById('billByDays').className='seg-btn'+(m==='BY_DAYS'?' active':'');document.getElementById('billBySess').className='seg-btn'+(m==='BY_SESSIONS'?' active':'');renderBilling();}
+function renderBilling(){
+  const price=STORE.pricePerTrain||0,period=STORE.billingPeriod||7,mode=STORE.billMode||'BY_DAYS';
+  document.getElementById('pricePerTrain').value=price||'';document.getElementById('billingPeriod').value=period;
+  document.getElementById('billPeriodLbl').textContent=`${period}-${mode==='BY_DAYS'?'DAY':'SESSION'} PERIOD`;
+  document.getElementById('billByDays').className='seg-btn'+(mode==='BY_DAYS'?' active':'');
+  document.getElementById('billBySess').className='seg-btn'+(mode==='BY_SESSIONS'?' active':'');
+  const tbl=document.getElementById('billingTable');tbl.innerHTML='';
+  const cache=loadNC(),startIso=ae().startDate||'';const startTs=startIso?Math.floor(new Date(startIso).getTime()/1000)-period*86400:0;
+  if(!cache||!cache.entries||!cache.entries.length){tbl.innerHTML='<div class="muted" style="padding:14px;text-align:center">Sync company data in the API Sync tab to generate invoices.</div>';return;}
+  const tc=parseTrainCounts(cache.entries,startTs);
+  if(!Object.keys(tc).length){tbl.innerHTML='<div class="muted" style="padding:14px;text-align:center">No training events in this period.</div>';return;}
+  let totT=0,totC=0;
+  tbl.innerHTML=`<div class="inv-row" style="background:var(--bg2);font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--text3);letter-spacing:.08em"><span>EMPLOYEE</span><span style="text-align:right">TRAINS</span><span style="text-align:right">COST</span><span></span><span></span></div>`;
+  for(const[name,count]of Object.entries(tc).sort((a,b)=>b[1]-a[1])){
+    const cost=count*price;totT+=count;totC+=cost;
+    const div=document.createElement('div');div.className='inv-row';
+    div.innerHTML=`<div class="inv-name">${name}</div><div style="text-align:right;color:var(--gold2);font-weight:600">${count}</div><div style="text-align:right;color:var(--ok);font-weight:600">${fmtC(cost)}</div><button class="btn btn-o btn-xs" onclick="navigator.clipboard.writeText('${name}: ${count} trains \u2014 ${fmtC(cost)}').then(()=>showToast('Copied'))">COPY</button><button class="btn btn-o btn-xs" onclick="openPayModal('${name}',${cost},${count})">PAY</button>`;
+    tbl.appendChild(div);
+  }
+  const tot=document.createElement('div');tot.className='inv-row inv-tot';tot.innerHTML=`<div style="font-family:'Syne',sans-serif;font-weight:800;color:var(--gold2)">TOTAL</div><div style="text-align:right;color:var(--gold2);font-weight:800">${totT}</div><div style="text-align:right;color:var(--gold2);font-weight:800">${fmtC(totC)}</div><div></div><button class="btn btn-o btn-xs" onclick="exportInvoiceCsv()">CSV</button>`;
+  tbl.appendChild(tot);
+}
+function exportInvoiceCsv(){
+  const cache=loadNC(),period=STORE.billingPeriod||7,startIso=ae().startDate||'';const startTs=startIso?Math.floor(new Date(startIso).getTime()/1000)-period*86400:0;
+  const tc=parseTrainCounts(cache&&cache.entries?cache.entries:[],startTs);
+  const price=STORE.pricePerTrain||0;let csv='Name,Trains,Cost,Period\n';for(const[n,c]of Object.entries(tc))csv+=`"${n}",${c},${c*price},"${period} days"\n`;
+  const b=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`hv_invoice_${toDay()}.csv`;a.click();showToast('\u2713 EXPORTED','ok');
+}
+
+// ── P&L ───────────────────────────────────────────────────
+function openPnlModal(type){document.getElementById('pnlType').value=type||'income';document.getElementById('pnlDate').value=toDay();['pnlDesc','pnlAmt','pnlNotes'].forEach(id=>document.getElementById(id).value='');openModal('pnlModal');}
+function savePnl(){const type=document.getElementById('pnlType').value,desc=document.getElementById('pnlDesc').value.trim()||'Entry',amount=+document.getElementById('pnlAmt').value||0,date=document.getElementById('pnlDate').value||toDay(),notes=document.getElementById('pnlNotes').value.trim();if(!STORE.pnl)STORE.pnl=[];STORE.pnl.unshift({id:'pnl_'+Date.now(),type,desc,amount,date,notes});clog('finance',`P&L ${type}: ${desc} \u2014 ${fmtC(amount)}`);saveStore();closeModal('pnlModal');renderPnl();showToast('\u2713 SAVED','ok');}
+function renderPnl(){
+  const inc=(STORE.pnl||[]).filter(e=>e.type==='income'),exp=(STORE.pnl||[]).filter(e=>e.type==='expense');
+  const ti=inc.reduce((a,e)=>a+e.amount,0),te=exp.reduce((a,e)=>a+e.amount,0),net=ti-te;
+  document.getElementById('pnlRev').textContent=fmtC(ti);document.getElementById('pnlExp').textContent=fmtC(te);
+  const nEl=document.getElementById('pnlNet');nEl.textContent=fmtC(net);nEl.style.color=net>=0?'var(--ok)':'var(--danger)';
+  document.getElementById('pnlMargin').textContent=ti>0?((net/ti)*100).toFixed(1)+'%':'--';
+  renderPnlAuto();
+  const mkT=(rows,elId)=>{const el=document.getElementById(elId);if(!rows.length){el.innerHTML='<div class="muted" style="padding:10px">No entries.</div>';return;}el.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>DATE</th><th>DESCRIPTION</th><th class="num">AMOUNT</th><th></th></tr></thead><tbody>${rows.map(e=>`<tr><td style="font-size:.5rem">${e.date}</td><td class="nc">${e.desc}</td><td class="num ${e.type==='income'?'pos':'neg'}">${fmtC(e.amount)}</td><td><button class="btn btn-red btn-xs" onclick="delPnl('${e.id}')">&#x2715;</button></td></tr>`).join('')}</tbody></table></div>`;};
+  mkT(inc,'pnlIncTable');mkT(exp,'pnlExpTable');
+}
+function delPnl(id){STORE.pnl=(STORE.pnl||[]).filter(e=>e.id!==id);saveStore();renderPnl();}
+
+// ── PAYMENTS ──────────────────────────────────────────────
+function openPayModal(emp,amt,trains){document.getElementById('payEmp').value=emp||'';document.getElementById('payAmt').value=amt||'';document.getElementById('payTrains').value=trains||'';document.getElementById('payDate').value=toDay();document.getElementById('payStatus').value='received';document.getElementById('payNotes').value='';openModal('payModal');}
+function savePayment(){const emp=document.getElementById('payEmp').value.trim()||'Unknown',amount=+document.getElementById('payAmt').value||0,trains=+document.getElementById('payTrains').value||0,date=document.getElementById('payDate').value||toDay(),status=document.getElementById('payStatus').value||'received',notes=document.getElementById('payNotes').value.trim();if(!STORE.payments)STORE.payments=[];STORE.payments.unshift({id:'pay_'+Date.now(),employee:emp,amount,trains,date,status,notes});clog('finance',`Payment: ${emp} \u2014 ${fmtC(amount)} [${status}]`);saveStore();closeModal('payModal');renderPayments();showToast('\u2713 SAVED','ok');}
+function renderPayments(){
+  const pays=STORE.payments||[];const rec=pays.filter(p=>p.status==='received').reduce((a,p)=>a+p.amount,0);const out=pays.filter(p=>p.status==='pending'||p.status==='overdue').reduce((a,p)=>a+p.amount,0);const wk=pays.filter(p=>Date.now()-new Date(p.date).getTime()<7*86400000).length;
+  document.getElementById('payRec').textContent=fmtC(rec);document.getElementById('payOut').textContent=fmtC(out);document.getElementById('payWk').textContent=wk;
+  const el=document.getElementById('payTable');if(!pays.length){el.innerHTML='<div class="muted" style="padding:10px">No payments logged.</div>';return;}
+  el.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>DATE</th><th>EMPLOYEE</th><th class="num">TRAINS</th><th class="num">AMOUNT</th><th>STATUS</th><th></th></tr></thead><tbody>${pays.map(p=>`<tr><td style="font-size:.5rem">${p.date}</td><td class="nc">${p.employee}</td><td class="num">${p.trains||0}</td><td class="num pos">${fmtC(p.amount)}</td><td><span class="badge ${p.status==='received'?'b-ok':p.status==='overdue'?'b-low':'b-warn'}">${p.status.toUpperCase()}</span></td><td><button class="btn btn-red btn-xs" onclick="delPay('${p.id}')">&#x2715;</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function delPay(id){STORE.payments=(STORE.payments||[]).filter(p=>p.id!==id);saveStore();renderPayments();}
+function exportPayCsv(){let csv='Date,Employee,Trains,Amount,Status,Notes\n';for(const p of(STORE.payments||[]))csv+=`"${p.date}","${p.employee}",${p.trains||0},${p.amount},"${p.status}","${p.notes||''}"\n`;const b=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`hv_payments_${toDay()}.csv`;a.click();}
+
+// ── STOCK ─────────────────────────────────────────────────
+let _stId=null;
+function openStockModal(id){_stId=id||null;document.getElementById('stockModalTitle').textContent=id?'EDIT STOCK ITEM':'ADD STOCK ITEM';if(id){const item=(STORE.stock||[]).find(s=>s.id===id);if(item){document.getElementById('stName').value=item.name||'';document.getElementById('stQty').value=item.qty||0;document.getElementById('stCost').value=item.cost||0;document.getElementById('stSell').value=item.sell||0;document.getElementById('stThresh').value=item.threshold||5;document.getElementById('stCat').value=item.category||'';}}else{['stName','stQty','stCost','stSell','stCat'].forEach(x=>document.getElementById(x).value='');document.getElementById('stThresh').value=5;}openModal('stockModal');}
+function saveStock(){const name=document.getElementById('stName').value.trim()||'Item',qty=+document.getElementById('stQty').value||0,cost=+document.getElementById('stCost').value||0,sell=+document.getElementById('stSell').value||0,threshold=+document.getElementById('stThresh').value||5,category=document.getElementById('stCat').value.trim();if(!STORE.stock)STORE.stock=[];if(_stId){const i=STORE.stock.find(s=>s.id===_stId);if(i)Object.assign(i,{name,qty,cost,sell,threshold,category});}else{STORE.stock.push({id:'stock_'+Date.now(),name,qty,cost,sell,threshold,category});}clog('stock',`Stock ${_stId?'updated':'added'}: ${name} x${qty}`);saveStore();closeModal('stockModal');renderStock();showToast('\u2713 SAVED','ok');}
+function renderStock(){
+  const items=STORE.stock||[];const val=items.reduce((a,i)=>a+i.qty*i.cost,0);const low=items.filter(i=>i.qty<=i.threshold).length;
+  document.getElementById('stItems').textContent=items.length;document.getElementById('stVal').textContent=fmtC(val);document.getElementById('stLow').textContent=low;
+  const el=document.getElementById('stockTable');if(!items.length){el.innerHTML='<div class="muted" style="padding:10px">No stock items. Add items to track inventory.</div>';return;}
+  el.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>ITEM</th><th>CATEGORY</th><th class="num">QTY</th><th class="num">COST</th><th class="num">SELL</th><th class="num">VALUE</th><th>STATUS</th><th></th></tr></thead><tbody>${items.map(i=>{const st=i.qty<=0?'<span class="badge b-low">OUT</span>':i.qty<=i.threshold?'<span class="badge b-warn">LOW</span>':'<span class="badge b-ok">OK</span>';return`<tr><td class="nc">${i.name}</td><td style="font-size:.56rem;color:var(--text3)">${i.category||'--'}</td><td class="num gld">${i.qty}</td><td class="num">${fmtC(i.cost)}</td><td class="num">${fmtC(i.sell)}</td><td class="num pos">${fmtC(i.qty*i.cost)}</td><td>${st}</td><td><button class="btn btn-o btn-xs" onclick="openStockModal('${i.id}')">EDIT</button> <button class="btn btn-red btn-xs" onclick="delStock('${i.id}')">&#x2715;</button></td></tr>`;}).join('')}</tbody></table></div>`;
+}
+function delStock(id){STORE.stock=(STORE.stock||[]).filter(s=>s.id!==id);saveStore();renderStock();}
+
+// ── SALES ─────────────────────────────────────────────────
+function openSaleModal(){document.getElementById('slDate').value=toDay();['slName','slBuyer','slNotes'].forEach(id=>document.getElementById(id).value='');document.getElementById('slQty').value=1;document.getElementById('slPrice').value='';openModal('saleModal');}
+function saveSale(){const name=document.getElementById('slName').value.trim()||'Sale',qty=+document.getElementById('slQty').value||1,price=+document.getElementById('slPrice').value||0,buyer=document.getElementById('slBuyer').value.trim(),date=document.getElementById('slDate').value||toDay(),notes=document.getElementById('slNotes').value.trim(),total=qty*price;if(!STORE.sales)STORE.sales=[];STORE.sales.unshift({id:'sale_'+Date.now(),name,qty,price,total,buyer,date,notes});const si=(STORE.stock||[]).find(s=>s.name.toLowerCase()===name.toLowerCase());if(si){si.qty=Math.max(0,si.qty-qty);clog('stock',`Stock reduced: ${name} -${qty}`);}clog('finance',`Sale: ${qty}\xD7 ${name} @ ${fmtC(price)} = ${fmtC(total)}`);saveStore();closeModal('saleModal');renderSales();showToast('\u2713 SALE LOGGED','ok');}
+function renderSales(){const sales=STORE.sales||[];const total=sales.reduce((a,s)=>a+s.total,0);document.getElementById('saleTot').textContent=fmtC(total);document.getElementById('saleCnt').textContent=sales.length;document.getElementById('saleAvg').textContent=sales.length?fmtC(total/sales.length):'$0';const el=document.getElementById('salesTable');if(!sales.length){el.innerHTML='<div class="muted" style="padding:10px">No sales logged.</div>';return;}el.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>DATE</th><th>ITEM</th><th>BUYER</th><th class="num">QTY</th><th class="num">PRICE</th><th class="num">TOTAL</th><th></th></tr></thead><tbody>${sales.map(s=>`<tr><td style="font-size:.5rem">${s.date}</td><td class="nc">${s.name}</td><td style="font-size:.58rem;color:var(--text3)">${s.buyer||'--'}</td><td class="num">${s.qty}</td><td class="num">${fmtC(s.price)}</td><td class="num pos">${fmtC(s.total)}</td><td><button class="btn btn-red btn-xs" onclick="delSale('${s.id}')">&#x2715;</button></td></tr>`).join('')}</tbody></table></div>`;}
+function delSale(id){STORE.sales=(STORE.sales||[]).filter(s=>s.id!==id);saveStore();renderSales();}
+function exportSalesCsv(){let csv='Date,Item,Buyer,Qty,Price,Total,Notes\n';for(const s of(STORE.sales||[]))csv+=`"${s.date}","${s.name}","${s.buyer||''}",${s.qty},${s.price},${s.total},"${s.notes||''}"\n`;const b=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`hv_sales_${toDay()}.csv`;a.click();}
+
+// ── COMPANY LOGS ──────────────────────────────────────────
+let _lt='all';
+function switchLogTab(t){_lt=t;['all','train','finance','stock','note'].forEach(k=>{const el=document.getElementById('lt'+k.charAt(0).toUpperCase()+k.slice(1));if(el)el.className='tab-btn'+(t===k?' active':'');});renderLogs();}
+function renderLogs(){
+  const logs=STORE.companyLogs||[];const filtered=_lt==='all'?logs:logs.filter(l=>l.type===_lt);
+  const el=document.getElementById('logsContainer');
+  if(!filtered.length){el.innerHTML='<div class="muted" style="padding:14px;text-align:center">No entries in this category.</div>';return;}
+  el.innerHTML='<div class="card" style="padding:0;overflow:hidden">'+filtered.map(l=>{const d=new Date(l.ts);const ts=d.toLocaleDateString()+' '+d.toTimeString().slice(0,5);const col=l.type==='train'?'var(--gold)':l.type==='finance'?'var(--ok)':l.type==='stock'?'var(--passive)':'var(--text3)';const ico=l.type==='train'?'\u26A1':l.type==='finance'?'\uD83D\uDCB0':l.type==='stock'?'\uD83D\uDCE6':'\uD83D\uDCCB';return`<div class="log-row"><span class="log-ico">${ico}</span><div style="flex:1;min-width:0"><div class="log-msg">${l.msg}</div><div class="log-ts">${ts} \xB7 <span style="color:${col}">${l.type.toUpperCase()}</span></div></div><button class="btn btn-red btn-xs" onclick="delLog('${l.id}')">&#x2715;</button></div>`;}).join('')+'</div>';
+}
+function delLog(id){STORE.companyLogs=(STORE.companyLogs||[]).filter(l=>l.id!==id);saveStore();renderLogs();}
+function clearLogs(){if(!confirm('Clear all company logs?'))return;STORE.companyLogs=[];saveStore();renderLogs();showToast('Logs cleared');}
+function openLogNoteModal(){document.getElementById('noteMsg').value='';document.getElementById('noteType').value='note';openModal('logNoteModal');}
+function saveLogNote(){const type=document.getElementById('noteType').value,msg=document.getElementById('noteMsg').value.trim();if(!msg){showToast('Enter a message','err');return;}clog(type,msg);saveStore();closeModal('logNoteModal');renderLogs();showToast('\u2713 SAVED','ok');}
+
+// ── DEBUG ─────────────────────────────────────────────────
+function dbgRefresh(){document.getElementById('dbgVer').textContent=APP_VERSION;document.getElementById('dbgEmp').textContent=Object.keys(STORE.employees).length;try{document.getElementById('dbgStore').textContent=(localStorage.getItem(STORE_KEY)||'').length;}catch(e){}const nc=loadNC();document.getElementById('dbgNews').textContent=nc?nc.entries.length:0;document.getElementById('dbgApi').textContent=STORE.apiMode?'ON':'OFF';document.getElementById('dbgLogs').textContent=(STORE.companyLogs||[]).length;document.getElementById('dbgPnl').textContent=(STORE.pnl||[]).length;document.getElementById('dbgPay').textContent=(STORE.payments||[]).length;document.getElementById('dbgStk').textContent=(STORE.stock||[]).length;}
+function dbgRunAll(){dbgLog('=== RUN ALL TESTS ===','debug');dbgLog(`Store keys: ${Object.keys(STORE).join(', ')}`,'info');dbgLog(`Active: ${ae().name}`,'info');const s=ap(),pos=apos();dbgLog(`Stats: MAN ${s.man} INT ${s.int} END ${s.end}`,'info');dbgLog(`Eff: ${calcEff(s,pos)} (${pos.name})`,'info');const pass=calcPassive(s,pos);dbgLog(`Passive: MAN+${pass.man} INT+${pass.int} END+${pass.end}`,'info');dbgLog(`Train positions: ${buildTP(ack()).map(p=>p.name).join(', ')}`,'info');const nc=loadNC();dbgLog(`News cache: ${nc?nc.entries.length:0} entries`,'api');dbgLog('=== ALL TESTS PASSED ===','ok');dbgRefresh();}
+function dbgSimAll(){dbgLog('=== SIM ALL ===','debug');let r='';for(const[id,e]of Object.entries(STORE.employees)){const co=COMPANIES[e.companyKey||STORE.companyKey];const pos=co.positions[Math.min(e.passiveRoleIdx||0,co.positions.length-1)];const d=simDays(e.progress,e.goals,e.companyKey||STORE.companyKey,e.trainsPerDay||5,pos);const done=['man','int','end'].every(k=>e.goals[k]===0||e.progress[k]>=e.goals[k]);r+=`${e.name}: ${done?'\u2713 DONE':d+'d remaining'}\n`;dbgLog(`${e.name}: ${done?'DONE':d+'d'},'ok`);}const so=document.getElementById('simOut');so.textContent=r;so.className='sim-out show';}
+function dbgTestAlloc(){dbgLog('=== ALLOCATOR TEST ===','debug');const s={man:5000,int:3000,end:2000},g={man:10000,int:8000,end:5000};const{assignments,totalGains,passive}=allocate(s,g,'candle_shop',5,COMPANIES.candle_shop.positions[0],null);assignments.forEach((a,i)=>dbgLog(`Slot ${i+1}: ${a?a.name+` (+${a.priAmt}${a.pri}/+${a.secAmt}${a.sec})`:'SKIP'}`,'debug'));dbgLog(`Total: MAN+${totalGains.man} INT+${totalGains.int} END+${totalGains.end}`,'ok');dbgLog('=== ALLOCATOR OK ===','ok');}
+function dbgClearNews(){if(!confirm('Clear news cache?'))return;try{localStorage.removeItem(NEWS_KEY);}catch(e){}if(window.storage)window.storage.delete(NEWS_KEY).catch(()=>{});dbgLog('News cache cleared','warn');showToast('Cache cleared');dbgRefresh();}
+function dbgNukeAll(){if(!confirm('NUKE ALL STORAGE? Cannot be undone.'))return;try{[STORE_KEY,NEWS_KEY,MEMB_KEY,...LEGACY].forEach(k=>localStorage.removeItem(k));}catch(e){}STORE=defStore();saveStore();syncModeUI();render();dbgLog('All storage nuked','err');showToast('Nuked','err');}
+function dbgShowStore(){document.getElementById('storeView').textContent=JSON.stringify(STORE,null,2);}
+function dbgShowNews(){const c=loadNC();document.getElementById('storeView').textContent=c?JSON.stringify({companyId:c.companyId,entries:c.entries.length,lastTimestamp:c.lastTimestamp},null,2):'// No news cache';}
+function dbgShowMembers(){const c=loadMC();document.getElementById('storeView').textContent=c?JSON.stringify(c,null,2):'// No members cache';}
+function dbgShowPnl(){document.getElementById('storeView').textContent=JSON.stringify(STORE.pnl||[],null,2);}
+function dbgShowPayments(){document.getElementById('storeView').textContent=JSON.stringify(STORE.payments||[],null,2);}
+
+// ── ADMIN ─────────────────────────────────────────────────
+function renderAdmin(){
+  document.getElementById('admEmp').textContent=ae().name;document.getElementById('admTpd').textContent=ae().trainsPerDay||5;document.getElementById('admPrice').textContent=fmtC(STORE.pricePerTrain||0);document.getElementById('admKey').textContent=STORE.apiKey?STORE.apiKey.slice(0,4)+'\u2026'+STORE.apiKey.slice(-4):'--';
+  const sel=document.getElementById('admCoSel');sel.innerHTML='';for(const[k,co]of Object.entries(COMPANIES)){const o=document.createElement('option');o.value=k;o.textContent=co.name;if(k===ack())o.selected=true;sel.appendChild(o);}
+  document.getElementById('admCo').textContent=COMPANIES[ack()].name;
+  const pi=document.getElementById('admPriceI');if(pi)pi.value=STORE.pricePerTrain||0;
+  const kEl=document.getElementById('admKeys');kEl.innerHTML='';for(const k of[STORE_KEY,NEWS_KEY,MEMB_KEY]){let size='--';try{size=(localStorage.getItem(k)||'').length+' bytes';}catch(e){}const d=document.createElement('div');d.className='cache-row';d.innerHTML=`<span class="ck">${k}</span><span class="cs">${size}</span><button class="btn btn-red btn-xs" onclick="if(confirm('Delete ${k}?')){localStorage.removeItem('${k}');renderAdmin();}">DEL</button>`;kEl.appendChild(d);}
+  const clEl=document.getElementById('admChangelog');clEl.innerHTML='';for(const entry of APP_CHANGELOG){const d=document.createElement('div');d.className='cl-entry';d.innerHTML=`<div><span class="cl-ver">${entry.v}</span><span class="cl-date">${entry.date}</span></div><ul class="cl-notes">${entry.notes.map(n=>`<li>${n}</li>`).join('')}</ul>`;clEl.appendChild(d);}
+}
+function admSetCo(){const k=document.getElementById('admCoSel').value;ae().companyKey=k;STORE.companyKey=k;document.getElementById('admCo').textContent=COMPANIES[k].name;saveStore();render();}
+function admChangeTpd(d){changeTpd(d);renderAdmin();}
+function admSetPrice(){const v=+document.getElementById('admPriceI').value||0;STORE.pricePerTrain=v;document.getElementById('admPrice').textContent=fmtC(v);saveStore();}
+function admResetEmp(){if(!confirm(`Reset ${ae().name}?`))return;confirmReset();}
+function admNuke(){if(!confirm('RESET ALL DATA?'))return;STORE=defStore();saveStore();syncModeUI();render();renderAdmin();showToast('Reset','err');}
+
+function setMN(page){document.querySelectorAll('.mob-btn').forEach(b=>b.classList.remove('active'));const b=document.getElementById('mn-'+page);if(b)b.classList.add('active');}
+let _mobMenuOpen=false;
+function toggleMobMenu(){_mobMenuOpen=!_mobMenuOpen;document.getElementById('mobMoreMenu').classList.toggle('open',_mobMenuOpen);document.getElementById('mobMoreOverlay').classList.toggle('open',_mobMenuOpen);}
+
+// ── BOOT ──────────────────────────────────────────────────
+(async()=>{
+  STORE=await loadStore();
+  ['pnl','payments','stock','sales','companyLogs'].forEach(f=>{if(!STORE[f])STORE[f]=[];});
+  if(!STORE.pricePerTrain)STORE.pricePerTrain=500000;
+  if(!STORE.billingPeriod)STORE.billingPeriod=7;
+  if(!STORE.billMode)STORE.billMode='BY_DAYS';
+  if(!STORE.companySnapshots)STORE.companySnapshots=[];
+  if(!STORE.dailyReports)STORE.dailyReports=[];
+  if(!STORE.adBudgetPerDay)STORE.adBudgetPerDay=0;
+  if(!STORE.stockCostPerDay)STORE.stockCostPerDay=0;
+  if(!STORE.directorTs)STORE.directorTs=0;
+  if(!STORE.directorName)STORE.directorName='';
+  syncModeUI();render();
+  document.getElementById('sbVer').textContent=APP_VERSION+' \xB7 HighVibes';
+  // fix log tab active state
+  document.getElementById('ltAll').className='tab-btn active';
+  clog('note','Dashboard loaded \u2014 '+APP_VERSION);
+  dbgLog('Boot complete: '+APP_VERSION,'ok');
+  nav('dashboard');
+})();
+</script>
+</body>
+</html>
