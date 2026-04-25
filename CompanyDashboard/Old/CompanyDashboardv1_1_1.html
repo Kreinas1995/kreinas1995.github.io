@@ -461,13 +461,14 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
     <button class="btn btn-o btn-sm" onclick="nav('apisync')">↻ SYNC</button>
   </div>
   <div class="card" style="padding:12px 14px">
-    <div class="lbl" style="margin-bottom:6px">📅 TRAINING START DATE</div>
+    <div class="lbl" style="margin-bottom:6px">📅 TRACKING START DATE</div>
+    <div id="directorStartBanner" style="display:none;margin-bottom:8px;padding:7px 10px;background:var(--adim);border:1px solid rgba(56,201,160,.25);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--api)"></div>
     <div class="irow" style="position:relative">
-      <input type="text" id="sdDisp" placeholder="DD/MM/YYYY" maxlength="10" oninput="onSdInput(this)" onblur="onSdBlur(this)"/>
+      <input type="text" id="sdDisp" placeholder="DD/MM/YYYY (manual override)" maxlength="10" oninput="onSdInput(this)" onblur="onSdBlur(this)"/>
       <input type="date" class="sdate-nat" id="sdNative" onchange="onSdNative(this)"/>
       <button class="btn btn-o btn-sm" style="flex:0 0 auto" onclick="document.getElementById('sdNative').showPicker?document.getElementById('sdNative').showPicker():document.getElementById('sdNative').click()">📅</button>
     </div>
-    <div class="sdate-sub" id="sdSub">Used to calculate days elapsed and API train counts</div>
+    <div class="sdate-sub" id="sdSub">Sync first to auto-detect your director start date, or enter manually</div>
   </div>
   <div class="card">
     <div class="card-hdr"><div class="ct">SESSION STARTING STATS</div><button class="btn btn-o btn-sm" onclick="toggleStartsEdit()">EDIT</button></div>
@@ -957,8 +958,8 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VERSION='v1.1.0';
-const APP_CHANGELOG=[{v:'v1.1.0',date:'2026-04-25 12:04:16',notes:['API: fetch company/detailed on sync — logs all field names to Debug so training field discovery is automatic; falls back to news-text parsing if detailed counts absent','Fix: CREATE button now opens goal-setting form immediately after creating employee from API sync or staff view','Mobile: fix button/chip overflow — topbar chips truncate, ph-act wraps, btn-row wraps, mob-btn min-width guards added','Analytics: company snapshots (eff/popularity/cleanliness/adBudget/dailyIncome) stored on each sync, shown on Dashboard with trend indicators','P&L: Auto Breakdown panel — training revenue, employee wages (API), ad budget, stock costs, manual entries all in one net-profit summary']},{v:'v1.0.5',date:'2026-04-21',notes:['Fix: missing closing backtick in dbgLog call caused SyntaxError crashing all JS','Mobile: force mrow to 2-col grid and hide logo subtitle to prevent topbar/horizontal scroll']},{v:'v1.0.4',date:'2026-04-21',notes:['Mobile: bump html base font-size to 18px inside breakpoint — all rem units scale up proportionally','Mobile: increase topbar/nav-bar tap target height, loosen card/main padding, enlarge metric values and stat numbers']},{v:'v1.0.3',date:'2026-04-22 22:53:30',notes:['API: replaced single regex train parser with multi-pattern parseTrainCounts() shared across sync/billing/CSV — logs first 5 raw news samples to Debug on each sync','API: added Staff panel (👥 CURRENT STAFF / 📋 TRAINING RESULTS toggle) showing all live members with stats, effectiveness, and one-click CREATE profile','API: staff view opens by default after sync when no training events found; training results view opens when trains detected']},{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
+const APP_VERSION='v1.1.1';
+const APP_CHANGELOG=[{v:'v1.1.1',date:'2026-04-25 12:47:39',notes:['API: fix news text field — probe news/text/message/log variants; log raw entry keys+value to Debug on first page fetch so field name is always visible','Training parser: rewritten using dynamic position-name strip list — correctly extracts player name from "[Position] [Name] has been trained by the director"','Director start auto-detection: scan news for "[Name] has been made the new director", store timestamp, use as effective sync floor replacing manual start date requirement','Analytics: parse daily income/customer reports from Main News; show last 7 days + averages on Dashboard; capture daily_income/customers/weekly/rating from confirmed company API keys']},{v:'v1.1.0',date:'2026-04-25 12:04:16',notes:['API: fetch company/detailed on sync — logs all field names to Debug so training field discovery is automatic; falls back to news-text parsing if detailed counts absent','Fix: CREATE button now opens goal-setting form immediately after creating employee from API sync or staff view','Mobile: fix button/chip overflow — topbar chips truncate, ph-act wraps, btn-row wraps, mob-btn min-width guards added','Analytics: company snapshots (eff/popularity/cleanliness/adBudget/dailyIncome) stored on each sync, shown on Dashboard with trend indicators','P&L: Auto Breakdown panel — training mrevenue, employee wages (API), ad budget, stock costs, manual entries all in one net-profit summary']},{v:'v1.0.5',date:'2026-04-21',notes:['Fix: missing closing backtick in dbgLog call caused SyntaxError crashing all JS','Mobile: force mrow to 2-col grid and hide logo subtitle to prevent topbar/horizontal scroll']},{v:'v1.0.4',date:'2026-04-21',notes:['Mobile: bump html base font-size to 18px inside breakpoint — all rem units scale up proportionally','Mobile: increase topbar/nav-bar tap target height, loosen card/main padding, enlarge metric values and stat numbers']},{v:'v1.0.3',date:'2026-04-22 22:53:30',notes:['API: replaced single regex train parser with multi-pattern parseTrainCounts() shared across sync/billing/CSV — logs first 5 raw news samples to Debug on each sync','API: added Staff panel (👥 CURRENT STAFF / 📋 TRAINING RESULTS toggle) showing all live members with stats, effectiveness, and one-click CREATE profile','API: staff view opens by default after sync when no training events found; training results view opens when trains detected']},{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
 {v:'v1.0.1',date:'2026-04-21 09:08:19',notes:['API: try all company ID fields (job.company_id, company.id, company_id) for director support','API: log raw user object keys to debug console on sync failure','Mobile: bottom nav bar with MORE overflow menu']},{v:'v1.0.0',date:'2026-04-21',notes:['Complete overhaul — HighVibes Company Dashboard v1','Sidebar layout with 12 navigation sections','Syne/JetBrains Mono/Inter design system, full dark industrial theme','Company Logs panel with category filtering','Profit & Loss tracker with income/expense entries','Payment log with received/pending/overdue status and CSV export','Stock inventory with low-stock alerts and total valuation','Sales log with auto stock qty decrement and CSV export','Configurable train slots 1-10 with position selectors and pivot-on-override','Debug panel: log console, store inspector, allocator test, sim all','Admin panel: company config, storage keys, bulk actions, changelog','Fixed INV-STILL-BROKEN: API stats populate progress.man/int/end','Storage migrated to hvDashboard_v1']}];
 const STORE_KEY='hvDashboard_v1',NEWS_KEY='hvDashboard_v1_news',MEMB_KEY='hvDashboard_v1_members';
 const LEGACY=['tornTracker_v3','tornTracker_v8','hvTraining_v5'];
@@ -1130,7 +1131,28 @@ function syncModeUI(){const api=!!STORE.apiMode;document.getElementById('modeTog
 function isoToDmy(iso){if(!iso)return'';const[y,m,d]=iso.split('-');return`${d}/${m}/${y}`;}
 function dmyToIso(dmy){if(!dmy)return'';const p=dmy.split('/');if(p.length!==3)return'';const[d,m,y]=p;if(!d||!m||!y||y.length<4)return'';return`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;}
 function daysSince(iso){if(!iso)return 0;const s=new Date(iso),n=new Date();s.setHours(0,0,0,0);n.setHours(0,0,0,0);return Math.max(0,Math.round((n-s)/86400000));}
-function syncSD(){const iso=ae().startDate||'';const d=document.getElementById('sdDisp'),n=document.getElementById('sdNative'),s=document.getElementById('sdSub');if(d)d.value=iso?isoToDmy(iso):'';if(n)n.value=iso;if(s){if(iso){s.textContent=`Day ${daysSince(iso)} elapsed since ${isoToDmy(iso)}`;s.className='sdate-sub on';}else{s.textContent='Used to calculate days elapsed and API train counts';s.className='sdate-sub';}}}
+function syncDirectorStartUI(){
+  const banner=document.getElementById('directorStartBanner');
+  if(!banner)return;
+  if(STORE.directorTs&&STORE.directorName){
+    const dt=new Date(STORE.directorTs*1000).toLocaleDateString();
+    const days=Math.round((Date.now()/1000-STORE.directorTs)/86400);
+    banner.style.display='block';
+    banner.textContent=`\u2713 Auto-detected: ${STORE.directorName} became director on ${dt} (${days}d ago) \u2014 fetching all data from this date`;
+  }else{banner.style.display='none';}
+}
+function syncSD(){
+  const iso=ae().startDate||'';
+  const d=document.getElementById('sdDisp'),n=document.getElementById('sdNative'),s=document.getElementById('sdSub');
+  if(d)d.value=iso?isoToDmy(iso):'';
+  if(n)n.value=iso;
+  if(s){
+    if(iso){s.textContent=`Manual override: ${daysSince(iso)} days since ${isoToDmy(iso)}`;s.className='sdate-sub on';}
+    else if(STORE.directorTs){s.textContent='Using auto-detected director start (see above)';s.className='sdate-sub on';}
+    else{s.textContent='Sync first to auto-detect director start, or enter manually';s.className='sdate-sub';}
+  }
+  syncDirectorStartUI();
+}
 function onSdInput(el){let v=el.value.replace(/\D/g,'');if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);if(v.length>5)v=v.slice(0,5)+'/'+v.slice(5);if(v.length>10)v=v.slice(0,10);el.value=v;}
 function onSdBlur(el){const iso=dmyToIso(el.value);if(iso){ae().startDate=iso;saveStore();syncSD();render();}else if(!el.value){ae().startDate='';saveStore();syncSD();}}
 function onSdNative(el){ae().startDate=el.value;saveStore();syncSD();render();}
@@ -1263,23 +1285,44 @@ function clog(type,msg){if(!STORE.companyLogs)STORE.companyLogs=[];STORE.company
 function clearSnapshots(){if(!confirm('Clear all analytics snapshots?'))return;STORE.companySnapshots=[];saveStore();renderDash();showToast('Snapshots cleared');}
 function renderAnalytics(){
   const snaps=STORE.companySnapshots||[];
+  const reports=STORE.dailyReports||[];
   const card=document.getElementById('dashAnalyticsCard');
   const el=document.getElementById('dashAnalytics');
   if(!card||!el)return;
-  if(!snaps.length){card.style.display='none';return;}
+  if(!snaps.length&&!reports.length){card.style.display='none';return;}
   card.style.display='block';
-  const last14=snaps.slice(-14).reverse();
-  let html=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>DATE/TIME</th><th class="num">EFF</th><th class="num">POPULARITY</th><th class="num">CLEANLINESS</th><th class="num">AD BUDGET</th><th class="num">DAILY INCOME</th></tr></thead><tbody>`;
-  for(const s of last14){
-    const dt=new Date(s.ts).toLocaleString();
-    html+=`<tr><td style="font-size:.5rem;color:var(--text3)">${dt}</td><td class="num">${s.eff!=null?s.eff:'--'}</td><td class="num" style="color:var(--int)">${s.pop!=null?s.pop:'--'}</td><td class="num" style="color:var(--ok)">${s.clean!=null?s.clean:'--'}</td><td class="num" style="color:var(--gold)">${s.adBudget!=null?fmtC(s.adBudget):'--'}</td><td class="num" style="color:var(--api)">${s.dailyIncome!=null?fmtC(s.dailyIncome):'--'}</td></tr>`;
+  let html='';
+  // Director tenure banner
+  if(STORE.directorTs&&STORE.directorName){
+    const days=Math.round((Date.now()/1000-STORE.directorTs)/86400);
+    html+=`<div style="margin-bottom:10px;padding:7px 10px;background:var(--adim);border:1px solid rgba(56,201,160,.2);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--api)">\u2713 ${STORE.directorName} \xB7 Director for ${days} days \xB7 since ${new Date(STORE.directorTs*1000).toLocaleDateString()}</div>`;
   }
-  html+='</tbody></table></div>';
-  // Trend indicators (compare latest vs earliest in window)
-  if(last14.length>=2){
-    const newest=last14[0],oldest=last14[last14.length-1];
-    const trend=(key,label,color)=>{const n=newest[key],o=oldest[key];if(n==null||o==null)return'';const d=n-o;const arrow=d>0?'\u2197':d<0?'\u2198':'\u2192';return`<span style="color:${d>0?'var(--ok)':d<0?'var(--danger)':'var(--text3)'};font-family:'JetBrains Mono',monospace;font-size:.54rem;margin-right:12px">${arrow} ${label}: ${d>=0?'+':''}${d}</span>`;};
-    html+=`<div style="margin-top:10px;padding:8px 10px;background:var(--bg2);border-radius:6px">${trend('eff','Eff','')}${trend('pop','Pop','')}${trend('clean','Clean','')}</div>`;
+  // Daily income reports from Main News
+  if(reports.length){
+    const last7=reports.slice(0,7);
+    const avgInc=Math.round(last7.reduce((a,r)=>a+r.income,0)/last7.length);
+    const avgCust=Math.round(last7.reduce((a,r)=>a+r.customers,0)/last7.length);
+    html+=`<div class="sec-lbl" style="margin-bottom:6px">DAILY INCOME (last ${last7.length} reports)</div>`;
+    html+=`<div class="tbl-wrap" style="margin-bottom:12px"><table class="tbl"><thead><tr><th>DAY</th><th>DATE</th><th class="num">CUSTOMERS</th><th class="num">GROSS INCOME</th></tr></thead><tbody>`;
+    for(const r of last7){const dt=new Date(r.ts*1000).toLocaleDateString();html+=`<tr><td style="color:var(--gold)">${r.day}</td><td style="font-size:.5rem;color:var(--text3)">${dt}</td><td class="num" style="color:var(--int)">${r.customers.toLocaleString()}</td><td class="num pos">${fmtC(r.income)}</td></tr>`;}
+    html+=`<tr style="background:var(--bg2)"><td colspan="2" style="color:var(--text3);font-size:.5rem">7-DAY AVG</td><td class="num" style="color:var(--int)">${avgCust.toLocaleString()}</td><td class="num" style="color:var(--gold2);font-weight:700">${fmtC(avgInc)}</td></tr>`;
+    html+='</tbody></table></div>';
+  }
+  // Sync snapshots — company stats at time of each sync
+  if(snaps.length){
+    const last14=snaps.slice(-14).reverse();const newest=last14[0];
+    html+=`<div class="sec-lbl" style="margin-bottom:6px">COMPANY STATUS (last sync: ${new Date(newest.ts).toLocaleString()})</div>`;
+    html+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">`;
+    const sc=(lbl,val,color)=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:.46rem;color:var(--text3);margin-bottom:3px">${lbl}</div><div style="font-family:'Syne',sans-serif;font-size:.85rem;font-weight:800;color:${color}">${val}</div></div>`;
+    html+=sc('DAILY INCOME',newest.dailyIncome!=null?fmtC(newest.dailyIncome):'--','var(--ok)');
+    html+=sc('CUSTOMERS',newest.dailyCustomers!=null?newest.dailyCustomers.toLocaleString():'--','var(--int)');
+    html+=sc('WEEKLY',newest.weeklyIncome!=null?fmtC(newest.weeklyIncome):'--','var(--api)');
+    html+='</div>';
+    if(last14.length>=2){
+      const oldest=last14[last14.length-1];
+      const trend=(key,label)=>{const n=newest[key],o=oldest[key];if(n==null||o==null)return'';const d=n-o;if(d===0)return'';const arrow=d>0?'\u2197':'\u2198';return`<span style="color:${d>0?'var(--ok)':'var(--danger)'};font-family:'JetBrains Mono',monospace;font-size:.52rem;margin-right:10px">${arrow} ${label}: ${d>0?'+':''}${typeof d==='number'&&d>10000?fmtC(d):d}</span>`;};
+      html+=`<div style="padding:7px 10px;background:var(--bg2);border-radius:6px;margin-bottom:10px">${trend('dailyIncome','Daily $')}${trend('dailyCustomers','Customers')}${trend('weeklyIncome','Weekly $')}</div>`;
+    }
   }
   el.innerHTML=html;
 }
@@ -1327,9 +1370,10 @@ async function runApiSync(){
   const key=document.getElementById('apiKeyInput').value.trim();
   if(!key){setAS('Enter an API key first.','err');return;}
   STORE.apiKey=key;saveStore();
-  const startIso=ae().startDate||'';
-  if(!startIso){setAS('Set a training start date on the Tracker page first.','err');return;}
-  const startTs=Math.floor(new Date(startIso).getTime()/1000);
+  // Use director start ts if auto-detected; fall back to manual date; 0 = fetch all available
+  const manualIso=ae().startDate||'';
+  const manualTs=manualIso?Math.floor(new Date(manualIso).getTime()/1000):0;
+  const effectiveStartTs=STORE.directorTs||manualTs||0;
   const btn=document.getElementById('apiSyncBtn');btn.disabled=true;
   setAS('\u27F3 Fetching company data\u2026','loading');dbgLog('API sync started','api');
   try{
@@ -1362,14 +1406,20 @@ async function runApiSync(){
     const firstEmpId=Object.keys(empObj)[0];
     if(firstEmpId)dbgLog(`First employee fields: ${Object.keys(empObj[firstEmpId]).join(', ')}`,'debug');
     // Snapshot company stats for analytics
-    const snap={ts:Date.now(),eff:null,clean:null,pop:null,adBudget:null,dailyIncome:null};
-    const det=cd.company_details||cd.company||{};
+    // Confirmed company keys: ID, company_type, rating, name, director, employees_hired,
+    // employees_capacity, daily_income, daily_customers, weekly_income, weekly_customers, days_old
+    const snap={ts:Date.now(),eff:null,clean:null,pop:null,adBudget:null,dailyIncome:null,dailyCustomers:null,weeklyIncome:null,rating:null};
+    const det=cd.company||cd.company_details||{};
     if(det.popularity!=null)snap.pop=det.popularity;
     if(det.cleanliness!=null)snap.clean=det.cleanliness;
     if(det.advertising_budget!=null)snap.adBudget=det.advertising_budget;
     if(det.daily_income!=null)snap.dailyIncome=det.daily_income;
+    if(det.daily_customers!=null)snap.dailyCustomers=det.daily_customers;
+    if(det.weekly_income!=null)snap.weeklyIncome=det.weekly_income;
+    if(det.rating!=null)snap.rating=det.rating;
     if(det.efficiency!=null)snap.eff=det.efficiency;
-    if(snap.pop!=null||snap.clean!=null||snap.eff!=null){
+    dbgLog(`Company snapshot: daily_income=${det.daily_income} daily_customers=${det.daily_customers} weekly=${det.weekly_income} rating=${det.rating}`,'api');
+    if(snap.dailyIncome!=null||snap.weeklyIncome!=null||snap.pop!=null||snap.clean!=null||snap.rating!=null){
       if(!STORE.companySnapshots)STORE.companySnapshots=[];
       STORE.companySnapshots.push(snap);
       if(STORE.companySnapshots.length>90)STORE.companySnapshots=STORE.companySnapshots.slice(-90);
@@ -1378,22 +1428,44 @@ async function runApiSync(){
     saveMC({companyId:cid,fetchedAt:Date.now(),employees:empObj});dbgLog(`Employees: ${Object.keys(empObj).length}`,'api');
     // Fetch training-specific news — use dedicated training selection or fall back to general news
     let cache=loadNC();if(!cache||cache.companyId!==cid)cache={companyId:cid,lastTimestamp:0,entries:[]};
-    const fromTs=Math.max(cache.lastTimestamp,startTs-86400);setAS(`\u27F3 Loading training log for company #${cid}\u2026`,'loading');
-    // Try training-specific endpoint first (Torn v1: company/{id} returns training events in news with type filtering)
+    const fromTs=effectiveStartTs>0?Math.max(cache.lastTimestamp,effectiveStartTs-86400):cache.lastTimestamp;
+    const srcLabel=STORE.directorTs?'since director start':manualIso?'since manual date':'all available';
+    setAS(`\u27F3 Loading news (${srcLabel})\u2026`,'loading');
     let allNew=[],fetchFrom=fromTs,page=0;
-    // Primary: try ?selections=detailed which may include training sub-object
-    // Also always fetch news for fallback text parsing
-    while(page<20){const resp=await fetch(`https://api.torn.com/company/${cid}?selections=news&key=${key}&from=${fetchFrom}`);const data=await resp.json();if(data.error)throw new Error(`API Error ${data.error.code}: ${data.error.error}`);const entries=Object.values(data.news||{}).sort((a,b)=>a.timestamp-b.timestamp);if(!entries.length)break;allNew=allNew.concat(entries);const last=entries[entries.length-1].timestamp;if(last<=fetchFrom)break;fetchFrom=last;if(entries.length<90)break;page++;}
-    const existing=new Set(cache.entries.map(e=>`${e.timestamp}|${e.log}`));for(const e of allNew){const k=`${e.timestamp}|${e.log||''}`;if(!existing.has(k)){cache.entries.push({timestamp:e.timestamp,log:e.log||''});existing.add(k);}}
-    if(allNew.length)cache.lastTimestamp=Math.max(...allNew.map(e=>e.timestamp));saveNC(cache);dbgLog(`News cache: ${cache.entries.length} entries`,'api');
-    const sample=cache.entries.filter(e=>e.timestamp>=startTs).slice(0,5);
-    dbgLog(`News sample (first 5 in range): ${JSON.stringify(sample.map(e=>e.log))}`,'debug');
+    while(page<20){
+      const resp=await fetch(`https://api.torn.com/company/${cid}?selections=news&key=${key}&from=${fetchFrom}`);
+      const data=await resp.json();
+      if(data.error)throw new Error(`API Error ${data.error.code}: ${data.error.error}`);
+      const raw=Object.values(data.news||{});
+      if(page===0&&raw.length){
+        dbgLog(`News entry keys: ${Object.keys(raw[0]).join(', ')}`,'debug');
+        dbgLog(`News entry[0]: ${JSON.stringify(raw[0])}`,'debug');
+      }
+      // Probe all known field name variants for the text body
+      const entries=raw.map(e=>({timestamp:e.timestamp||0,log:e.news||e.text||e.message||e.log||''})).sort((a,b)=>a.timestamp-b.timestamp);
+      if(!entries.length)break;
+      allNew=allNew.concat(entries);
+      const last=entries[entries.length-1].timestamp;
+      if(last<=fetchFrom)break;
+      fetchFrom=last;
+      if(raw.length<90)break;
+      page++;
+    }
+    const existing=new Set(cache.entries.map(e=>`${e.timestamp}|${e.log}`));
+    for(const e of allNew){const k=`${e.timestamp}|${e.log}`;if(!existing.has(k)){cache.entries.push({timestamp:e.timestamp,log:e.log});existing.add(k);}}
+    if(allNew.length)cache.lastTimestamp=Math.max(...allNew.map(e=>e.timestamp));
+    saveNC(cache);dbgLog(`News cache: ${cache.entries.length} entries`,'api');
+    const dirName=cd.company&&(cd.company.director||cd.company.name)||'';
+    detectDirectorStart(cache.entries,dirName);
+    parseDailyReports(cache.entries);
+    const inRange=cache.entries.filter(e=>e.timestamp>=effectiveStartTs);
+    dbgLog(`Entries in range: ${inRange.length} — sample: ${JSON.stringify(inRange.slice(0,3).map(e=>e.log))}`,'debug');
     // Use detailed train counts if available, otherwise parse from news
     let tc=detailedTrains;
     const hasDetailed=Object.keys(detailedTrains).length>0;
     if(!hasDetailed){
       dbgLog('No detailed train counts — falling back to news text parsing','warn');
-      tc=parseTrainCounts(cache.entries,startTs);
+      tc=parseTrainCounts(cache.entries,effectiveStartTs);
     }else{
       dbgLog(`Using detailed train counts for ${Object.keys(detailedTrains).length} employees`,'ok');
     }
@@ -1408,25 +1480,86 @@ async function runApiSync(){
   }catch(err){setAS('\u2715 '+err.message,'err');dbgLog('API error: '+err.message,'err');}
   btn.disabled=false;
 }
+function getAllPositionNames(){
+  const s=new Set();
+  for(const co of Object.values(COMPANIES))for(const p of co.positions)s.add(p.name);
+  return [...s].sort((a,b)=>b.length-a.length);
+}
 function parseTrainCounts(entries,startTs){
-  // Multi-pattern parser — Torn company news training log formats vary:
-  // "PlayerName trained at the company gym."
-  // "PlayerName has been trained by Director."
-  // "Director trained PlayerName."  (director-initiated, passive subject)
-  const pats=[
-    /^(.+?)\s+trained\b/i,
-    /^(.+?)\s+has\s+been\s+trained\b/i,
-    /\btrained\s+([A-Z][^\s,.<[\]]+(?:\s+[A-Z][^\s,.<[\]]+)*)/,
-  ];
+  // Confirmed Torn training news format:
+  // "[Position] [PlayerName] has been trained by the director"
+  // e.g. "Chandler ArrestMeDaddy has been trained by the director"
+  const posNames=getAllPositionNames();
+  const posPfx=posNames.map(n=>n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+  const pat1=new RegExp(`^(?:${posPfx})\\s+(.+?)\\s+has\\s+been\\s+trained`,'i');
+  const pat2=/^(.+?)\s+has\s+been\s+trained/i;
+  const pat3=/^(.+?)\s+trained\s+at\b/i;
+  const pat4=/\btrained\s+([A-Z][^\s,.<[\]]+(?:\s+[A-Z][^\s,.<[\]]+)*)/;
   const tc={};
   for(const e of (entries||[])){
     if(!e.log||e.timestamp<startTs)continue;
-    for(const pat of pats){
-      const m=e.log.match(pat);
-      if(m){const name=(m[1]||'').trim();if(name.length>1){tc[name]=(tc[name]||0)+1;break;}}
+    const txt=e.log.trim();
+    let name=null;
+    const m1=txt.match(pat1);
+    if(m1){
+      name=m1[1].trim();
+    }else{
+      const m2=txt.match(pat2);
+      if(m2){
+        let raw=m2[1].trim();
+        for(const p of posNames){if(raw.toLowerCase().startsWith(p.toLowerCase()+' ')){raw=raw.slice(p.length).trim();break;}}
+        name=raw;
+      }else{
+        const m3=txt.match(pat3);
+        if(m3)name=m3[1].trim();
+        else{const m4=txt.match(pat4);if(m4)name=m4[1].trim();}
+      }
     }
+    if(name&&name.length>1&&name.length<40)tc[name]=(tc[name]||0)+1;
   }
   return tc;
+}
+function detectDirectorStart(entries,directorName){
+  if(!directorName)return;
+  // "Sypharius has been made the new director."
+  const pat=/^(.+?)\s+has\s+been\s+made\s+the\s+new\s+director/i;
+  let best=null;
+  for(const e of (entries||[])){
+    if(!e.log)continue;
+    const m=e.log.match(pat);
+    if(m&&m[1].trim().toLowerCase()===directorName.toLowerCase()){
+      if(!best||e.timestamp>best.ts)best={ts:e.timestamp,name:m[1].trim()};
+    }
+  }
+  if(best&&best.ts!==STORE.directorTs){
+    STORE.directorTs=best.ts;
+    STORE.directorName=best.name;
+    const dt=new Date(best.ts*1000).toLocaleDateString();
+    dbgLog(`Director start auto-detected: ${best.name} on ${dt}`,'ok');
+    saveStore();
+    syncDirectorStartUI();
+  }
+}
+function parseDailyReports(entries){
+  // "Thursday report: We had a total of 2,077 customers and made a gross income of $869,661."
+  const pat=/^(\w+) report: We had a total of ([\d,]+) customers and made a gross income of \$([\d,]+)/i;
+  if(!STORE.dailyReports)STORE.dailyReports=[];
+  let added=0;
+  for(const e of (entries||[])){
+    if(!e.log)continue;
+    const m=e.log.match(pat);
+    if(!m)continue;
+    const ts=e.timestamp;
+    if(STORE.dailyReports.find(r=>r.ts===ts))continue;
+    STORE.dailyReports.push({ts,day:m[1],customers:parseInt(m[2].replace(/,/g,''),10),income:parseInt(m[3].replace(/,/g,''),10)});
+    added++;
+  }
+  if(added){
+    STORE.dailyReports.sort((a,b)=>b.ts-a.ts);
+    if(STORE.dailyReports.length>90)STORE.dailyReports=STORE.dailyReports.slice(0,90);
+    dbgLog(`Parsed ${added} daily report(s). Latest: $${STORE.dailyReports[0].income.toLocaleString()}`,'api');
+    saveStore();
+  }
 }
 function setApiView(v){
   const trains=document.getElementById('apiTrainsView'),staff=document.getElementById('apiStaffView');
@@ -1640,8 +1773,11 @@ function toggleMobMenu(){_mobMenuOpen=!_mobMenuOpen;document.getElementById('mob
   if(!STORE.billingPeriod)STORE.billingPeriod=7;
   if(!STORE.billMode)STORE.billMode='BY_DAYS';
   if(!STORE.companySnapshots)STORE.companySnapshots=[];
+  if(!STORE.dailyReports)STORE.dailyReports=[];
   if(!STORE.adBudgetPerDay)STORE.adBudgetPerDay=0;
   if(!STORE.stockCostPerDay)STORE.stockCostPerDay=0;
+  if(!STORE.directorTs)STORE.directorTs=0;
+  if(!STORE.directorName)STORE.directorName='';
   syncModeUI();render();
   document.getElementById('sbVer').textContent=APP_VERSION+' \xB7 HighVibes';
   // fix log tab active state
