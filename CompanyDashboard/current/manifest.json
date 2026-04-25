@@ -1,5 +1,5 @@
 {
-  "latest": "CompanyDashboardv1_0_5.html",
+  "latest": "CompanyDashboardv1_1_0.html",
   "all": [
     "CompanyDashboard_v1.html",
     "CompanyDashboardv1_0_0.html",
@@ -7,6 +7,7 @@
     "CompanyDashboardv1_0_2.html",
     "CompanyDashboardv1_0_3.html",
     "CompanyDashboardv1_0_4.html",
-    "CompanyDashboardv1_0_5.html"
+    "CompanyDashboardv1_0_5.html",
+    "CompanyDashboardv1_1_0.html"
   ]
 }
