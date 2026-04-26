@@ -368,7 +368,7 @@
   <div class="logo-dot"></div>
   <h1>PatchTool</h1>
   <span>// FactionBudget HTML Editor</span>
-  <div class="header-version" id="toolVersion">v1.3.0</div>
+  <div class="header-version" id="toolVersion">v1.3.1</div>
 </header>
 
 <main>
@@ -439,7 +439,7 @@
 </main>
 
 <script>
-const TOOL_VERSION = '1.3.0';
+const TOOL_VERSION = '1.3.1';
 // ─── State ───────────────────────────────────────────────
 let srcText   = null;   // original file content
 let srcName   = '';
@@ -766,7 +766,8 @@ function downloadResult() {
     // "CompanyDashboardv1_1_4.html" → "CompanyDashboard", etc.
     const base   = srcName.replace(/\.html?$/i, '');
     const prefix = base.replace(/v\d[\d._]*$/, '');
-    name = `${prefix}v${appVerMatch[1].replace(/\./g,'_')}.html`;
+    const ver    = appVerMatch[1].replace(/^v/i, '').replace(/\./g, '_');
+    name = `${prefix}v${ver}.html`;
   } else if (toolVerMatch) {
     name = `PatchToolv${toolVerMatch[1].replace(/\./g,'_')}.html`;
   } else {
