@@ -368,16 +368,10 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <div class="logo">HIGHVIBES<span>COMPANY DASHBOARD</span></div>
+  <div class="logo" id="topbarLogo">COMPANY<span>DASHBOARD</span></div>
   <div class="tb-sp"></div>
   <div class="day-pill" id="dayPill">DAY 0</div>
   <button class="tb-chip" id="tbEmpChip" onclick="openEmpModal()">👤 <span id="tbEmpName">—</span></button>
->>> END
-
-<<< FIND
-  <div class="logo">HIGHVIBES<span>COMPANY DASHBOARD</span></div>
-===
-  <div class="logo" id="topbarLogo">COMPANY<span>DASHBOARD</span></div>
 </div>
 
 <!-- SIDEBAR -->
@@ -1835,7 +1829,7 @@ function toggleMobMenu(){_mobMenuOpen=!_mobMenuOpen;document.getElementById('mob
   if(!STORE.directorTs)STORE.directorTs=0;
   if(!STORE.directorName)STORE.directorName='';
   syncModeUI();render();
-  document.getElementById('sbVer').textContent=APP_VERSION+' \xB7 HighVibes';
+  document.getElementById('sbVer').textContent=APP_VERSION;
   // fix log tab active state
   document.getElementById('ltAll').className='tab-btn active';
   clog('note','Dashboard loaded \u2014 '+APP_VERSION);
