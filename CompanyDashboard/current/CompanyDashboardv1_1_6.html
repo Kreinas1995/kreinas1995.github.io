@@ -1504,19 +1504,16 @@ async function runApiSync(){
     // Save full member cache including raw company meta and all employee objects
     saveMC({companyId:cid,fetchedAt:Date.now(),company:companyMeta,employees:empObj});
     dbgLog(`Members cache saved: ${Object.keys(empObj).length} employees`,'api');
-    // Fetch ALL company news history — paginate backward (newest-first) using &to= for older pages
-    // Cache stores every entry ever seen; per-employee date filters applied at billing/parse time.
+    // Fetch company news — spec: paginate with &from={lastTs}&sort=asc until <90 entries or 20 pages
+    // from=0 on fresh cache fetches all history. Incremental syncs start from lastTimestamp.
     const stripHtml=s=>(s||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
     let cache=loadNC();if(!cache||cache.companyId!==cid)cache={companyId:cid,lastTimestamp:0,entries:[]};
     cache.entries=cache.entries.filter(e=>e.log&&e.log.length>0);
     const existing=new Set(cache.entries.map(e=>`${e.timestamp}|${e.log}`));
-    // Fetch floor: stop paginating once we're past director-start minus 1 day (0 = fetch everything)
-    const fetchFloor=STORE.directorTs?Math.max(0,STORE.directorTs-86400):0;
     setAS('\u27F3 Loading news history\u2026','loading');
-    let allNew=[],page=0,oldestSeen=null;
-    while(page<40){
-      const toParam=oldestSeen!=null?`&to=${oldestSeen-1}`:'';
-      const resp=await fetch(`https://api.torn.com/company/${cid}?selections=news&key=${key}${toParam}`);
+    let allNew=[],page=0,fetchFrom=cache.lastTimestamp;
+    while(true){
+      const resp=await fetch(`https://api.torn.com/company/${cid}?selections=news&key=${key}&from=${fetchFrom}&sort=asc`);
       const data=await resp.json();
       if(data.error)throw new Error(`API Error ${data.error.code}: ${data.error.error}`);
       const raw=Object.values(data.news||{});
@@ -1525,16 +1522,18 @@ async function runApiSync(){
         dbgLog(`News[0]: ${JSON.stringify(raw[0])}`,'debug');
       }
       if(!raw.length)break;
-      const entries=raw.map(e=>({timestamp:e.timestamp||0,log:stripHtml(e.news||e.text||e.message||e.log||'')}));
-      const pageMin=Math.min(...entries.map(e=>e.timestamp));
-      let addedThisPage=0;
-      for(const e of entries){if(!e.log)continue;const k=`${e.timestamp}|${e.log}`;if(!existing.has(k)){allNew.push(e);existing.add(k);addedThisPage++;}}
-      dbgLog(`News page ${page+1}: ${raw.length} entries (${addedThisPage} new), oldest=${new Date(pageMin*1000).toLocaleDateString()}`,'api');
-      if(oldestSeen==null||pageMin<oldestSeen)oldestSeen=pageMin;
-      setAS(`\u27F3 Loading news\u2026 page ${page+1} (${cache.entries.length+allNew.length} total)`,'loading');
-      if(raw.length<90)break;
-      if(fetchFloor>0&&pageMin<=fetchFloor)break;
-      if(addedThisPage===0&&page>0)break;
+      // sort=asc: entries arrive oldest→newest; last entry's timestamp is the newest on this page
+      const entries=raw.map(e=>({timestamp:e.timestamp||0,log:stripHtml(e.news||e.text||e.message||e.log||'')}))
+                       .sort((a,b)=>a.timestamp-b.timestamp);
+      const pageMin=entries[0].timestamp,pageMax=entries[entries.length-1].timestamp;
+      let added=0;
+      for(const e of entries){if(!e.log)continue;const k=`${e.timestamp}|${e.log}`;if(!existing.has(k)){allNew.push(e);existing.add(k);added++;}}
+      dbgLog(`News page ${page+1}: ${raw.length} entries (${added} new) ${new Date(pageMin*1000).toLocaleDateString()}\u2192${new Date(pageMax*1000).toLocaleDateString()}`,'api');
+      setAS(`\u27F3 News page ${page+1}\u2026 (${cache.entries.length+allNew.length} total)`,'loading');
+      // Advance from= to the newest ts on this page so next page gets entries after it
+      if(pageMax<=fetchFrom)break;
+      fetchFrom=pageMax;
+      if(raw.length<90)break;// last page — fewer than max entries means no more history
       page++;
     }
     for(const e of allNew)cache.entries.push(e);
