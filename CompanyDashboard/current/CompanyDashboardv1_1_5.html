@@ -1034,7 +1034,7 @@ function simDays(s,goals,ck,maxT,pp){
 function descSched(a){const c={};let sk=0;for(const x of a){if(!x){sk++;continue;}c[x.name]=(c[x.name]||0)+1;}const p=Object.entries(c).map(([n,x])=>`${x}\xD7 ${n}`);if(sk)p.push(`skip ${sk}`);return p.join(', ')||'no trains needed';}
 
 // ── STORE ─────────────────────────────────────────────────
-function defStore(){return{companyKey:'candle_shop',activeId:'emp_default',apiMode:false,apiKey:'',pricePerTrain:500000,billingPeriod:7,billMode:'BY_DAYS',employees:{emp_default:{id:'emp_default',name:'Employee',companyKey:'candle_shop',passiveRoleIdx:0,trainsPerDay:5,trackMode:'goal',starts:{man:0,int:0,end:0},startDate:'',slotOverrides:{},goals:{man:0,int:0,end:0},progress:{man:0,int:0,end:0,day:0,totalTrains:0,checks:Array(5).fill(false)}}},pnl:[],payments:[],stock:[],sales:[],companyLogs:[],companyData:{}};}}
+function defStore(){return{companyKey:'candle_shop',activeId:'emp_default',apiMode:false,apiKey:'',pricePerTrain:500000,billingPeriod:7,billMode:'BY_DAYS',employees:{emp_default:{id:'emp_default',name:'Employee',companyKey:'candle_shop',passiveRoleIdx:0,trainsPerDay:5,trackMode:'goal',starts:{man:0,int:0,end:0},startDate:'',slotOverrides:{},goals:{man:0,int:0,end:0},progress:{man:0,int:0,end:0,day:0,totalTrains:0,checks:Array(5).fill(false)}}},pnl:[],payments:[],stock:[],sales:[],companyLogs:[],companyData:{}};}
 async function loadStore(){
   if(window.storage){try{const r=await window.storage.get(STORE_KEY);if(r&&r.value)return JSON.parse(r.value);}catch(e){}}
   try{const r=localStorage.getItem(STORE_KEY);if(r)return JSON.parse(r);}catch(e){}
