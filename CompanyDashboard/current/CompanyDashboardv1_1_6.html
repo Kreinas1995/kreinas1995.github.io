@@ -1420,13 +1420,13 @@ async function runApiSync(){
   try{
     // Fetch profile+employees+detailed in one call
     // Fetch company summary + employees in one call. Valid v1 selections: employees (no profile/detailed).
-    const cr=await fetch(`https://api.torn.com/company/?selections=employees&key=${key}`);const cd=await cr.json();
+    const cr=await fetch(`https://api.torn.com/company/?selections=profile,employees&key=${key}`);const cd=await cr.json();
     if(cd.error)throw new Error(`API Error ${cd.error.code}: ${cd.error.error}`);
     dbgLog(`API top-level keys: ${Object.keys(cd).join(', ')}`,'debug');
-    // Extract company ID — API v1 uses capital ID field
-    const companyMeta=cd.company||{};
-    const cid=companyMeta.ID??companyMeta.id??null;
-    if(!cid)throw new Error(`No company found on this key. Keys returned: ${Object.keys(cd).join(', ')} — ensure key has Limited Access or higher.`);
+    // profile selection returns a 'company' object with ID, name, director, etc.
+    const companyMeta=cd.company||cd.company_details||{};
+    const cid=companyMeta.ID??companyMeta.id??companyMeta.company_id??null;
+    if(!cid)throw new Error(`No company found. Top-level keys: ${Object.keys(cd).join(', ')} — key needs Limited Access and must belong to a company employee.`);
     dbgLog(`Company top-level keys: ${Object.keys(cd).join(', ')}`,'debug');
     dbgLog(`company object keys: ${Object.keys(companyMeta).join(', ')}`,'debug');
     // Store ALL available company-level data — used by P&L auto breakdown, snapshots, analytics
