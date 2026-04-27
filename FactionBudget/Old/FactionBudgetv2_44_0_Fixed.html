@@ -687,6 +687,7 @@
       <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--accent5);">MUSEUM SET INVENTORY</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <button class="btn-sm" onclick="showInvEntryForm()" style="font-size:9px;padding:4px 10px;border-color:var(--accent3);color:var(--accent3);">✎ SET COUNTS</button>
+        <button class="btn-sm" onclick="pasteInvBridge()" style="font-size:9px;padding:4px 10px;border-color:var(--accent2);color:var(--accent2);">📋 PASTE BRIDGE</button>
         <button class="btn-sm" onclick="fetchInvPurchases()" style="font-size:9px;padding:4px 10px;border-color:var(--accent2);color:var(--accent2);">↻ UPDATE</button>
         <button class="btn-sm" onclick="fetchPointPrice()" style="font-size:9px;padding:4px 10px;border-color:var(--accent5);color:var(--accent5);">↻ PT PRICE</button>
         <span id="invPtPriceBadge" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);"></span>
@@ -1203,7 +1204,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.43.15';
+const APP_VERSION = '2.44.0';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1273,6 +1274,7 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.44.0', date: '2026-04-27', notes: ['Inventory Bridge: PASTE BRIDGE button in Inventory panel header accepts clipboard payload from HV Dashboard Bridge userscript (museum.php)', 'applyInvBridgePayload() merges {name,qty} items directly into S.manualCounts without requiring the entry form; storage-event listener handles same-origin auto-import edge case', 'pasteInvBridge() rejects stock payloads with a clear error rather than silently misapplying them'] },
   { v: '2.43.15', date: '2026-04-22', notes: ['Receipt cards: replaced flat category text with tappable pills; tapping opens bottom-sheet drill-down of items with qty and payout value (mirrors Members tab usage pattern)', 'Removed $ toggle button from receipt cards — lifetime stats always visible as pill row'] },
 { v: '2.43.15', date: '2026-04-22', notes: ['Receipt cards: replaced flat category text with tappable pills; tapping opens bottom-sheet drill-down of items with qty and payout value (mirrors Members tab usage pattern)', 'Removed $ toggle button from receipt cards — lifetime stats always visible as pill row'] },
 { v: '2.43.14', date: '2026-04-20', notes: [
@@ -5359,6 +5361,53 @@ function cancelInvEntry(){
   if(formEl) formEl.style.display='none';
   if(colsEl) colsEl.style.display='';
   renderInventory();
+}
+
+// ── INVENTORY BRIDGE — receives payload from HV Dashboard Bridge userscript
+// Payload: {v:1, type:'hvInventoryBridge', ts:ms, items:[{name, qty}]}
+// Merges directly into S.manualCounts using the same per-item {qty, savedAt} format
+// as saveManualCounts(), without requiring the DOM entry form to be open.
+function applyInvBridgePayload(payload){
+  if(!payload || payload.v !== 1 || payload.type !== 'hvInventoryBridge' || !Array.isArray(payload.items)){
+    return {matched:0, skipped:0, err:'Invalid or wrong payload type'};
+  }
+  const museumSet = new Set([...PLUSHIE_SET, ...FLOWER_SET]);
+  const savedAt   = Math.floor((payload.ts||Date.now())/1000);
+  const cur = S.manualCounts||{};
+  // Migrate any legacy flat entries first
+  const migrated = {};
+  Object.entries(cur).forEach(([k,v])=>{
+    migrated[k] = typeof v==='number' ? {qty:v, savedAt:S.invDeltaTs||savedAt} : v;
+  });
+  let matched=0, skipped=0;
+  for(const it of payload.items){
+    const name = (it.name||'').trim();
+    if(!name || !museumSet.has(name)){ skipped++; continue; }
+    migrated[name] = {qty: Math.max(0, parseInt(it.qty)||0), savedAt};
+    matched++;
+  }
+  S.manualCounts = migrated;
+  S.invDeltaTs   = savedAt;
+  try{ localStorage.setItem('hv_v1_manual_counts', JSON.stringify(migrated)); }catch(e){}
+  try{ localStorage.setItem('hv_v1_inv_delta_ts', String(savedAt)); }catch(e){}
+  S.lastInvBridgeImport = payload.ts||Date.now();
+  clog(`Inventory bridge: ${matched} items imported, ${skipped} skipped`,'ok');
+  renderInventory();
+  return {matched, skipped};
+}
+
+async function pasteInvBridge(){
+  let text;
+  try{ text = await navigator.clipboard.readText(); }catch(e){ clog('Clipboard read failed — check browser permissions','err'); return; }
+  let payload;
+  try{ payload = JSON.parse(text); }catch(e){ clog('Clipboard does not contain bridge data','err'); return; }
+  if(!payload || payload.type !== 'hvInventoryBridge'){
+    clog('This looks like a stock payload — use PASTE BRIDGE in Company Dashboard instead','warn');
+    return;
+  }
+  const r = applyInvBridgePayload(payload);
+  if(r.err){ clog('Bridge error: '+r.err,'err'); return; }
+  clog(`✓ Inventory bridge applied: ${r.matched} items set${r.skipped?' ('+r.skipped+' unrecognised skipped)':''}`, 'ok');
 }
 
 function saveManualCounts(){
@@ -9704,6 +9753,22 @@ document.addEventListener('click',function(e){
     e.stopPropagation();
     tip.classList.toggle('tip-open');
   }
+});
+
+// ── INVENTORY BRIDGE storage-event listener
+// HV Dashboard Bridge userscript writes hv_inv_bridge_payload to localStorage
+// Note: storage events only fire in OTHER tabs on the same origin.
+// For torn.com → file:// the user uses clipboard (PASTE BRIDGE) instead.
+// This listener handles the edge case where the dashboard is served from a local
+// server or same origin as another HV tool that triggers the write.
+window.addEventListener('storage', function(e){
+  if(e.key !== 'hv_inv_bridge_payload' || !e.newValue) return;
+  try{
+    const payload = JSON.parse(e.newValue);
+    const r = applyInvBridgePayload(payload);
+    if(!r.err) clog(`✓ Inventory bridge (storage event): ${r.matched} items applied`,'ok');
+    localStorage.removeItem('hv_inv_bridge_payload');
+  }catch(err){ clog('Bridge storage event parse error: '+err.message,'warn'); }
 });
 </script>
 
