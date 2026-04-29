@@ -550,8 +550,14 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
     <div class="mrow" style="grid-template-columns:repeat(4,1fr)">
       <div class="mc gold"><div class="mc-lbl">DAYS ELAPSED</div><div class="mc-val" id="pDays">0</div><div class="mc-sub">since start</div></div>
       <div class="mc end"><div class="mc-lbl">DAYS REMAINING</div><div class="mc-val" id="pRem">—</div><div class="mc-sub">est. to goals</div></div>
-      <div class="mc man"><div class="mc-lbl">TRAINS APPLIED</div><div class="mc-val" id="pTrains">0</div><div class="mc-sub">total</div></div>
+      <div class="mc man"><div class="mc-lbl">TRAINS APPLIED</div><div class="mc-val" id="pTrains">0</div><div class="mc-sub">paid window</div></div>
       <div class="mc int"><div class="mc-lbl">PHASE</div><div class="mc-val" id="pPhase">—</div><div class="mc-sub" id="pPhaseSub">—</div></div>
+    </div>
+    <div class="card" id="trainBreakdownCard" style="display:none;margin-bottom:14px">
+      <div class="card-hdr"><div class="ct">TRAIN BREAKDOWN</div><span class="badge b-api" id="tbdSource" style="font-size:.44rem">NEWS-DERIVED</span></div>
+      <div id="trainBreakdownBody"></div>
+      <div class="sec-lbl" style="margin-top:12px">PASSIVE GAINS (logged)</div>
+      <div id="passiveBreakdownBody" style="font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--text2);line-height:1.8"></div>
     </div>
     <button class="btn btn-red btn-full" onclick="confirmReset()" style="margin-bottom:14px">⚠ RESET PROGRESS</button>
   </div>
@@ -975,8 +981,8 @@ textarea{resize:vertical;min-height:70px;line-height:1.5;}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VERSION='v1.3.0';
-const APP_CHANGELOG=[{v:'v1.3.0',date:'2026-04-27 14:36:08',notes:['Bridge v2: full stock sync — qty, sold daily/weekly, buy cost, sell price, RRP, storage capacity','Bridge: auto-creates missing stock items on first sync — no manual ADD ITEM required','Stock table: RRP column (gold=below RRP, green=at/above), weekly sold, storage metric card','Stock modal: RRP field; saveStock initialises soldHistory/soldWeekly/orderQty on new items']},{v:'v1.2.1',date:'2026-04-27 10:15:56',notes:['Bridge: replaced clipboard with postMessage iframe — one-click sync from torn.com, no paste required','Bridge: applyBridgePayload() extracted as shared fn used by both postMessage and PASTE BRIDGE fallback','Bridge: storage event listener re-renders stock/companion panel when iframe writes to localStorage']},{v:'v1.2.0',date:'2026-04-27 04:40:04',notes:['Stock: per-item sold history with 7-day avg column and AVG DAILY SOLD metric card','Stock: PASTE BRIDGE button accepts HV Stock Bridge clipboard payload (name-matched, qty decremented, history logged)','API Sync: companion userscript panel with download link and last-sync status']},{v:'v1.1.8',date:'2026-04-26 14:38:54',notes:['Allocator: replaced greedy gap-fill with bottleneck-aware algorithm — identifies the hardest-to-close stat each slot and scores positions by days saved on that axis','Allocator: passive recalculated from live stats each day so growing efficiency is reflected in slot decisions','Allocator: zero-passive stats correctly treated as train-dependent, preventing passive-blind phase switching']},{v:'v1.1.7',date:'2026-04-26',notes:['Fix: allocator caps committed gains to remaining goal gap — eliminates overshoot inflating subsequent slot projections','Fix: news pagination break corrected to &lt;25 (actual max per page for company/news)','Billing: replaced period input with from/to date range; only billable (ACTIVE) employees invoiced','Employees: added billable flag and paidTrains field; SET ACTIVE/INACTIVE toggle on roster cards','Trains: dailyTrainsAvailable computed on sync from company star rating + Trainer eff contributions (floor((eff-100)/50)+1 per trainer)','Boot: migrate existing employees to new fields; ad budget auto-populated from companyData on load']},{v:'v1.1.6',date:'2026-04-26',notes:['API: fix news pagination — now fetches full history backward using &to= param; stops at director-start floor (up to 40 pages)','Roster: collapsed by default on dashboard; compact expand shows days, wage, lifetime trains, MAN/INT/END, W/S/D effectiveness per employee','Billing: startDate filter now uses employee start date directly as train count floor (not start-period)']},{v:'v1.1.5',date:'2026-04-26 10:38:49',notes:['API: fix first fetch — drop invalid selections profile/detailed, use employees only (valid v1 selections)','Store: persist all company-level API fields to STORE.companyData and full raw employee objects to emp.apiData on every sync','API: saveMC now persists full company meta + employees; detectDirectorStart no longer requires a name match — accepts any director news event']},{v:'v1.1.4',date:'2026-04-25',notes:['Fix: removed second profile fetch (company/{id}?selections=profile) introduced in v1.1.2 — this was the cause of NetworkError on sync','Fix: reverted all fetch URLs back to api.torn.com (tornapi.tornplayground.eu is docs, not a proxy)','Ad budget/popularity now read from the first combined call payload if present']},{v:'v1.1.3',date:'2026-04-25',notes:['Branding: topbar now shows live company name from API (falls back to company type name)','UI: removed API Mode and Debug topbar chips — both accessible via More menu and sidebar','Allocator: tiebreak by least remaining gap across all 3 stats — minimises overshoot on multi-stat goals','Schedule: stats column uses auto width + nowrap so all 3 stats always fit on one line']},{v:'v1.1.2',date:'2026-04-25 13:05:20',notes:['Fix: strip HTML tags from news log at storage time and in all parsers — Torn wraps player names in anchor tags which broke every regex','Fix: purge stale blank-log cache entries on sync to clear noise from old code','Fix: second fetch to company/{id}?selections=profile retrieves advertising_budget and popularity; auto-populates STORE.adBudgetPerDay','Fix: auto-upsert all API employees into STORE.employees on sync — roster and dashboard now populate without manual CREATE']},{v:'v1.1.1',date:'2026-04-25 12:47:39',notes:['API: fix news text field — probe news/text/message/log variants; log raw entry keys+value to Debug on first page fetch so field name is always visible','Training parser: rewritten using dynamic position-name strip list — correctly extracts player name from "[Position] [Name] has been trained by the director"','Director start auto-detection: scan news for "[Name] has been made the new director", store timestamp, use as effective sync floor replacing manual start date requirement','Analytics: parse daily income/customer reports from Main News; show last 7 days + averages on Dashboard; capture daily_income/customers/weekly/rating from confirmed company API keys']},{v:'v1.1.0',date:'2026-04-25 12:04:16',notes:['API: fetch company/detailed on sync — logs all field names to Debug so training field discovery is automatic; falls back to news-text parsing if detailed counts absent','Fix: CREATE button now opens goal-setting form immediately after creating employee from API sync or staff view','Mobile: fix button/chip overflow — topbar chips truncate, ph-act wraps, btn-row wraps, mob-btn min-width guards added','Analytics: company snapshots (eff/popularity/cleanliness/adBudget/dailyIncome) stored on each sync, shown on Dashboard with trend indicators','P&L: Auto Breakdown panel — training mrevenue, employee wages (API), ad budget, stock costs, manual entries all in one net-profit summary']},{v:'v1.0.5',date:'2026-04-21',notes:['Fix: missing closing backtick in dbgLog call caused SyntaxError crashing all JS','Mobile: force mrow to 2-col grid and hide logo subtitle to prevent topbar/horizontal scroll']},{v:'v1.0.4',date:'2026-04-21',notes:['Mobile: bump html base font-size to 18px inside breakpoint — all rem units scale up proportionally','Mobile: increase topbar/nav-bar tap target height, loosen card/main padding, enlarge metric values and stat numbers']},{v:'v1.0.3',date:'2026-04-22 22:53:30',notes:['API: replaced single regex train parser with multi-pattern parseTrainCounts() shared across sync/billing/CSV — logs first 5 raw news samples to Debug on each sync','API: added Staff panel (👥 CURRENT STAFF / 📋 TRAINING RESULTS toggle) showing all live members with stats, effectiveness, and one-click CREATE profile','API: staff view opens by default after sync when no training events found; training results view opens when trains detected']},{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
+const APP_VERSION='v1.4.0';
+const APP_CHANGELOG=[{v:'v1.4.0',date:'2026-04-29 16:53:03',notes:['Trains Applied now shows news-derived count for the paid window (not manual button count)','Player ID matching on API sync — same player under different names (e.g. DNo/DNoNim) correctly deduped','Track tab: train breakdown by position with stat totals; passive gains log from Apply Day history']},{v:'v1.3.0',date:'2026-04-27 14:36:08',notes:['Bridge v2: full stock sync — qty, sold daily/weekly, buy cost, sell price, RRP, storage capacity','Bridge: auto-creates missing stock items on first sync — no manual ADD ITEM required','Stock table: RRP column (gold=below RRP, green=at/above), weekly sold, storage metric card','Stock modal: RRP field; saveStock initialises soldHistory/soldWeekly/orderQty on new items']},{v:'v1.2.1',date:'2026-04-27 10:15:56',notes:['Bridge: replaced clipboard with postMessage iframe — one-click sync from torn.com, no paste required','Bridge: applyBridgePayload() extracted as shared fn used by both postMessage and PASTE BRIDGE fallback','Bridge: storage event listener re-renders stock/companion panel when iframe writes to localStorage']},{v:'v1.2.0',date:'2026-04-27 04:40:04',notes:['Stock: per-item sold history with 7-day avg column and AVG DAILY SOLD metric card','Stock: PASTE BRIDGE button accepts HV Stock Bridge clipboard payload (name-matched, qty decremented, history logged)','API Sync: companion userscript panel with download link and last-sync status']},{v:'v1.1.8',date:'2026-04-26 14:38:54',notes:['Allocator: replaced greedy gap-fill with bottleneck-aware algorithm — identifies the hardest-to-close stat each slot and scores positions by days saved on that axis','Allocator: passive recalculated from live stats each day so growing efficiency is reflected in slot decisions','Allocator: zero-passive stats correctly treated as train-dependent, preventing passive-blind phase switching']},{v:'v1.1.7',date:'2026-04-26',notes:['Fix: allocator caps committed gains to remaining goal gap — eliminates overshoot inflating subsequent slot projections','Fix: news pagination break corrected to &lt;25 (actual max per page for company/news)','Billing: replaced period input with from/to date range; only billable (ACTIVE) employees invoiced','Employees: added billable flag and paidTrains field; SET ACTIVE/INACTIVE toggle on roster cards','Trains: dailyTrainsAvailable computed on sync from company star rating + Trainer eff contributions (floor((eff-100)/50)+1 per trainer)','Boot: migrate existing employees to new fields; ad budget auto-populated from companyData on load']},{v:'v1.1.6',date:'2026-04-26',notes:['API: fix news pagination — now fetches full history backward using &to= param; stops at director-start floor (up to 40 pages)','Roster: collapsed by default on dashboard; compact expand shows days, wage, lifetime trains, MAN/INT/END, W/S/D effectiveness per employee','Billing: startDate filter now uses employee start date directly as train count floor (not start-period)']},{v:'v1.1.5',date:'2026-04-26 10:38:49',notes:['API: fix first fetch — drop invalid selections profile/detailed, use employees only (valid v1 selections)','Store: persist all company-level API fields to STORE.companyData and full raw employee objects to emp.apiData on every sync','API: saveMC now persists full company meta + employees; detectDirectorStart no longer requires a name match — accepts any director news event']},{v:'v1.1.4',date:'2026-04-25',notes:['Fix: removed second profile fetch (company/{id}?selections=profile) introduced in v1.1.2 — this was the cause of NetworkError on sync','Fix: reverted all fetch URLs back to api.torn.com (tornapi.tornplayground.eu is docs, not a proxy)','Ad budget/popularity now read from the first combined call payload if present']},{v:'v1.1.3',date:'2026-04-25',notes:['Branding: topbar now shows live company name from API (falls back to company type name)','UI: removed API Mode and Debug topbar chips — both accessible via More menu and sidebar','Allocator: tiebreak by least remaining gap across all 3 stats — minimises overshoot on multi-stat goals','Schedule: stats column uses auto width + nowrap so all 3 stats always fit on one line']},{v:'v1.1.2',date:'2026-04-25 13:05:20',notes:['Fix: strip HTML tags from news log at storage time and in all parsers — Torn wraps player names in anchor tags which broke every regex','Fix: purge stale blank-log cache entries on sync to clear noise from old code','Fix: second fetch to company/{id}?selections=profile retrieves advertising_budget and popularity; auto-populates STORE.adBudgetPerDay','Fix: auto-upsert all API employees into STORE.employees on sync — roster and dashboard now populate without manual CREATE']},{v:'v1.1.1',date:'2026-04-25 12:47:39',notes:['API: fix news text field — probe news/text/message/log variants; log raw entry keys+value to Debug on first page fetch so field name is always visible','Training parser: rewritten using dynamic position-name strip list — correctly extracts player name from "[Position] [Name] has been trained by the director"','Director start auto-detection: scan news for "[Name] has been made the new director", store timestamp, use as effective sync floor replacing manual start date requirement','Analytics: parse daily income/customer reports from Main News; show last 7 days + averages on Dashboard; capture daily_income/customers/weekly/rating from confirmed company API keys']},{v:'v1.1.0',date:'2026-04-25 12:04:16',notes:['API: fetch company/detailed on sync — logs all field names to Debug so training field discovery is automatic; falls back to news-text parsing if detailed counts absent','Fix: CREATE button now opens goal-setting form immediately after creating employee from API sync or staff view','Mobile: fix button/chip overflow — topbar chips truncate, ph-act wraps, btn-row wraps, mob-btn min-width guards added','Analytics: company snapshots (eff/popularity/cleanliness/adBudget/dailyIncome) stored on each sync, shown on Dashboard with trend indicators','P&L: Auto Breakdown panel — training mrevenue, employee wages (API), ad budget, stock costs, manual entries all in one net-profit summary']},{v:'v1.0.5',date:'2026-04-21',notes:['Fix: missing closing backtick in dbgLog call caused SyntaxError crashing all JS','Mobile: force mrow to 2-col grid and hide logo subtitle to prevent topbar/horizontal scroll']},{v:'v1.0.4',date:'2026-04-21',notes:['Mobile: bump html base font-size to 18px inside breakpoint — all rem units scale up proportionally','Mobile: increase topbar/nav-bar tap target height, loosen card/main padding, enlarge metric values and stat numbers']},{v:'v1.0.3',date:'2026-04-22 22:53:30',notes:['API: replaced single regex train parser with multi-pattern parseTrainCounts() shared across sync/billing/CSV — logs first 5 raw news samples to Debug on each sync','API: added Staff panel (👥 CURRENT STAFF / 📋 TRAINING RESULTS toggle) showing all live members with stats, effectiveness, and one-click CREATE profile','API: staff view opens by default after sync when no training events found; training results view opens when trains detected']},{v:'v1.0.2',date:'2026-04-22 22:14:37',notes:['API: switched to single /company/?selections=profile,employees call — works for any key with company access (no user lookup required)','API: fixed sync failure when user/basic returns stripped payload without job field','API: log company response keys to debug console for diagnostics']},
 {v:'v1.0.1',date:'2026-04-21 09:08:19',notes:['API: try all company ID fields (job.company_id, company.id, company_id) for director support','API: log raw user object keys to debug console on sync failure','Mobile: bottom nav bar with MORE overflow menu']},{v:'v1.0.0',date:'2026-04-21',notes:['Complete overhaul — HighVibes Company Dashboard v1','Sidebar layout with 12 navigation sections','Syne/JetBrains Mono/Inter design system, full dark industrial theme','Company Logs panel with category filtering','Profit & Loss tracker with income/expense entries','Payment log with received/pending/overdue status and CSV export','Stock inventory with low-stock alerts and total valuation','Sales log with auto stock qty decrement and CSV export','Configurable train slots 1-10 with position selectors and pivot-on-override','Debug panel: log console, store inspector, allocator test, sim all','Admin panel: company config, storage keys, bulk actions, changelog','Fixed INV-STILL-BROKEN: API stats populate progress.man/int/end','Storage migrated to hvDashboard_v1']}];
 const STORE_KEY='hvDashboard_v1',NEWS_KEY='hvDashboard_v1_news',MEMB_KEY='hvDashboard_v1_members';
 const LEGACY=['tornTracker_v3','tornTracker_v8','hvTraining_v5'];
@@ -1288,7 +1294,19 @@ function render(){
   const btn=document.getElementById('applyBtn');btn.disabled=done;btn.textContent=done?'ALL GOALS COMPLETE':`APPLY ${needed} TRAINS + PASSIVE & ADVANCE DAY`;
   renderSched(s,goals,ack(),tpd,pos);
   const dfe=e.startDate?daysSince(e.startDate):s.day;
-  document.getElementById('pDays').textContent=dfe;document.getElementById('pTrains').textContent=s.totalTrains;
+  // Compute API-derived train count for this employee over the paid window
+  const _nc=loadNC();
+  const _effectiveStartTs=STORE.directorTs||(e.startDate?Math.floor(new Date(e.startDate).getTime()/1000):0);
+  let _apiTrains=null;
+  if(_nc&&_nc.entries&&_nc.entries.length&&e.name){
+    const _tc=parseTrainCounts(_nc.entries,_effectiveStartTs);
+    const _key=Object.keys(_tc).find(k=>k.toLowerCase()===e.name.toLowerCase());
+    if(_key!=null)_apiTrains=_tc[_key];
+  }
+  const _displayTrains=_apiTrains!=null?_apiTrains:s.totalTrains;
+  document.getElementById('pDays').textContent=dfe;document.getElementById('pTrains').textContent=_displayTrains;
+  // Render breakdown
+  renderTrainBreakdown(e,_nc,_effectiveStartTs);
   const rem=done?0:simDays(s,goals,ack(),tpd,pos);
   document.getElementById('pRem').textContent=done?'\u2713 DONE':rem+'d';
   const gaps=['man','int','end'].filter(k=>goals[k]>0&&s[k]<goals[k]).map(k=>({k,gap:goals[k]-s[k]})).sort((a,b)=>b.gap-a.gap);
@@ -1312,8 +1330,11 @@ function toggleTrain(i){const s=ap(),g=ag();if(['man','int','end'].every(k=>g[k]
 function applyDay(){
   const e=ae(),s=ap(),g=ag(),tpd=e.trainsPerDay||5,pos=apos();
   if(['man','int','end'].every(k=>g[k]===0||s[k]>=g[k]))return;
-  const{totalGains,assignments}=allocate(s,g,ack(),tpd,pos,e.slotOverrides||{});
+  const{totalGains,passive,assignments}=allocate(s,g,ack(),tpd,pos,e.slotOverrides||{});
   const used=assignments.filter(a=>a!==null).length;
+  // Log today's passive gain before advancing
+  if(!e.passiveLog)e.passiveLog=[];
+  if(passive.man||passive.int||passive.end){e.passiveLog.push({date:toDay(),man:passive.man,int:passive.int,end:passive.end,pos:pos.name});}
   s.man=Math.min(s.man+totalGains.man,999999);s.int=Math.min(s.int+totalGains.int,999999);s.end=Math.min(s.end+totalGains.end,999999);
   s.day++;s.totalTrains+=used;s.checks=Array(tpd).fill(false);e.slotOverrides={};
   clog('train',`${e.name}: Day ${s.day}. ${used} trains. MAN ${fmt(s.man)} INT ${fmt(s.int)} END ${fmt(s.end)}`);
@@ -1529,10 +1550,11 @@ async function runApiSync(){
     // Auto-upsert all API employees into STORE.employees so Roster + Dashboard reflect live staff
     let upserted=0,updated=0;
     const tpd=ae().trainsPerDay||5;
-    for(const[,emp]of Object.entries(empObj)){
+    for(const[apiPid,emp]of Object.entries(empObj)){
       const ename=emp.name||'';if(!ename)continue;
       const eman=emp.manual_labor||0,eint=emp.intelligence||0,eend=emp.endurance||0;
-      const existId=Object.keys(STORE.employees).find(id=>STORE.employees[id].name.toLowerCase()===ename.toLowerCase());
+      // Match by stored player ID first (handles same player under different names e.g. DNo/DNoNim), then fall back to name
+      const existId=Object.keys(STORE.employees).find(id=>STORE.employees[id].apiPlayerId==apiPid)||Object.keys(STORE.employees).find(id=>STORE.employees[id].name.toLowerCase()===ename.toLowerCase());
       // Full raw API employee data — stored for future features (wage, effectiveness breakdown, days_in_company)
       const apiData={name:emp.name,position:emp.position,days_in_company:emp.days_in_company??null,manual_labor:eman,intelligence:eint,endurance:eend,effectiveness:emp.effectiveness??null,wage:emp.wage??null};
       if(existId){
@@ -1544,12 +1566,14 @@ async function runApiSync(){
         const pi=coPos.findIndex(p=>p.name.toLowerCase()===(emp.position||'').toLowerCase());
         if(pi>=0)ex.passiveRoleIdx=pi;
         ex.apiData=apiData; // always overwrite with freshest API data
+        ex.apiPlayerId=Number(apiPid); // always keep ID in sync
+        ex.name=ename; // update name in case player renamed
         updated++;
       }else{
         const nid='emp_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
         const coPos=COMPANIES[STORE.companyKey].positions;
         const pi=coPos.findIndex(p=>p.name.toLowerCase()===(emp.position||'').toLowerCase());
-        STORE.employees[nid]={id:nid,name:ename,companyKey:STORE.companyKey,passiveRoleIdx:Math.max(0,pi),trainsPerDay:tpd,paidTrains:tpd,billable:false,trackMode:'trains',starts:{man:eman,int:eint,end:eend},startDate:'',slotOverrides:{},goals:{man:0,int:0,end:0},progress:{man:eman,int:eint,end:eend,day:0,totalTrains:0,checks:Array(tpd).fill(false)},apiData};
+        STORE.employees[nid]={id:nid,name:ename,apiPlayerId:Number(apiPid),companyKey:STORE.companyKey,passiveRoleIdx:Math.max(0,pi),trainsPerDay:tpd,paidTrains:tpd,billable:false,trackMode:'trains',starts:{man:eman,int:eint,end:eend},startDate:'',slotOverrides:{},goals:{man:0,int:0,end:0},progress:{man:eman,int:eint,end:eend,day:0,totalTrains:0,checks:Array(tpd).fill(false)},passiveLog:[],apiData};
         upserted++;
       }
     }
@@ -1624,6 +1648,33 @@ function getAllPositionNames(){
   return [...s].sort((a,b)=>b.length-a.length);
 }
 function stripHtml(s){return(s||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();}
+function parseTrainBreakdown(entries,startTs,playerName){
+  // Returns per-position train counts and estimated stat gains for one player
+  // News format: "[Position] [Name] has been trained by the director"
+  const posNames=getAllPositionNames();
+  const posPfx=posNames.map(n=>n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+  const pat=new RegExp(`^(${posPfx})\\s+(.+?)\\s+has\\s+been\\s+trained`,'i');
+  const byPosition={};
+  const lname=(playerName||'').toLowerCase();
+  for(const e of (entries||[])){
+    if(!e.log||e.timestamp<startTs)continue;
+    const txt=stripHtml(e.log);
+    const m=txt.match(pat);
+    if(!m)continue;
+    const posName=m[1].trim(),foundName=m[2].trim();
+    if(lname&&foundName.toLowerCase()!==lname)continue;
+    if(!byPosition[posName])byPosition[posName]={count:0,man:0,int:0,end:0};
+    byPosition[posName].count++;
+    // Look up gains from COMPANIES positions
+    for(const co of Object.values(COMPANIES)){
+      const p=co.positions.find(p=>p.name.toLowerCase()===posName.toLowerCase());
+      if(p){byPosition[posName][p.pri]+=50;byPosition[posName][p.sec]+=25;break;}
+    }
+  }
+  const totals={man:0,int:0,end:0};
+  for(const pos of Object.values(byPosition)){totals.man+=pos.man;totals.int+=pos.int;totals.end+=pos.end;}
+  return{byPosition,totals};
+}
 function parseTrainCounts(entries,startTs,toTs){
   // Confirmed Torn training news format (HTML stripped before matching):
   // "[Position] [PlayerName] has been trained by the director"
@@ -1740,6 +1791,33 @@ function createFromStaff(apiId,e){
   // Open employee form so user can immediately set goals
   setTimeout(()=>{openEmpModal();setTimeout(()=>showEmpForm(id),80);},150);
   showToast(`\u2713 CREATED ${(e.name||'').toUpperCase()} \u2014 SET GOALS NOW`,'ok');
+}
+function renderTrainBreakdown(emp,nc,startTs){
+  const card=document.getElementById('trainBreakdownCard');const body=document.getElementById('trainBreakdownBody');const pbody=document.getElementById('passiveBreakdownBody');
+  if(!card||!body||!pbody)return;
+  // Train breakdown by position
+  if(nc&&nc.entries&&nc.entries.length&&emp.name){
+    const{byPosition,totals}=parseTrainBreakdown(nc.entries,startTs,emp.name);
+    if(Object.keys(byPosition).length){
+      card.style.display='block';
+      let h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:10px">';
+      for(const[posName,d]of Object.entries(byPosition)){
+        const parts=[];if(d.man)parts.push(`<span class="cm">+${d.man} MAN</span>`);if(d.int)parts.push(`<span class="ci">+${d.int} INT</span>`);if(d.end)parts.push(`<span class="ce">+${d.end} END</span>`);
+        h+=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px"><div style="font-family:'JetBrains Mono',monospace;font-size:.5rem;color:var(--gold);margin-bottom:3px">${posName.toUpperCase()}</div><div style="font-family:'Syne',sans-serif;font-size:1rem;font-weight:800;color:var(--text);margin-bottom:2px">${d.count}<span style="font-size:.5rem;color:var(--text3);font-family:'JetBrains Mono',monospace"> trains</span></div><div style="font-family:'JetBrains Mono',monospace;font-size:.46rem;line-height:1.5">${parts.join(' ')}</div></div>`;
+      }
+      h+='</div>';
+      const tp=[];if(totals.man)tp.push(`<span class="cm">+${totals.man} MAN</span>`);if(totals.int)tp.push(`<span class="ci">+${totals.int} INT</span>`);if(totals.end)tp.push(`<span class="ce">+${totals.end} END</span>`);
+      h+=`<div style="font-family:'JetBrains Mono',monospace;font-size:.54rem;color:var(--text3)">TOTAL FROM TRAINS: ${tp.join(' ')||'--'}</div>`;
+      body.innerHTML=h;
+    }else{card.style.display='none';}
+  }else{card.style.display='none';}
+  // Passive log breakdown
+  const pl=emp.passiveLog||[];
+  if(pl.length){
+    const ptots={man:0,int:0,end:0};for(const r of pl){ptots.man+=r.man||0;ptots.int+=r.int||0;ptots.end+=r.end||0;}
+    const pp=[];if(ptots.man)pp.push(`<span class="cm">+${ptots.man} MAN</span>`);if(ptots.int)pp.push(`<span class="ci">+${ptots.int} INT</span>`);if(ptots.end)pp.push(`<span class="ce">+${ptots.end} END</span>`);
+    pbody.innerHTML=`${pp.join(' ')||'--'} <span style="color:var(--text3)">across ${pl.length} logged day${pl.length!==1?'s':''}</span>`;
+  }else{pbody.innerHTML='<span style="color:var(--text3)">No passive days logged yet — use Apply Trains & Advance Day.</span>';}
 }
 function setAS(msg,type){const el=document.getElementById('apiSt');if(!el)return;el.textContent=msg;el.className=`api-st show ${type}`;}
 function renderApiResults(tc,empObj){
@@ -2016,10 +2094,12 @@ function toggleMobMenu(){_mobMenuOpen=!_mobMenuOpen;document.getElementById('mob
   // Populate adBudgetPerDay from companyData if not already set
   if(!STORE.adBudgetPerDay&&STORE.companyData.advertising_budget)STORE.adBudgetPerDay=STORE.companyData.advertising_budget;
   else if(!STORE.adBudgetPerDay)STORE.adBudgetPerDay=0;
-  // Migrate existing employees — add billable/paidTrains if missing
+  // Migrate existing employees — add billable/paidTrains/passiveLog/apiPlayerId if missing
   for(const e of Object.values(STORE.employees)){
     if(e.billable===undefined)e.billable=false;
     if(e.paidTrains===undefined)e.paidTrains=e.trainsPerDay||5;
+    if(e.passiveLog===undefined)e.passiveLog=[];
+    if(e.apiPlayerId===undefined)e.apiPlayerId=null;
   }
   syncModeUI();render();
   document.getElementById('sbVer').textContent=APP_VERSION;
