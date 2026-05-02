@@ -1204,7 +1204,7 @@
 //    revealDash() injects it into <title> and #versionBadge at load
 //    CHANGELOG array first entry must also match this version
 // ══════════════════════════════════════════════════════════════════
-const APP_VERSION = '2.44.0';
+const APP_VERSION = '2.44.1';
 // Version check — reads FactionBudget/current/ directory from GitHub API
 // Parses vX_Y_Z from filenames to find newest version, no latest.json needed
 const VERSION_URL = 'https://api.github.com/repos/Kreinas1995/kreinas1995.github.io/contents/FactionBudget/current';
@@ -1274,6 +1274,7 @@ var _wl = null;
 
 
 const CHANGELOG = [
+  { v: '2.44.1', date: '2026-05-02', notes: ['[*] Fixed "toLowerCase is not a function" crash on gate verify — Torn log data.message can be non-string (numeric/object); wrapped with String() coercion in checkAccessPaymentLog()'] },
   { v: '2.44.0', date: '2026-04-27', notes: ['Inventory Bridge: PASTE BRIDGE button in Inventory panel header accepts clipboard payload from HV Dashboard Bridge userscript (museum.php)', 'applyInvBridgePayload() merges {name,qty} items directly into S.manualCounts without requiring the entry form; storage-event listener handles same-origin auto-import edge case', 'pasteInvBridge() rejects stock payloads with a clear error rather than silently misapplying them'] },
   { v: '2.43.15', date: '2026-04-22', notes: ['Receipt cards: replaced flat category text with tappable pills; tapping opens bottom-sheet drill-down of items with qty and payout value (mirrors Members tab usage pattern)', 'Removed $ toggle button from receipt cards — lifetime stats always visible as pill row'] },
 { v: '2.43.15', date: '2026-04-22', notes: ['Receipt cards: replaced flat category text with tappable pills; tapping opens bottom-sheet drill-down of items with qty and payout value (mirrors Members tab usage pattern)', 'Removed $ toggle button from receipt cards — lifetime stats always visible as pill row'] },
@@ -9169,7 +9170,7 @@ function checkAccessPaymentLog(logEntries){
   for(const entry of logEntries){
     const title = (entry.title||'').toLowerCase();
     const data  = entry.data || {};
-    const msg   = (data.message||'').toLowerCase();
+    const msg   = String(data.message||'').toLowerCase();
 
     if(!msg.includes(REQUIRED_MSG)) continue;
 
