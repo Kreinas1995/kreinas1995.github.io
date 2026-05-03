@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      3.0.2
+// @version      3.1.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -28,22 +28,27 @@
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
 
   // ─── Timing constants ─────────────────────────────────────────────────────
-  const CHAIN_POLL_MS        = 5000;   // faction→chain API interval
-  const PRESENCE_HEARTBEAT   = 15000;  // write own lastSeen every 15s
-  const PRESENCE_TIMEOUT     = 35000;  // members not seen in 35s = offline
+  const CHAIN_POLL_MS        = 5000;
+  const PRESENCE_HEARTBEAT   = 15000;
+  const PRESENCE_TIMEOUT     = 35000;
   const HIT_DELAY_MS         = 4 * 60 * 1000;
   const HIT_INTERVAL         = 5 * 60 * 1000;
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
   const TIMER_FUDGE_SEC      = 1;
 
-  // ─── GM storage ───────────────────────────────────────────────────────────
-  const SK_API_KEY   = "chain_api_key";
-  const SK_PANEL_W   = "chain_panel_w";
-  const SK_PANEL_H   = "chain_panel_h";
-  const SK_VIEW_MODE = "chain_view_mode";
-  const SK_POS_X     = "chain_pos_x";
-  const SK_POS_Y     = "chain_pos_y";
+  // ─── GM storage keys ──────────────────────────────────────────────────────
+  const SK_API_KEY        = "chain_api_key";
+  const SK_PANEL_W        = "chain_panel_w";
+  const SK_PANEL_H        = "chain_panel_h";
+  const SK_VIEW_MODE      = "chain_view_mode";
+  const SK_POS_X          = "chain_pos_x";
+  const SK_POS_Y          = "chain_pos_y";
+  // FIX #2: persist chain session so reload doesn't lose history
+  const SK_SESSION_ID     = "chain_session_id";
+  const SK_SESSION_START  = "chain_session_start";
+  const SK_SESSION_MIN    = "chain_session_min";
+  const SK_CHAIN_COUNT    = "chain_live_count";
 
   // ─── App state ────────────────────────────────────────────────────────────
   let tornApiKey    = (GM_getValue(SK_API_KEY, "") || "").trim();
@@ -62,12 +67,12 @@
 
   // ─── Firebase state ───────────────────────────────────────────────────────
   let fbToken       = null;
-  let fbUid         = null;       // anonymous auth UID (used for auth rules)
-  let mainSse       = null;       // single SSE on /factions/{id}
-  let hitMap        = new Map();  // hitId → hitObject  (keyed, not array)
-  let permissions   = {};         // { tornUserId: true }
+  let fbUid         = null;
+  let mainSse       = null;
+  let hitMap        = new Map();
+  let permissions   = {};
   let canClear      = false;
-  let presenceMap   = new Map();  // fbUid → { name, lastSeen }
+  let presenceMap   = new Map();
 
   // ─── Chain state ──────────────────────────────────────────────────────────
   let liveChainSecs    = null;
@@ -81,11 +86,30 @@
   let chainStartTime   = null;
   let chainEndDebounce = null;
   let chainTimerObserver = null;
-  // sessionMinHitNum: the lowest chainHitNum confirmed to belong to this session.
-  // Set to 1 when we first see a #1 hit after chainStartTime.
-  // Until this is set, ALL scraped hits are rejected — prevents hits from
-  // previous chains (e.g. #2, #3) being accepted before we anchor on #1.
+  let timerRetryInterval = null;   // FIX #2: fallback retry for timer observer
   let sessionMinHitNum = null;
+
+  // FIX #2: restore session from GM storage on boot
+  (function restoreSession() {
+    const sid   = GM_getValue(SK_SESSION_ID,    null);
+    const start = GM_getValue(SK_SESSION_START, null);
+    const min   = GM_getValue(SK_SESSION_MIN,   null);
+    const count = GM_getValue(SK_CHAIN_COUNT,   null);
+    if (sid && start) {
+      chainSessionId   = sid;
+      chainStartTime   = start;
+      sessionMinHitNum = min;
+      liveChainCount   = count;
+    }
+  })();
+
+  // ── Persist session state helper ──────────────────────────────────────────
+  function persistSession() {
+    GM_setValue(SK_SESSION_ID,    chainSessionId   || "");
+    GM_setValue(SK_SESSION_START, chainStartTime   || "");
+    GM_setValue(SK_SESSION_MIN,   sessionMinHitNum || "");
+    GM_setValue(SK_CHAIN_COUNT,   liveChainCount   || "");
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Firebase path helpers
@@ -93,7 +117,6 @@
   const auth = () => fbToken ? `?auth=${fbToken}` : "";
   const fBase = () => `${FIREBASE_DB_URL}/factions/${factionId}`;
 
-  // All paths under /factions/{id}
   const P = {
     root:        () => `${fBase()}.json${auth()}`,
     hits:        () => `${fBase()}/hits.json${auth()}`,
@@ -129,13 +152,16 @@
       border-radius:12px !important; background:rgba(16,18,24,.96) !important; color:#e8e8e8 !important;
       box-shadow:0 12px 32px rgba(0,0,0,.6) !important; font-family:Arial,Helvetica,sans-serif !important;
       user-select:none !important; overflow:visible !important; display:flex !important;
-      flex-direction:column !important; touch-action:none !important; transition:border-radius .15s !important;
+      flex-direction:column !important; touch-action:none !important;
+      /* FIX #5: smooth view mode transitions */
+      transition:border-radius .15s, width .15s, height .15s !important;
     }
 
     /* ── View modes ── */
     #chain-panel.view-pill {
       border-radius:50px !important; box-shadow:0 4px 16px rgba(0,0,0,.55) !important;
       min-width:0 !important; width:auto !important; height:auto !important;
+      overflow:hidden !important;
     }
     #chain-panel.view-pill #chain-panel-header { padding:8px 12px !important; border-bottom:none !important; }
     #chain-panel.view-pill #chain-panel-title,
@@ -240,7 +266,7 @@
     }
     @keyframes chain-pulse { from{background:rgba(255,85,85,.04)} to{background:rgba(255,85,85,.14)} }
 
-    /* ── Popovers (API, Manage, Presence) ── */
+    /* ── Popovers ── */
     .chain-popover {
       display:none; position:absolute; top:42px; z-index:1000001;
       background:rgba(20,22,30,.98); border-radius:10px;
@@ -319,6 +345,9 @@
     .chain-hit-row.hosp-waiting .chain-hit-target::before { content:"🏥 " !important; }
     .chain-hit-row.hosp-waiting .chain-hit-attack { opacity:.25 !important; pointer-events:none !important; }
     .chain-hit-row.untracked    { border-left-color:#ff8c00 !important; opacity:.5 !important; font-style:italic !important; }
+    /* FIX #4: unclaimed placeholder row */
+    .chain-hit-row.unclaimed    { border-left-color:#334 !important; border-left-style:dashed !important; opacity:.5 !important; }
+    .chain-hit-row.unclaimed .chain-hit-target { color:#ff8888 !important; }
     @keyframes chain-row-pulse { from{background:rgba(68,255,136,.04)} to{background:rgba(68,255,136,.14)} }
 
     .chain-hit-num     { font-weight:700; font-size:12px; color:#556; text-align:center; }
@@ -481,6 +510,8 @@
   let lastExpandedMode = viewMode === 2 ? 1 : viewMode;
 
   function applyViewMode() {
+    // FIX #5: briefly set overflow hidden to prevent glitch during transition
+    panel.style.overflow = "hidden";
     VIEW_CLASSES.forEach(c => panel.classList.remove(c));
     panel.classList.add(VIEW_CLASSES[viewMode]);
     viewBtn.textContent = VIEW_ICONS[viewMode];
@@ -490,6 +521,7 @@
       if (panelH) panel.style.height = panelH+"px";
     } else { panel.style.width = ""; panel.style.height = ""; }
     panel.style.cursor = viewMode === 2 ? "pointer" : "";
+    setTimeout(() => { panel.style.overflow = viewMode === 2 ? "hidden" : "visible"; }, 160);
   }
 
   viewBtn.onclick = e => {
@@ -694,7 +726,6 @@
     return"waiting";
   }
 
-  // Position-based countdown: pos=0 → NOW, pos=1 → ChC, pos=k → ChC+(k-1)*HIT_DELAY
   function pendingCountdownMs(pos) {
     if (pos===0) return 0;
     const chcMs = liveChainSecs!==null && lastTimerReadAt!==null
@@ -703,22 +734,32 @@
     return chcMs + (pos-1)*HIT_DELAY_MS;
   }
 
-  // Get sorted pending hits from hitMap
   function getPendingHits() {
     return [...hitMap.values()].filter(h=>h.status!=="done").sort((a,b)=>a.hitNumber-b.hitNumber);
   }
+  // FIX #3: sort done hits ascending by chainHitNum so oldest is at top of list
   function getDoneHits() {
-    return [...hitMap.values()].filter(h=>h.status==="done").sort((a,b)=>(b.doneAt||0)-(a.doneAt||0));
+    return [...hitMap.values()].filter(h=>h.status==="done").sort((a,b)=>(a.chainHitNum||0)-(b.chainHitNum||0));
   }
   function getHighestDoneHitNum() {
     return [...hitMap.values()].filter(h=>h.status==="done"&&h.chainHitNum).reduce((m,h)=>Math.max(m,h.chainHitNum),0);
   }
 
-  // Renumber pending hits from (highestDone + 1) in scheduledAt order
+  // FIX #1: reNumberPending now pushes updated numbers back to Firebase
+  // so all clients stay in sync.
   function reNumberPending() {
     const highest = getHighestDoneHitNum();
     const pending = [...hitMap.values()].filter(h=>h.status!=="done").sort((a,b)=>a.scheduledAt-b.scheduledAt);
-    pending.forEach((h,i)=>{ h.hitNumber = highest+i+1; });
+    pending.forEach((h, i) => {
+      const newNum = highest + i + 1;
+      if (h.hitNumber !== newNum) {
+        h.hitNumber = newNum;
+        // Push the updated hitNumber to Firebase so all clients agree
+        if (h.id && fbConfigured() && fbToken) {
+          fbPut(P.hitField(h.id, "hitNumber"), newNum);
+        }
+      }
+    });
   }
 
   function fbConfigured() {
@@ -728,7 +769,6 @@
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Firebase low-level HTTP helpers
-  //  All writes are targeted — never overwrite the whole hits object.
   // ══════════════════════════════════════════════════════════════════════════
   function fbPut(url, data, onDone) {
     if (!fbConfigured()) return;
@@ -790,9 +830,7 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Firebase member registration (faction-scoped auth)
-  //  Writes own UID + name + lastSeen under /factions/{id}/members/{fbUid}
-  //  This both authenticates the user to the faction path AND registers presence.
+  //  Firebase member registration + heartbeat
   // ══════════════════════════════════════════════════════════════════════════
   function fbRegisterMember() {
     if (!factionId || !fbUid || !fbConfigured()) return;
@@ -806,15 +844,16 @@
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Single SSE listener on /factions/{id}
-  //  Firebase sends path + data for every change under this node.
-  //  We route by path prefix — no extra connections.
   // ══════════════════════════════════════════════════════════════════════════
   function fbStartMainListener() {
     if (!factionId || !fbConfigured()) return;
     if (mainSse) { try { mainSse.close(); } catch { /**/ } }
 
+    // FIX #1: URL is built here, inside the callback, so fbToken is already set
+    const sseUrl = P.root();
+
     try {
-      mainSse = new EventSource(P.root());
+      mainSse = new EventSource(sseUrl);
 
       mainSse.addEventListener("put", e => {
         try {
@@ -826,7 +865,6 @@
       mainSse.addEventListener("patch", e => {
         try {
           const ev = JSON.parse(e.data);
-          // patch delivers an object of sub-paths at ev.path
           if (ev.data && typeof ev.data === "object") {
             Object.entries(ev.data).forEach(([k,v]) => applyPatch(`${ev.path}/${k}`, v));
           }
@@ -835,6 +873,8 @@
 
       mainSse.onerror = () => {
         setSyncDot("error");
+        try { mainSse.close(); } catch { /**/ }
+        mainSse = null;
         setTimeout(fbStartMainListener, 5000);
       };
 
@@ -843,7 +883,6 @@
 
   // Route a Firebase patch to the right handler
   function applyPatch(path, data) {
-    // /hits  — full hits object replacement
     if (path === "/hits") {
       hitMap.clear();
       if (data && typeof data === "object") {
@@ -855,7 +894,6 @@
       return;
     }
 
-    // /hits/{id}  — single hit added or replaced
     const hitMatch = path.match(/^\/hits\/([^/]+)$/);
     if (hitMatch) {
       const id = hitMatch[1];
@@ -867,33 +905,46 @@
       return;
     }
 
-    // /hits/{id}/{field}  — single field update (e.g. status, chainHitNum)
+    // FIX #1: handle sub-field updates — e.g. /hits/{id}/status or /hits/{id}/hitNumber
     const hitFieldMatch = path.match(/^\/hits\/([^/]+)\/(.+)$/);
     if (hitFieldMatch) {
       const [,id,field] = hitFieldMatch;
       if (hitMap.has(id)) {
-        hitMap.get(id)[field] = data;
+        // Support nested field paths like "foo/bar" if they ever appear
+        const parts = field.split("/");
+        let obj = hitMap.get(id);
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (obj[parts[i]] === undefined) obj[parts[i]] = {};
+          obj = obj[parts[i]];
+        }
+        obj[parts[parts.length - 1]] = data;
         reNumberPending();
         setSyncDot("live");
         renderPanel();
+      } else if (data !== null) {
+        // Hit doesn't exist locally yet — fetch the full hit node
+        fbGet(P.hit(id), hit => {
+          if (hit) {
+            hitMap.set(id, hit);
+            reNumberPending();
+            renderPanel();
+          }
+        });
       }
       return;
     }
 
-    // /session  — chain session changed
     if (path === "/session") {
       handleRemoteSession(data);
       return;
     }
 
-    // /permissions  — full permissions object
     if (path === "/permissions") {
       permissions = (data && typeof data === "object") ? data : {};
       updateClearBtn();
       return;
     }
 
-    // /permissions/{uid}  — single permission changed
     const permMatch = path.match(/^\/permissions\/([^/]+)$/);
     if (permMatch) {
       const uid = permMatch[1];
@@ -903,46 +954,39 @@
       return;
     }
 
-    // /members  — full presence object (initial load)
     if (path === "/members") {
       presenceMap.clear();
       if (data && typeof data === "object") {
         Object.entries(data).forEach(([uid, m]) => { if(m) presenceMap.set(uid, m); });
       }
-      return; // no renderPanel — silent
+      return;
     }
 
-    // /members/{uid}  — single member presence update
     const memberMatch = path.match(/^\/members\/([^/]+)$/);
     if (memberMatch) {
       const uid = memberMatch[1];
       if (data === null) presenceMap.delete(uid);
       else presenceMap.set(uid, data);
-      return; // silent — no renderPanel
+      return;
     }
 
-    // /members/{uid}/lastSeen  — heartbeat update (most frequent)
     const heartbeatMatch = path.match(/^\/members\/([^/]+)\/lastSeen$/);
     if (heartbeatMatch) {
       const uid = heartbeatMatch[1];
       if (presenceMap.has(uid)) presenceMap.get(uid).lastSeen = data;
       else presenceMap.set(uid, { lastSeen: data });
-      return; // silent
+      return;
     }
 
-    // / (root) — initial full load
+    // Root full load
     if (path === "/") {
       if (data && typeof data === "object") {
-        // hits
         hitMap.clear();
         if (data.hits && typeof data.hits === "object") {
           Object.entries(data.hits).forEach(([id,h]) => { if(h) hitMap.set(id,h); });
         }
-        // session
         if (data.session) handleRemoteSession(data.session);
-        // permissions
         permissions = (data.permissions && typeof data.permissions==="object") ? data.permissions : {};
-        // members (presence)
         presenceMap.clear();
         if (data.members && typeof data.members==="object") {
           Object.entries(data.members).forEach(([uid,m]) => { if(m) presenceMap.set(uid,m); });
@@ -956,10 +1000,9 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Hit write operations — targeted, never overwrites full hit list
+  //  Hit write operations
   // ══════════════════════════════════════════════════════════════════════════
 
-  // Write a single new hit node
   function fbWriteHit(hit) {
     fbPut(P.hit(hit.id), hit);
     hitMap.set(hit.id, hit);
@@ -967,7 +1010,8 @@
     renderPanel();
   }
 
-  // Update a single field on a hit
+  // FIX #1: kept for targeted single-field writes (hitNumber sync), but
+  // the scraper now uses fbUpdateHit (full node) for reliability.
   function fbUpdateHitField(hitId, field, value) {
     fbPut(P.hitField(hitId, field), value);
     if (hitMap.has(hitId)) {
@@ -977,7 +1021,7 @@
     }
   }
 
-  // Write multiple field updates on a hit (e.g. marking done with name+chainHitNum)
+  // FIX #1: full node PUT — most reliable for cross-client sync
   function fbUpdateHit(hitId, updates) {
     if (!hitMap.has(hitId)) return;
     const hit = { ...hitMap.get(hitId), ...updates };
@@ -987,7 +1031,6 @@
     renderPanel();
   }
 
-  // Clear all hits — DELETE the hits node entirely
   function fbClearHits() {
     fbDelete(P.hits());
     hitMap.clear();
@@ -1001,6 +1044,7 @@
     chainStartTime = startMs || Date.now();
     chainSessionId = `s_${chainStartTime}_${Math.random().toString(36).slice(2,7)}`;
     fbPut(P.session(), { id: chainSessionId, startTime: chainStartTime });
+    persistSession();
   }
 
   function onChainEnd() {
@@ -1014,31 +1058,35 @@
     lastKnownCount    = null;
     chainConfirmed    = false;
     chainHit1Time     = null;
+    sessionMinHitNum  = null;
     scrapedHitIds.clear();
     hitMap.clear();
     fbClearHits();
     fbDelete(P.session());
+    persistSession();
     renderPanel();
     updateChainTimerUI();
   }
 
   function handleRemoteSession(data) {
     if (!data) {
-      // Session cleared by another client
       if (chainSessionId) {
         chainSessionId = null; chainStartTime = null; chainConfirmed = false;
         chainHit1Time = null; sessionMinHitNum = null; scrapedHitIds.clear();
-        hitMap.clear(); renderPanel();
+        hitMap.clear();
+        persistSession();
+        renderPanel();
       }
     } else if (data.id && data.id !== chainSessionId) {
       chainSessionId   = data.id;
       chainStartTime   = data.startTime || Date.now();
-      sessionMinHitNum = null;  // reset anchor for new session
+      sessionMinHitNum = null;
+      persistSession();
     }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Chain timer — MutationObserver for sub-second accuracy
+  //  Chain timer — MutationObserver + fallback retry loop
   // ══════════════════════════════════════════════════════════════════════════
   function parseTimerText(txt) {
     const m = (txt||"").match(/(\d+):(\d+)(?::(\d+))?/);
@@ -1079,27 +1127,49 @@
     updateChainTimerUI();
   }
 
+  // FIX #2: startChainTimerObserver — also clears the fallback retry interval
+  // once a timer element is found.
   function startChainTimerObserver() {
     if (chainTimerObserver) { chainTimerObserver.disconnect(); chainTimerObserver = null; }
     const timerEl = findChainTimerEl();
-    if (!timerEl) { setTimeout(startChainTimerObserver, 1000); return; }
+    if (!timerEl) return false;  // return false so caller knows we failed
+
+    // Found it — cancel the fallback retry interval
+    if (timerRetryInterval) { clearInterval(timerRetryInterval); timerRetryInterval = null; }
+
     onDomTimerUpdate(parseTimerText(timerEl.textContent));
     chainTimerObserver = new MutationObserver(() => {
       const secs = parseTimerText(timerEl.textContent);
       if (secs === null) {
         onDomTimerUpdate(null);
         chainTimerObserver.disconnect(); chainTimerObserver = null;
-        setTimeout(startChainTimerObserver, 2000);
+        // FIX #2: restart fallback retry when observer loses the element
+        startTimerRetryLoop();
       } else { onDomTimerUpdate(secs); }
     });
     chainTimerObserver.observe(timerEl, { characterData:true, childList:true, subtree:true });
+    return true;
   }
 
+  // FIX #2: independent 2s retry loop — works even without a MutationObserver trigger
+  function startTimerRetryLoop() {
+    if (timerRetryInterval) return;  // already running
+    timerRetryInterval = setInterval(() => {
+      if (chainTimerObserver) { clearInterval(timerRetryInterval); timerRetryInterval = null; return; }
+      startChainTimerObserver();
+    }, 2000);
+  }
+
+  // MutationObserver on body as a trigger (existing behaviour, kept)
   new MutationObserver(() => { if (!chainTimerObserver) startChainTimerObserver(); })
     .observe(document.body, { childList:true, subtree:true });
 
+  // FIX #2: also start the retry loop immediately on boot so we don't
+  // miss the timer when the chain section is opened later
+  startTimerRetryLoop();
+
   // ══════════════════════════════════════════════════════════════════════════
-  //  Chain API poll — count + session detection every 5s
+  //  Chain API poll — count + session detection
   // ══════════════════════════════════════════════════════════════════════════
   function pollFactionChain() {
     if (!tornApiKey || !factionId) return;
@@ -1117,13 +1187,13 @@
     const newTimeout = chain.timeout || 0;
     const chainStart = chain.start   || 0;
 
-    // Cooldown or no chain: wipe immediately
     if (newTimeout === 0 && chainSessionId) {
       if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
       onChainEnd(); return;
     }
 
     liveChainCount = newCount > 0 ? newCount : null;
+    persistSession();  // FIX #2: keep count in GM storage
 
     if (liveChainCount !== null && liveChainCount >= CHAIN_CONFIRM_HITS) chainConfirmed = true;
 
@@ -1144,6 +1214,7 @@
         setTimeout(() => onChainStart(apiStartMs), 500);
         return;
       }
+      // FIX #2: try to find the timer element if we don't have it yet
       if (!chainTimerObserver) startChainTimerObserver();
     } else {
       if (chainSessionId && !chainEndDebounce) {
@@ -1181,10 +1252,10 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Recent attacks scraper — marks queued hits done, adds untracked entries
+  //  Recent attacks scraper
   // ══════════════════════════════════════════════════════════════════════════
   function scrapeRecentAttacks() {
-    if (!chainStartTime) return;  // no session — reject everything
+    if (!chainStartTime) return;
 
     const containerSels = ['[class*="recentAttacks"]','[class*="recent-attacks"]','[class*="attackLog"]','[class*="attack-log"]'];
     let container = null;
@@ -1196,13 +1267,10 @@
     for (const sel of rowSels) { try { rows=Array.from(container.querySelectorAll(sel)); if(rows.length)break; } catch {/**/ } }
     if (!rows.length) return;
 
-    const now          = Date.now();
-    const apiCount     = liveChainCount || 0;
+    const now      = Date.now();
+    const apiCount = liveChainCount || 0;
     let earliestHitTime = chainHit1Time;
 
-    // ── Phase 1: collect all valid candidate rows from the DOM ───────────────
-    // We need to look at ALL rows first to establish the anchor before
-    // processing any hits — this handles mid-chain join (walk-back).
     const candidates = [];
 
     for (const row of rows) {
@@ -1216,9 +1284,6 @@
 
       const chainHitNum = parseInt(chainNumEl.textContent.trim().replace("#",""));
       if (isNaN(chainHitNum) || chainHitNum < 1) continue;
-
-      // Hard ceiling: chainHitNum must be ≤ liveChainCount + 1 (API lag buffer)
-      // If API says count=1, hits #2, #3, #4 are impossible for this chain
       if (apiCount > 0 && chainHitNum > apiCount + 1) continue;
 
       const profileLinks = row.querySelectorAll('a[href*="profiles.php?XID="]');
@@ -1233,8 +1298,6 @@
       if (hMatch && !tMatch) minsAgo = parseInt(hMatch[1])*60;
       const attackTime = now - minsAgo*60000;
 
-      // Must be after this chain session started — subtract 60s buffer
-      // because DOM time display rounds to whole minutes ("4 m" could be 3m59s)
       if (attackTime < chainStartTime - 60000) continue;
 
       candidates.push({
@@ -1250,54 +1313,33 @@
 
     if (!candidates.length) return;
 
-    // ── Phase 2: establish sessionMinHitNum anchor ───────────────────────────
-    // The anchor is the LOWEST chainHitNum in a consecutive sequence
-    // that includes or is consistent with liveChainCount.
-    //
-    // Strategy:
-    //   - Sort candidates by chainHitNum ascending
-    //   - Find the highest chainHitNum ≤ apiCount+1 (the "top" of this chain)
-    //   - Walk backwards through candidates to find the longest
-    //     consecutive sequence ending at that top
-    //   - The bottom of that sequence becomes sessionMinHitNum
-    //
-    // This handles mid-chain join: if chain is at 15 and we see
-    // hits #12,#13,#14,#15 in recent attacks, anchor = 12.
-
+    // Establish sessionMinHitNum anchor
     if (sessionMinHitNum === null) {
       const sorted = [...candidates].sort((a,b) => a.chainHitNum - b.chainHitNum);
       const hitNums = new Set(sorted.map(c => c.chainHitNum));
-
-      // Find the top of the current chain in our candidates
       let top = 0;
       for (const c of sorted) {
         if (c.chainHitNum <= apiCount + 1) top = c.chainHitNum;
       }
-
       if (top > 0) {
-        // Walk backwards from top to find the lowest consecutive hit
         let anchor = top;
         while (anchor > 1 && hitNums.has(anchor - 1)) anchor--;
         sessionMinHitNum = anchor;
       } else if (candidates.some(c => c.chainHitNum === 1)) {
-        // Fallback: if we see a #1, anchor at 1
         sessionMinHitNum = 1;
       }
-      // If we still can't anchor, we reject everything this tick
+      if (sessionMinHitNum !== null) persistSession();
     }
 
-    if (sessionMinHitNum === null) return;  // couldn't anchor — wait for more data
+    if (sessionMinHitNum === null) return;
 
-    // ── Phase 3: process validated candidates ────────────────────────────────
     for (const c of candidates) {
-      // Reject hits below our anchor — they belong to a previous chain
       if (c.chainHitNum < sessionMinHitNum) continue;
 
       const dedupKey = `${chainSessionId||"nosession"}_hit_${c.chainHitNum}`;
       if (scrapedHitIds.has(dedupKey)) continue;
       scrapedHitIds.add(dedupKey);
 
-      // Warm-up tracking
       if (c.chainHitNum === 1 && (!earliestHitTime || c.attackTime < earliestHitTime)) {
         earliestHitTime = c.attackTime;
       }
@@ -1305,13 +1347,13 @@
         if (c.attackTime - earliestHitTime <= 5*60000) chainConfirmed = true;
       }
 
-      // Match against queued pending hit
       const matchedEntry = [...hitMap.entries()].find(([,h]) =>
         h.status==="pending" && String(h.targetId)===String(c.targetId)
       );
 
       if (matchedEntry) {
         const [matchId] = matchedEntry;
+        // FIX #1: use fbUpdateHit (full node) for reliable cross-client sync
         fbUpdateHit(matchId, {
           status:"done", doneAt:c.attackTime,
           hitNumber:c.chainHitNum, chainHitNum:c.chainHitNum,
@@ -1337,6 +1379,9 @@
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Panel render
+  //  FIX #3: done hits sorted ascending (oldest top), pending below,
+  //          auto-scroll to bottom so queue is always in view.
+  //  FIX #4: show "Unclaimed" row in full view when no pending hits.
   // ══════════════════════════════════════════════════════════════════════════
   function renderPanel() {
     const inner   = document.getElementById("chain-panel-inner");
@@ -1346,7 +1391,6 @@
 
     if (titleEl) titleEl.textContent = factionName ? `⛓ ${factionName}` : "⛓ Chain Board";
 
-    // Refresh 🎯 button states
     document.querySelectorAll(".chain-target-btn").forEach(btn => {
       const profileA = btn.nextElementSibling;
       if (!profileA) return;
@@ -1358,7 +1402,7 @@
     });
 
     const pendingHits = getPendingHits();
-    const doneHits    = getDoneHits();
+    const doneHits    = getDoneHits();  // FIX #3: now sorted ascending by chainHitNum
 
     // Pill badge
     pillBadge.textContent = pendingHits.length;
@@ -1383,11 +1427,31 @@
       nextTimer.className   = disp<=30?"due":disp<=90?"soon":"wait";
     }
 
-    // Full list
-    const allHits = [...doneHits, ...pendingHits];
-    if (!allHits.length) {
+    // Full list: done (asc) then pending (asc), then unclaimed placeholder
+    const hasDoneOrPending = doneHits.length > 0 || pendingHits.length > 0;
+
+    if (!hasDoneOrPending) {
       colHead.style.display = "none";
-      inner.innerHTML = `<div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">No hits queued.<br>Click 🎯 next to an attack button.</div>`;
+      // FIX #4: even with no hits, show unclaimed if chain is active
+      if (liveChainCount !== null) {
+        colHead.style.display = "";
+        const nextSlot = getHighestDoneHitNum() + 1;
+        const chcMs = pendingCountdownMs(1);
+        const disp  = Math.round(chcMs / 1000);
+        const timerTxt = liveChainSecs !== null
+          ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`
+          : "—";
+        inner.innerHTML = `
+          <div class="chain-hit-row unclaimed">
+            <span class="chain-hit-num">${nextSlot}</span>
+            <span class="chain-hit-claimer">—</span>
+            <span class="chain-hit-target">Unclaimed</span>
+            <span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${timerTxt}</span>
+            <span></span>
+          </div>`;
+      } else {
+        inner.innerHTML = `<div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">No hits queued.<br>Click 🎯 next to an attack button.</div>`;
+      }
       return;
     }
 
@@ -1395,36 +1459,65 @@
     const now = Date.now();
     let html = "", queuePos = 0;
 
-    for (const hit of allHits) {
-      const hosp = isHospStillIn(hit);
-      let rem, timerText, tc, rc;
+    // Done hits first (ascending chainHitNum = oldest at top)
+    for (const hit of doneHits) {
+      html += `
+        <div class="chain-hit-row ${hit.untracked?"untracked":"done"}" data-hit-id="${hit.id}" data-queue-pos="-1">
+          <span class="chain-hit-num">${hit.chainHitNum||hit.hitNumber}</span>
+          <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">✓ ${escHtml(hit.claimedBy)}</span>
+          <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${escHtml(hit.targetName)}</span>
+          <span class="chain-hit-timer done">Done</span>
+          <a class="chain-hit-attack" href="${escHtml(hit.attackUrl||"#")}" target="_blank" style="opacity:.2;pointer-events:none">⚔</a>
+        </div>`;
+    }
 
-      if (hit.status === "done") {
-        rem=0; timerText="Done"; tc="done"; rc=hit.untracked?"untracked":"done";
-      } else {
-        rem       = pendingCountdownMs(queuePos);
-        timerText = queuePos===0 ? "NOW" : formatTime(rem);
-        tc        = queuePos===0 ? "due" : hitTimerClass(rem);
-        rc        = queuePos===0 ? "due" : hitRowClass(rem, hosp, hit.untracked);
-        queuePos++;
-      }
+    // Pending hits below done hits
+    for (const hit of pendingHits) {
+      const hosp = isHospStillIn(hit);
+      const rem       = pendingCountdownMs(queuePos);
+      const timerText = queuePos===0 ? "NOW" : formatTime(rem);
+      const tc        = queuePos===0 ? "due" : hitTimerClass(rem);
+      const rc        = queuePos===0 ? "due" : hitRowClass(rem, hosp, hit.untracked);
 
       const hospSub = hosp
         ? `<span class="chain-hit-hosp-sub" data-hosp-id="${hit.id}">out in ${formatTime(hit.hospReleaseAt-now)}</span>`
         : "";
 
       html += `
-        <div class="chain-hit-row ${rc}" data-hit-id="${hit.id}" data-queue-pos="${hit.status==="done"?-1:queuePos-1}">
+        <div class="chain-hit-row ${rc}" data-hit-id="${hit.id}" data-queue-pos="${queuePos}">
           <span class="chain-hit-num">${hit.chainHitNum||hit.hitNumber}</span>
-          <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">${hit.status==="done"?"✓ ":""}${escHtml(hit.claimedBy)}</span>
+          <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">${escHtml(hit.claimedBy)}</span>
           <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${escHtml(hit.targetName)}</span>
-          <span class="chain-hit-timer ${tc}" data-pos="${hit.status==="done"?-1:queuePos-1}">${timerText}</span>
+          <span class="chain-hit-timer ${tc}" data-pos="${queuePos}">${timerText}</span>
           <a class="chain-hit-attack" href="${escHtml(hit.attackUrl)}" target="_blank"
-             ${hit.status==="done"||!hit.attackUrl||hit.attackUrl==="#"?'style="opacity:.2;pointer-events:none"':''}>⚔</a>
+             ${!hit.attackUrl||hit.attackUrl==="#"?'style="opacity:.2;pointer-events:none"':''}>⚔</a>
           ${hospSub}
         </div>`;
+      queuePos++;
     }
+
+    // FIX #4: show unclaimed placeholder after the pending queue
+    if (pendingHits.length === 0 && doneHits.length > 0) {
+      const nextSlot = getHighestDoneHitNum() + 1;
+      const chcMs = pendingCountdownMs(1);
+      const disp  = Math.round(chcMs / 1000);
+      const timerTxt = liveChainSecs !== null
+        ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`
+        : "—";
+      html += `
+        <div class="chain-hit-row unclaimed">
+          <span class="chain-hit-num">${nextSlot}</span>
+          <span class="chain-hit-claimer">—</span>
+          <span class="chain-hit-target">Unclaimed</span>
+          <span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${timerTxt}</span>
+          <span></span>
+        </div>`;
+    }
+
     inner.innerHTML = html;
+
+    // FIX #3: auto-scroll to bottom so the active queue is always visible
+    inner.scrollTop = inner.scrollHeight;
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1435,7 +1528,6 @@
     updateChainTimerUI();
     scrapeRecentAttacks();
 
-    // Live-update timer cells without full re-render
     document.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
       const pos = parseInt(cell.dataset.pos);
       if (pos < 0) return;
@@ -1446,7 +1538,6 @@
       if (row) row.className = `chain-hit-row ${pos===0?"due":hitRowClass(rem,false,false)}`;
     });
 
-    // Next-hit strip timer
     const nh = getPendingHits()[0];
     if (nh) { nextTimer.textContent="NOW"; nextTimer.className="due"; }
     else if (liveChainSecs !== null) {
@@ -1456,7 +1547,6 @@
       nextTimer.className   = disp<=30?"due":disp<=90?"soon":"wait";
     }
 
-    // Hosp sub-timers
     document.querySelectorAll("[data-hosp-id]").forEach(hc => {
       const hit = hitMap.get(hc.dataset.hospId);
       if (!hit) { hc.remove(); return; }
@@ -1467,6 +1557,8 @@
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Scheduling — queue a new pending hit
+  //  FIX #1: reNumberPending() runs BEFORE fbWriteHit() so hitNumber
+  //  is correct in the initial Firebase write.
   // ══════════════════════════════════════════════════════════════════════════
   function scheduleAndWrite(apiData, targetId, targetName, attackUrl, btn) {
     const now            = Date.now();
@@ -1497,7 +1589,7 @@
 
     const newHit = {
       id:            `hit_${now}_${Math.random().toString(36).slice(2)}`,
-      hitNumber:     0,
+      hitNumber:     0,   // placeholder — reNumberPending assigns the real number below
       targetId,
       targetName:    apiData.name||targetName,
       claimedBy:     ownName,
@@ -1509,7 +1601,10 @@
       sessionId:     chainSessionId,
     };
 
-    fbWriteHit(newHit);  // writes to Firebase + hitMap + re-renders
+    // FIX #1: add to hitMap first, THEN reNumber so hitNumber is correct before write
+    hitMap.set(newHit.id, newHit);
+    reNumberPending();
+    fbWriteHit(newHit);  // writes the now-numbered hit to Firebase
 
     btn.textContent = "✓"; btn.classList.add("claimed");
     btn.title = isInHosp
@@ -1525,7 +1620,6 @@
     if (!factionId)     { alert("Could not detect your faction — make sure your API key is set."); return; }
     if (!fbConfigured()){ alert("Firebase is not configured yet — see FIREBASE_SETUP.md."); return; }
 
-    // Duplicate check
     const already = [...hitMap.values()].find(h=>h.status==="pending"&&h.targetId===targetId);
     if (already) { alert(`${targetName} is already queued as hit #${already.hitNumber}.`); return; }
 
@@ -1645,23 +1739,21 @@
 
           fetchFactionBasic();
 
+          // FIX #2: try the timer observer as soon as profile loads
+          startChainTimerObserver();
+
           fbSignInAnon((token,uid)=>{
             fbToken = token;
             fbUid   = uid;
 
-            // Register presence + start heartbeat
             fbRegisterMember();
             setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
 
-            // Start single SSE listener on faction root
+            // FIX #1: SSE starts here, AFTER fbToken is confirmed set
             fbStartMainListener();
 
-            // Chain API poll
             pollFactionChain();
             setInterval(pollFactionChain, CHAIN_POLL_MS);
-
-            // DOM timer observer
-            startChainTimerObserver();
           });
         } catch { showBanner("chain-banner-status",true,"Failed to parse API response."); }
       },
