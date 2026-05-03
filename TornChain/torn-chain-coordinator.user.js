@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      3.1.2
+// @version      3.2.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -68,7 +68,6 @@
   // ─── Firebase state ───────────────────────────────────────────────────────
   let fbToken       = null;
   let fbUid         = null;
-  let mainSse       = null;
   let hitMap        = new Map();
   let permissions   = {};
   let canClear      = false;
@@ -127,6 +126,7 @@
     perm:        uid => `${fBase()}/permissions/${uid}.json${auth()}`,
     members:     () => `${fBase()}/members.json${auth()}`,
     member:      uid => `${fBase()}/members/${uid}.json${auth()}`,
+    memberById:  id  => `${fBase()}/members/torn_${id}.json${auth()}`,
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -452,6 +452,7 @@
       <div id="chain-banner-nofb"   class="chain-banner warn" style="display:none">⚠ Firebase not configured — see FIREBASE_SETUP.md.</div>
       <div id="chain-banner-nofact" class="chain-banner info" style="display:none">ℹ Not in a faction — queue unavailable.</div>
       <div id="chain-banner-status" class="chain-banner info" style="display:none"></div>
+      <div id="chain-banner-debug"  class="chain-banner warn" style="display:none;font-size:10px;word-break:break-all"></div>
       <div id="chain-col-header" style="display:none">
         <span>#</span><span>Claimer</span><span>Target</span>
         <span style="text-align:right">Window</span><span></span>
@@ -690,8 +691,15 @@
   function renderPresence() {
     const now = Date.now();
     presenceList.innerHTML = "";
+    // Deduplicate by name (same player may have multiple entries from old sessions)
+    const seen = new Set();
     const online = [...presenceMap.entries()]
       .filter(([, m]) => (now - (m.lastSeen||0)) < PRESENCE_TIMEOUT)
+      .filter(([, m]) => {
+        if (seen.has(m.name)) return false;
+        seen.add(m.name);
+        return true;
+      })
       .sort((a,b) => a[1].name.localeCompare(b[1].name));
 
     if (!online.length) {
@@ -701,7 +709,7 @@
     online.forEach(([uid, m]) => {
       const row = document.createElement("div");
       row.className = "chain-presence-row";
-      const isMe = fbUid === uid;
+      const isMe = (m.tornId && m.tornId === ownId) || m.name === ownName;
       row.innerHTML = `<span class="chain-presence-dot"></span><span class="chain-presence-name">${escHtml(m.name)}${isMe?" (you)":""}</span>`;
       presenceList.appendChild(row);
     });
@@ -784,11 +792,16 @@
           setSyncDot("error");
           const safeUrl = url.replace(/auth=[^&]+/,"auth=***");
           console.warn("[ChainCoord] Firebase write failed "+r.status+":", r.responseText, "URL:", safeUrl);
-          try { const e=JSON.parse(r.responseText); syncDot.title="Sync error "+r.status+": "+(e.error||r.responseText); } catch { syncDot.title="Sync error "+r.status; }
+          try {
+            const e=JSON.parse(r.responseText);
+            const msg = e.error||r.responseText;
+            syncDot.title="Sync error "+r.status+": "+msg;
+            showBanner("chain-banner-debug",true,"❌ Firebase "+r.status+": "+msg);
+          } catch { syncDot.title="Sync error "+r.status; showBanner("chain-banner-debug",true,"❌ Firebase error "+r.status+": "+r.responseText); }
         }
       },
-      onerror(e)  { setSyncDot("error"); console.warn("[ChainCoord] Firebase PUT network error",e); },
-      ontimeout(){ setSyncDot("error"); console.warn("[ChainCoord] Firebase PUT timeout"); },
+      onerror(e)  { setSyncDot("error"); showBanner("chain-banner-debug",true,"❌ Network error reaching Firebase. Check @connect firebaseio.com in script header."); console.warn("[ChainCoord] Firebase PUT network error",e); },
+      ontimeout(){ setSyncDot("error"); showBanner("chain-banner-debug",true,"❌ Firebase PUT timed out — DB may be unreachable."); console.warn("[ChainCoord] Firebase PUT timeout"); },
     });
   }
 
@@ -842,161 +855,70 @@
   //  Firebase member registration + heartbeat
   // ══════════════════════════════════════════════════════════════════════════
   function fbRegisterMember() {
-    if (!factionId || !fbUid || !fbConfigured()) return;
-    fbPut(P.member(fbUid), { name: ownName, lastSeen: Date.now() });
+    if (!factionId || !ownId || !fbConfigured()) return;
+    // Use torn_<ownId> as the key so the same player always overwrites their
+    // own entry regardless of which anonymous Firebase UID they get this session.
+    fbPut(P.memberById(ownId), { name: ownName, lastSeen: Date.now(), tornId: ownId });
   }
 
   function fbHeartbeat() {
-    if (!factionId || !fbUid || !fbConfigured()) return;
-    fbPut(`${fBase()}/members/${fbUid}/lastSeen.json${auth()}`, Date.now());
+    if (!factionId || !ownId || !fbConfigured()) return;
+    fbPut(`${fBase()}/members/torn_${ownId}/lastSeen.json${auth()}`, Date.now());
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Single SSE listener on /factions/{id}
-  //  Firebase RTDB SSE supports ?auth=TOKEN in the URL query string.
-  //  We use GM_xmlhttpRequest in streaming mode so the auth header works
-  //  through Tampermonkey's proxy and avoids browser CORS restrictions.
-  //  Falls back to a polling GET every 4s if streaming isn't available.
+  //  Firebase sync — polling via GM_xmlhttpRequest
+  //  EventSource (SSE) is blocked by Torn's Content Security Policy.
+  //  We poll the full faction node every 3s instead. GM_xmlhttpRequest
+  //  bypasses CSP, so this works reliably from a userscript.
+  //  On each poll we compare the received data to local state and apply
+  //  any changes, giving us near-real-time sync without SSE.
   // ══════════════════════════════════════════════════════════════════════════
-  let sseAbort        = null;   // abort handle for GM streaming request
-  let ssePollInterval = null;   // fallback polling interval
-  let sseBuffer       = "";     // line buffer for SSE parsing
-
-  function parseSseChunk(chunk) {
-    sseBuffer += chunk;
-    const lines = sseBuffer.split("\n");
-    sseBuffer = lines.pop();  // keep incomplete last line
-
-    let eventType = "message";
-    let dataLines = [];
-
-    for (const line of lines) {
-      if (line.startsWith("event:")) {
-        eventType = line.slice(6).trim();
-      } else if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5).trim());
-      } else if (line === "") {
-        // Blank line = dispatch event
-        if (dataLines.length) {
-          const raw = dataLines.join("\n");
-          try {
-            const ev = JSON.parse(raw);
-            if (eventType === "put" || eventType === "patch") {
-              if (eventType === "put") {
-                applyPatch(ev.path, ev.data);
-              } else {
-                if (ev.data && typeof ev.data === "object") {
-                  Object.entries(ev.data).forEach(([k,v]) => applyPatch(`${ev.path}/${k}`, v));
-                }
-              }
-            }
-          } catch { /**/ }
-        }
-        eventType = "message";
-        dataLines = [];
-      }
-    }
-  }
+  let ssePollInterval = null;
+  let lastPollEtag    = null;   // rough change detection
 
   function fbStartMainListener() {
     if (!factionId || !fbConfigured()) return;
-
-    // Tear down any existing connection
-    if (sseAbort) { try { sseAbort.abort(); } catch { /**/ } sseAbort = null; }
     if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
-    if (mainSse) { try { mainSse.close(); } catch { /**/ } mainSse = null; }
-    sseBuffer = "";
 
-    const sseUrl = P.root();  // includes ?auth=TOKEN
+    // Immediate first fetch
+    fbPollOnce();
 
-    // Try GM streaming first (Tampermonkey 4.x supports responseType:"stream")
-    let streamingWorked = false;
-    try {
-      sseAbort = GM_xmlhttpRequest({
-        method: "GET",
-        url: sseUrl,
-        headers: { "Accept": "text/event-stream", "Cache-Control": "no-cache" },
-        responseType: "stream",
-        timeout: 0,  // no timeout for SSE
-        onloadstart() { setSyncDot("live"); streamingWorked = true; },
-        onprogress(r) {
-          streamingWorked = true;
-          if (r.responseText) parseSseChunk(r.responseText);
-        },
-        onerror() {
-          setSyncDot("error");
-          sseAbort = null;
-          if (!streamingWorked) startSseFallbackPolling();
-          else setTimeout(fbStartMainListener, 5000);
-        },
-        ontimeout() { setSyncDot("error"); sseAbort = null; setTimeout(fbStartMainListener, 5000); },
-        onload()    { sseAbort = null; setTimeout(fbStartMainListener, 2000); },
-      });
-    } catch(e) {
-      // GM streaming not available — fall back to EventSource with token in URL
-      startSseEventSource(sseUrl);
-    }
-
-    // If no onloadstart within 3s, streaming probably isn't supported
-    setTimeout(() => {
-      if (!streamingWorked && sseAbort) {
-        try { sseAbort.abort(); } catch { /**/ }
-        sseAbort = null;
-        startSseEventSource(sseUrl);
-      }
-    }, 3000);
+    // Then every 3 seconds
+    ssePollInterval = setInterval(fbPollOnce, 3000);
   }
 
-  function startSseEventSource(sseUrl) {
-    // EventSource with ?auth=TOKEN — works for public or auth-via-query DBs
-    try {
-      mainSse = new EventSource(sseUrl);
-      mainSse.addEventListener("put", e => {
-        try { const ev=JSON.parse(e.data); applyPatch(ev.path, ev.data); setSyncDot("live"); } catch { /**/ }
-      });
-      mainSse.addEventListener("patch", e => {
-        try {
-          const ev=JSON.parse(e.data);
-          if (ev.data && typeof ev.data==="object") {
-            Object.entries(ev.data).forEach(([k,v]) => applyPatch(`${ev.path}/${k}`, v));
+  function fbPollOnce() {
+    if (!factionId || !fbConfigured()) return;
+    GM_xmlhttpRequest({
+      method: "GET",
+      url: P.root(),
+      headers: { "Cache-Control": "no-cache" },
+      timeout: 8000,
+      onload(r) {
+        if (r.status >= 200 && r.status < 300) {
+          try {
+            const data = JSON.parse(r.responseText);
+            applyPatch("/", data);
+            setSyncDot("live");
+            showBanner("chain-banner-debug", false);
+          } catch(e) {
+            console.warn("[ChainCoord] Poll parse error", e);
           }
-          setSyncDot("live");
-        } catch { /**/ }
-      });
-      mainSse.onerror = () => {
-        setSyncDot("error");
-        try { mainSse.close(); } catch { /**/ }
-        mainSse = null;
-        // Fall back to polling if EventSource keeps failing
-        startSseFallbackPolling();
-      };
-      setSyncDot("live");
-    } catch(e) {
-      startSseFallbackPolling();
-    }
-  }
-
-  // Last-resort fallback: poll the full faction node every 4 seconds
-  function startSseFallbackPolling() {
-    if (ssePollInterval) return;
-    console.warn("[ChainCoord] SSE unavailable, falling back to 4s polling");
-    setSyncDot("syncing");
-    ssePollInterval = setInterval(() => {
-      if (!factionId || !fbConfigured()) return;
-      fbGet(P.root(), data => {
-        if (data && typeof data === "object") {
-          applyPatch("/", data);
-          setSyncDot("live");
+        } else {
+          setSyncDot("error");
+          let msg = r.responseText;
+          try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
+          showBanner("chain-banner-debug", true, "❌ Poll failed "+r.status+": "+msg);
+          console.warn("[ChainCoord] Poll failed", r.status, r.responseText);
         }
-      });
-    }, 4000);
-    // Also do one immediate fetch
-    fbGet(P.root(), data => {
-      if (data && typeof data === "object") applyPatch("/", data);
+      },
+      onerror()  { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Poll network error — check @connect firebaseio.com"); },
+      ontimeout(){ setSyncDot("error"); },
     });
   }
 
-  // Route a Firebase patch to the right handler
+    // Route a Firebase patch to the right handler
   function applyPatch(path, data) {
     if (path === "/hits") {
       hitMap.clear();
@@ -1096,6 +1018,9 @@
     // Root full load
     if (path === "/") {
       if (data && typeof data === "object") {
+        const keys = Object.keys(data).join(",") || "(empty)";
+        showBanner("chain-banner-debug", true, "✓ SSE root received. keys="+keys);
+        setTimeout(()=>showBanner("chain-banner-debug",false), 6000);
         hitMap.clear();
         if (data.hits && typeof data.hits === "object") {
           Object.entries(data.hits).forEach(([id,h]) => { if(h) hitMap.set(id,h); });
@@ -1110,6 +1035,9 @@
         updateClearBtn();
         setSyncDot("live");
         renderPanel();
+      } else {
+        showBanner("chain-banner-debug", true, "⚠ SSE root: data was null/empty — rules may be blocking read");
+        setTimeout(()=>showBanner("chain-banner-debug",false), 8000);
       }
     }
   }
@@ -1863,6 +1791,7 @@
 
             if (!token || !uid) {
               showBanner("chain-banner-status", true, "⚠ Firebase auth failed — anonymous sign-in returned no token.");
+              showBanner("chain-banner-debug", true, "❌ Auth: token was null/undefined — check Firebase console anonymous auth is enabled and API key is correct.");
               return;
             }
 
@@ -1870,10 +1799,31 @@
             // before opening the SSE listener or writing any faction data.
             // DB rules require /members/{uid} to exist before /hits or /session
             // writes are permitted — fire-and-forget causes a race condition.
-            fbPut(P.member(fbUid), { name: ownName, lastSeen: Date.now() }, () => {
-              fbStartMainListener();
-              pollFactionChain();
-              setInterval(pollFactionChain, CHAIN_POLL_MS);
+            const memberUrl = P.memberById(ownId);
+            showBanner("chain-banner-debug", true, "⏳ Registering member… uid="+fbUid+" fid="+factionId);
+            GM_xmlhttpRequest({
+              method:"PUT", url: memberUrl,
+              headers:{"Content-Type":"application/json"},
+              data: JSON.stringify({ name: ownName, lastSeen: Date.now() }),
+              timeout:10000,
+              onload(r) {
+                if (r.status>=200 && r.status<300) {
+                  showBanner("chain-banner-debug", true, "✓ Member registered. fid="+factionId+" uid="+fbUid+" Starting SSE…");
+                  setTimeout(()=>showBanner("chain-banner-debug",false), 5000);
+                  setSyncDot("live");
+                  fbStartMainListener();
+                  pollFactionChain();
+                  setInterval(pollFactionChain, CHAIN_POLL_MS);
+                } else {
+                  setSyncDot("error");
+                  let msg = r.responseText;
+                  try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
+                  showBanner("chain-banner-debug", true, "❌ Member reg failed "+r.status+": "+msg+" | url: "+memberUrl.replace(/auth=[^&]+/,"auth=***"));
+                  console.warn("[ChainCoord] Member registration failed", r.status, r.responseText, memberUrl);
+                }
+              },
+              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Member reg network error — check @connect firebaseio.com"); },
+              ontimeout() { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Member reg timed out"); },
             });
 
             setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
