@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      2.0.0
+// @version      2.0.1
 // @description  Shared real-time chain scheduling board. All members of your faction see the same live queue, powered by Firebase.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
