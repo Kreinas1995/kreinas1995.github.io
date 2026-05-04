@@ -444,6 +444,8 @@
       <span id="chain-pill-content">
         <span id="chain-pill-icon">⛓</span>
         <span id="chain-pill-timer" class="ct-none">—</span>
+        <span id="chain-pill-sep" style="color:#334;font-size:10px">→</span>
+        <span id="chain-pill-next" style="font-size:11px;font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0e0e0">—</span>
         <span id="chain-pill-badge">0</span>
       </span>
       <span id="chain-sync-dot" title="Sync status"></span>
@@ -542,6 +544,8 @@
   const presencePopover = document.getElementById("chain-presence-popover");
   const presenceList    = document.getElementById("chain-presence-list");
   const pillTimer       = document.getElementById("chain-pill-timer");
+  const pillNext        = document.getElementById("chain-pill-next");
+  const pillSep         = document.getElementById("chain-pill-sep");
   const pillBadge       = document.getElementById("chain-pill-badge");
   const nextNum         = document.getElementById("chain-next-num");
   const nextName        = document.getElementById("chain-next-name");
@@ -603,10 +607,13 @@
     applyViewMode();
   };
 
-  // Clicking mini or icon panel body → expand to full
+  // Clicking mini or icon panel → expand to full (only if not a drag)
   panel.addEventListener("click", e => {
     if (viewMode === 0) return;
     if (e.target === viewBtn || e.target.closest("#chain-panel-header button")) return;
+    // In icon mode, the drag handler sets didDrag — check via a small move threshold
+    // We use a data attribute set by the drag handler to signal a drag just ended
+    if (panel.dataset.justDragged === "1") { delete panel.dataset.justDragged; return; }
     viewMode = 0;
     GM_setValue(SK_VIEW_MODE, viewMode);
     applyViewMode();
@@ -642,29 +649,61 @@
   // ══════════════════════════════════════════════════════════════════════════
   (function makeDraggable() {
     const handle = document.getElementById("chain-panel-header");
-    const DRAG_IDS = new Set(["chain-panel-header","chain-panel-title","chain-sync-dot","chain-pill-content","chain-pill-timer","chain-pill-icon","chain-pill-badge"]);
-    let dragging=false, sx,sy,ol,ot;
-    function start(cx,cy) {
-      dragging=true; sx=cx; sy=cy;
+    const DRAG_IDS = new Set(["chain-panel-header","chain-panel-title","chain-sync-dot","chain-pill-content","chain-pill-timer","chain-pill-icon","chain-pill-badge","chain-pill-next","chain-pill-sep"]);
+    let dragging=false, didDrag=false, sx,sy,ol,ot, dragThreshold=6;
+
+    function startDrag(cx,cy) {
+      dragging=true; didDrag=false; sx=cx; sy=cy;
       const r=panel.getBoundingClientRect(); ol=r.left; ot=r.top;
       panel.style.right="auto"; panel.style.left=ol+"px"; panel.style.top=ot+"px";
     }
-    function move(cx,cy) {
+    function moveDrag(cx,cy) {
       if(!dragging) return;
-      panel.style.left=Math.max(0,Math.min(window.innerWidth-panel.offsetWidth,ol+cx-sx))+"px";
-      panel.style.top=Math.max(0,Math.min(window.innerHeight-panel.offsetHeight,ot+cy-sy))+"px";
+      const dx=cx-sx, dy=cy-sy;
+      if(!didDrag && Math.sqrt(dx*dx+dy*dy) < dragThreshold) return;
+      didDrag=true;
+      panel.style.left=Math.max(0,Math.min(window.innerWidth-panel.offsetWidth,ol+dx))+"px";
+      panel.style.top=Math.max(0,Math.min(window.innerHeight-panel.offsetHeight,ot+dy))+"px";
     }
-    function end() {
-      if(!dragging) return; dragging=false;
-      GM_setValue(SK_POS_X,parseInt(panel.style.left));
-      GM_setValue(SK_POS_Y,parseInt(panel.style.top));
+    function endDrag() {
+      if(!dragging) return;
+      dragging=false;
+      if(didDrag) {
+        GM_setValue(SK_POS_X,parseInt(panel.style.left));
+        GM_setValue(SK_POS_Y,parseInt(panel.style.top));
+        panel.dataset.justDragged = "1";
+        setTimeout(()=>{ delete panel.dataset.justDragged; }, 50);
+      }
     }
-    handle.addEventListener("mousedown",e=>{if(DRAG_IDS.has(e.target.id)||e.target===handle)start(e.clientX,e.clientY);});
-    document.addEventListener("mousemove",e=>move(e.clientX,e.clientY));
-    document.addEventListener("mouseup",end);
-    handle.addEventListener("touchstart",e=>{if(DRAG_IDS.has(e.target.id)||e.target===handle){const t=e.touches[0];start(t.clientX,t.clientY);}},{passive:true});
-    document.addEventListener("touchmove",e=>{if(!dragging)return;e.preventDefault();const t=e.touches[0];move(t.clientX,t.clientY);},{passive:false});
-    document.addEventListener("touchend",end);
+
+    // Header drag (full + mini modes)
+    handle.addEventListener("mousedown",e=>{if(DRAG_IDS.has(e.target.id)||e.target===handle)startDrag(e.clientX,e.clientY);});
+    handle.addEventListener("touchstart",e=>{
+      if(DRAG_IDS.has(e.target.id)||e.target===handle){
+        const t=e.touches[0]; startDrag(t.clientX,t.clientY);
+      }
+    },{passive:true});
+
+    // Icon mode: drag on the whole panel (header is hidden)
+    panel.addEventListener("mousedown",e=>{
+      if(viewMode===2) startDrag(e.clientX,e.clientY);
+    });
+    panel.addEventListener("touchstart",e=>{
+      if(viewMode===2){
+        const t=e.touches[0]; startDrag(t.clientX,t.clientY);
+      }
+    },{passive:true});
+
+    document.addEventListener("mousemove",e=>moveDrag(e.clientX,e.clientY));
+    document.addEventListener("mouseup",endDrag);
+    document.addEventListener("touchmove",e=>{
+      if(!dragging) return;
+      e.preventDefault();
+      const t=e.touches[0]; moveDrag(t.clientX,t.clientY);
+    },{passive:false});
+    document.addEventListener("touchend",e=>{
+      endDrag();
+    });
   })();
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1642,6 +1681,19 @@
     if (iconBadge) {
       iconBadge.textContent = pendingHits.length;
       iconBadge.classList.toggle("visible", pendingHits.length > 0);
+    }
+    // Pill next-target display
+    if (pillNext) {
+      const nextUp = pendingHits[0] || null;
+      if (nextUp) {
+        pillNext.textContent = nextUp.targetName;
+        pillNext.style.color = "";
+        if (pillSep) pillSep.style.display = "";
+      } else {
+        pillNext.textContent = "Unclaimed";
+        pillNext.style.color = "#ff8888";
+        if (pillSep) pillSep.style.display = "";
+      }
     }
 
     // Next-hit strip
