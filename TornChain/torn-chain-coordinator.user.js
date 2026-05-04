@@ -1,10 +1,23 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      3.2.1
+// @version      3.5.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
+// @match        https://www.torn.com/index.php*
+// @match        https://www.torn.com/loader.php*
+// @match        https://www.torn.com/page.php*
+// @match        https://www.torn.com/messages.php*
+// @match        https://www.torn.com/profiles.php*
+// @match        https://www.torn.com/city.php*
+// @match        https://www.torn.com/crimes.php*
+// @match        https://www.torn.com/gym.php*
+// @match        https://www.torn.com/jailview.php*
+// @match        https://www.torn.com/hospitalview.php*
+// @match        https://www.torn.com/itemmarket.php*
+// @match        https://www.torn.com/bazaar.php*
+// @match        https://www.torn.com/properties.php*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -88,26 +101,16 @@
   let timerRetryInterval = null;   // FIX #2: fallback retry for timer observer
   let sessionMinHitNum = null;
 
-  // FIX #2: restore session from GM storage on boot
-  (function restoreSession() {
-    const sid   = GM_getValue(SK_SESSION_ID,    null);
-    const start = GM_getValue(SK_SESSION_START, null);
-    const min   = GM_getValue(SK_SESSION_MIN,   null);
-    const count = GM_getValue(SK_CHAIN_COUNT,   null);
-    if (sid && start) {
-      chainSessionId   = sid;
-      chainStartTime   = start;
-      sessionMinHitNum = min;
-      liveChainCount   = count;
-    }
-  })();
+  // Session is restored from Firebase on first poll — do not restore from
+  // GM storage as stale chainStartTime causes the scraper to accept hits
+  // from the previous chain. Firebase is the single source of truth.
 
   // ── Persist session state helper ──────────────────────────────────────────
   function persistSession() {
-    GM_setValue(SK_SESSION_ID,    chainSessionId   || "");
-    GM_setValue(SK_SESSION_START, chainStartTime   || "");
-    GM_setValue(SK_SESSION_MIN,   sessionMinHitNum || "");
-    GM_setValue(SK_CHAIN_COUNT,   liveChainCount   || "");
+    // Only persist liveChainCount for display purposes.
+    // Session ID/start/min are intentionally NOT persisted — Firebase is
+    // the source of truth and stale local values cause scraper false positives.
+    GM_setValue(SK_CHAIN_COUNT, liveChainCount || "");
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -157,23 +160,29 @@
       transition:border-radius .15s, width .15s, height .15s !important;
     }
 
-    /* ── View modes ── */
-    #chain-panel.view-pill {
-      border-radius:50px !important; box-shadow:0 4px 16px rgba(0,0,0,.55) !important;
+    /* ══ View modes ══════════════════════════════════════════════════════════ */
+
+    /* ── view-full: complete board ── */
+    #chain-panel.view-full { /* default — all children visible */ }
+
+    /* ── view-mini: slim pill — timer + badge only ── */
+    #chain-panel.view-mini {
+      border-radius:50px !important;
+      box-shadow:0 4px 16px rgba(0,0,0,.55) !important;
       min-width:0 !important; width:auto !important; height:auto !important;
-      overflow:hidden !important;
     }
-    #chain-panel.view-pill #chain-panel-header { padding:8px 12px !important; border-bottom:none !important; }
-    #chain-panel.view-pill #chain-panel-title,
-    #chain-panel.view-pill #chain-clear-btn,
-    #chain-panel.view-pill #chain-manage-btn,
-    #chain-panel.view-pill #chain-presence-btn,
-    #chain-panel.view-pill #chain-api-btn,
-    #chain-panel.view-pill #chain-timer-bar,
-    #chain-panel.view-pill #chain-warming-msg,
-    #chain-panel.view-pill #chain-panel-body { display:none !important; }
+    #chain-panel.view-mini #chain-panel-header { padding:6px 10px !important; border-bottom:none !important; }
+    #chain-panel.view-mini #chain-panel-title,
+    #chain-panel.view-mini #chain-clear-btn,
+    #chain-panel.view-mini #chain-manage-btn,
+    #chain-panel.view-mini #chain-presence-btn,
+    #chain-panel.view-mini #chain-api-btn,
+    #chain-panel.view-mini #chain-timer-bar,
+    #chain-panel.view-mini #chain-warming-msg,
+    #chain-panel.view-mini #chain-panel-body,
+    #chain-panel.view-mini #chain-resize-handle { display:none !important; }
     #chain-pill-content { display:none; align-items:center; gap:6px; white-space:nowrap; }
-    #chain-panel.view-pill #chain-pill-content { display:flex !important; }
+    #chain-panel.view-mini #chain-pill-content { display:flex !important; }
     #chain-pill-icon  { font-size:16px; line-height:1; }
     #chain-pill-timer { font-family:monospace; font-weight:700; font-size:13px; }
     #chain-pill-timer.ct-ok     { color:#44ff88; }
@@ -187,14 +196,36 @@
     }
     #chain-pill-badge.visible { display:inline-block !important; }
 
-    #chain-panel.view-next #chain-panel-body { display:flex !important; }
-    #chain-panel.view-next #chain-col-header,
-    #chain-panel.view-next #chain-panel-inner { display:none !important; }
-    #chain-next-strip {
-      display:none; align-items:center; gap:6px; padding:5px 10px;
-      border-top:1px solid rgba(255,255,255,.06); font-size:11px; flex-shrink:0;
+    /* ── view-icon: single ⛓ button, chat-bar height ── */
+    #chain-panel.view-icon {
+      border-radius:50% !important;
+      box-shadow:0 2px 10px rgba(0,0,0,.6) !important;
+      min-width:0 !important; width:44px !important; height:44px !important;
+      background:rgba(16,18,24,.97) !important;
+      border:2px solid rgba(255,255,255,.12) !important;
+      display:flex !important; align-items:center !important; justify-content:center !important;
     }
-    #chain-panel.view-next #chain-next-strip { display:flex !important; }
+    #chain-panel.view-icon #chain-panel-header { display:none !important; }
+    #chain-panel.view-icon #chain-timer-bar,
+    #chain-panel.view-icon #chain-warming-msg,
+    #chain-panel.view-icon #chain-panel-body,
+    #chain-panel.view-icon #chain-resize-handle { display:none !important; }
+    #chain-icon-btn {
+      display:none; align-items:center; justify-content:center;
+      font-size:22px; line-height:1; cursor:pointer; width:100%; height:100%;
+      position:relative;
+    }
+    #chain-panel.view-icon #chain-icon-btn { display:flex !important; }
+    #chain-icon-badge {
+      position:absolute; top:-4px; right:-4px;
+      background:#ff5555; color:#fff; font-size:8px; font-weight:700;
+      border-radius:8px; padding:1px 4px; min-width:12px; text-align:center;
+      line-height:13px; display:none; pointer-events:none;
+    }
+    #chain-icon-badge.visible { display:inline-block !important; }
+
+    /* next-strip kept for potential future use but hidden in all new modes */
+    #chain-next-strip { display:none !important; }
     #chain-next-num   { font-weight:700; color:#556; font-size:11px; flex-shrink:0; }
     #chain-next-name  { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
     #chain-next-timer { font-family:monospace; font-weight:700; font-size:12px; flex-shrink:0; }
@@ -320,7 +351,7 @@
 
     /* ── Column header ── */
     #chain-col-header {
-      display:grid !important; grid-template-columns:26px 1fr 1fr 58px 20px !important;
+      display:grid !important; grid-template-columns:26px 1fr 1fr 58px 20px 18px !important;
       gap:0 5px !important; padding:4px 10px !important; font-size:10px !important;
       text-transform:uppercase !important; letter-spacing:.5px !important; color:#445 !important;
       border-bottom:1px solid rgba(255,255,255,.06) !important; flex-shrink:0 !important;
@@ -332,7 +363,7 @@
     #chain-panel-inner::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:3px; }
 
     .chain-hit-row {
-      display:grid !important; grid-template-columns:26px 1fr 1fr 58px 20px !important;
+      display:grid !important; grid-template-columns:26px 1fr 1fr 58px 20px 18px !important;
       align-items:center !important; gap:0 5px !important; padding:4px 10px !important;
       border-left:3px solid transparent !important; font-size:11px !important; transition:background .1s !important;
     }
@@ -364,11 +395,19 @@
     }
     .chain-hit-attack {
       display:inline-flex !important; align-items:center !important; justify-content:center !important;
-      text-decoration:none !important; font-size:13px !important; border-radius:4px !important;
-      width:20px !important; height:20px !important; background:rgba(255,80,80,.15) !important;
-      border:1px solid rgba(255,80,80,.3) !important; cursor:pointer !important; transition:background .1s !important;
+      text-decoration:none !important; font-size:14px !important; border-radius:4px !important;
+      width:20px !important; height:20px !important; background:rgba(255,80,80,.18) !important;
+      border:1px solid rgba(255,80,80,.4) !important; cursor:pointer !important; transition:background .1s !important;
     }
-    .chain-hit-attack:hover { background:rgba(255,80,80,.35) !important; }
+    .chain-hit-attack:hover { background:rgba(255,80,80,.4) !important; }
+    .chain-hit-remove {
+      display:inline-flex !important; align-items:center !important; justify-content:center !important;
+      font-size:11px !important; border-radius:4px !important; width:18px !important; height:18px !important;
+      background:rgba(255,60,60,.12) !important; border:1px solid rgba(255,60,60,.3) !important;
+      color:#ff6666 !important; cursor:pointer !important; transition:background .1s !important;
+      line-height:1 !important; flex-shrink:0 !important;
+    }
+    .chain-hit-remove:hover { background:rgba(255,60,60,.35) !important; color:#fff !important; }
 
     /* ── Resize handle ── */
     #chain-resize-handle {
@@ -455,7 +494,7 @@
       <div id="chain-banner-debug"  class="chain-banner warn" style="display:none;font-size:10px;word-break:break-all"></div>
       <div id="chain-col-header" style="display:none">
         <span>#</span><span>Claimer</span><span>Target</span>
-        <span style="text-align:right">Window</span><span></span>
+        <span style="text-align:right">Window</span><span></span><span></span>
       </div>
       <div id="chain-panel-inner">
         <div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">
@@ -466,9 +505,13 @@
         <span id="chain-next-num">#1</span>
         <span id="chain-next-name">—</span>
         <span id="chain-next-timer" class="wait">—</span>
-        <a id="chain-next-attack" class="chain-hit-attack" href="#" target="_blank">⚔</a>
+        <a id="chain-next-attack" class="chain-hit-attack" href="#" target="_blank">🗡</a>
       </div>
     </div>
+    <div id="chain-outside-bar" style="display:flex;align-items:center;padding:5px 8px;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0;gap:6px;">
+      <button id="chain-outside-btn" style="flex:1;padding:5px 0;border-radius:7px;font-size:11px;cursor:pointer;border:1px solid rgba(100,180,255,.35);background:rgba(80,140,255,.12);color:#88bbff;font-weight:600;letter-spacing:.2px;">＋ Outside Hit</button>
+    </div>
+    <div id="chain-icon-btn" title="Tap to expand">⛓<span id="chain-icon-badge"></span></div>
     <div id="chain-resize-handle"></div>`;
   document.body.appendChild(panel);
 
@@ -476,6 +519,9 @@
   const panelBody       = document.getElementById("chain-panel-body");
   const viewBtn         = document.getElementById("chain-view-btn");
   const clearBtn        = document.getElementById("chain-clear-btn");
+  const outsideBtn      = document.getElementById("chain-outside-btn");
+  const outsideBar      = document.getElementById("chain-outside-bar");
+  const iconBadge       = document.getElementById("chain-icon-badge");
   const manageBtn       = document.getElementById("chain-manage-btn");
   const presenceBtn     = document.getElementById("chain-presence-btn");
   const syncDot         = document.getElementById("chain-sync-dot");
@@ -503,40 +549,65 @@
   const nextAttack      = document.getElementById("chain-next-attack");
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  View mode cycling
+  //  View modes
+  //   0 = full board
+  //   1 = mini pill  (chain timer + badge only)
+  //   2 = icon button (just the ⛓ icon, chat-bar sized)
+  //  Cycling: full → mini → icon → full
+  //  From icon: tap anywhere → full
+  //  From mini: tap view btn → icon, or panel → full
   // ══════════════════════════════════════════════════════════════════════════
-  const VIEW_CLASSES = ["view-next","view-full","view-pill"];
-  const VIEW_ICONS   = ["▤","▦","◉"];
-  const VIEW_TIPS    = ["Next hit","Full board","Minimised"];
-  let lastExpandedMode = viewMode === 2 ? 1 : viewMode;
+  // Remap persisted legacy modes (old 0=next,1=full,2=pill) → new 0=full,1=mini,2=icon
+  if (viewMode === 0) viewMode = 0;  // was "next" → map to full
 
   function applyViewMode() {
-    // FIX #5: briefly set overflow hidden to prevent glitch during transition
     panel.style.overflow = "hidden";
-    VIEW_CLASSES.forEach(c => panel.classList.remove(c));
-    panel.classList.add(VIEW_CLASSES[viewMode]);
-    viewBtn.textContent = VIEW_ICONS[viewMode];
-    viewBtn.title = `View: ${VIEW_TIPS[viewMode]} — click to cycle`;
-    if (viewMode === 1) {
-      panel.style.width = panelW+"px";
-      if (panelH) panel.style.height = panelH+"px";
-    } else { panel.style.width = ""; panel.style.height = ""; }
-    panel.style.cursor = viewMode === 2 ? "pointer" : "";
-    setTimeout(() => { panel.style.overflow = viewMode === 2 ? "hidden" : "visible"; }, 160);
+    panel.classList.remove("view-full","view-mini","view-icon");
+
+    if (viewMode === 0) {
+      panel.classList.add("view-full");
+      panel.style.width  = panelW+"px";
+      panel.style.height = panelH ? panelH+"px" : "";
+      panel.style.cursor = "";
+      viewBtn.textContent = "◉";
+      viewBtn.title = "Minimise";
+      if (outsideBar) outsideBar.style.display = "";
+    } else if (viewMode === 1) {
+      panel.classList.add("view-mini");
+      panel.style.width  = "";
+      panel.style.height = "";
+      panel.style.cursor = "pointer";
+      viewBtn.textContent = "▦";
+      viewBtn.title = "Expand";
+      if (outsideBar) outsideBar.style.display = "none";
+    } else {
+      panel.classList.add("view-icon");
+      panel.style.width  = "";
+      panel.style.height = "";
+      panel.style.cursor = "pointer";
+      viewBtn.textContent = "▦";
+      viewBtn.title = "Expand";
+      if (outsideBar) outsideBar.style.display = "none";
+    }
+
+    setTimeout(() => {
+      panel.style.overflow = viewMode === 0 ? "visible" : "hidden";
+    }, 160);
   }
 
+  // View button: full→mini, mini→icon, icon→full
   viewBtn.onclick = e => {
     e.stopPropagation();
-    if (viewMode !== 2) lastExpandedMode = viewMode;
-    viewMode = (viewMode+1)%3;
+    viewMode = (viewMode + 1) % 3;
     GM_setValue(SK_VIEW_MODE, viewMode);
     applyViewMode();
   };
 
+  // Clicking mini or icon panel body → expand to full
   panel.addEventListener("click", e => {
-    if (viewMode !== 2) return;
-    if (e.target.tagName==="BUTTON" || e.target.closest("button")) return;
-    viewMode = lastExpandedMode;
+    if (viewMode === 0) return;
+    if (e.target === viewBtn || e.target.closest("#chain-panel-header button")) return;
+    viewMode = 0;
     GM_setValue(SK_VIEW_MODE, viewMode);
     applyViewMode();
   });
@@ -677,6 +748,32 @@
     fbClearHits();
   };
 
+  // ── Outside Hit button — one tap, no input needed ───────────────────────
+  outsideBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    if (!factionId)     { alert("Could not detect your faction."); return; }
+    if (!fbConfigured()){ alert("Firebase not configured."); return; }
+
+    const now2 = Date.now();
+    const outsideHit = {
+      id:           `hit_${now2}_${Math.random().toString(36).slice(2)}`,
+      hitNumber:    0,
+      targetId:     null,
+      targetName:   "Outside Hit",
+      claimedBy:    ownName,
+      claimedAt:    now2,
+      scheduledAt:  now2,
+      hospReleaseAt:null,
+      attackUrl:    null,
+      status:       "pending",
+      sessionId:    chainSessionId,
+      outside:      true,
+    };
+    hitMap.set(outsideHit.id, outsideHit);
+    reNumberPending();
+    fbWriteHit(outsideHit);
+  });
+
   // ══════════════════════════════════════════════════════════════════════════
   //  Presence Popover
   // ══════════════════════════════════════════════════════════════════════════
@@ -745,9 +842,20 @@
   function getPendingHits() {
     return [...hitMap.values()].filter(h=>h.status!=="done").sort((a,b)=>a.hitNumber-b.hitNumber);
   }
-  // FIX #3: sort done hits ascending by chainHitNum so oldest is at top of list
+  // Sort done hits ascending by chainHitNum, deduplicated — one entry per slot
   function getDoneHits() {
-    return [...hitMap.values()].filter(h=>h.status==="done").sort((a,b)=>(a.chainHitNum||0)-(b.chainHitNum||0));
+    const all = [...hitMap.values()].filter(h=>h.status==="done");
+    // Deduplicate by chainHitNum: prefer non-untracked (user-queued) over scraped
+    const byNum = new Map();
+    for (const h of all) {
+      const num = h.chainHitNum || h.hitNumber || 0;
+      if (!num) continue;
+      const ex = byNum.get(num);
+      if (!ex) { byNum.set(num, h); continue; }
+      // Prefer queued (non-untracked) over scraped untracked
+      if (ex.untracked && !h.untracked) byNum.set(num, h);
+    }
+    return [...byNum.values()].sort((a,b)=>(a.chainHitNum||0)-(b.chainHitNum||0));
   }
   function getHighestDoneHitNum() {
     return [...hitMap.values()].filter(h=>h.status==="done"&&h.chainHitNum).reduce((m,h)=>Math.max(m,h.chainHitNum),0);
@@ -1025,6 +1133,15 @@
         if (data.hits && typeof data.hits === "object") {
           Object.entries(data.hits).forEach(([id,h]) => { if(h) hitMap.set(id,h); });
         }
+        // After a full repopulation, rebuild scrapedHitIds from what Firebase
+        // already has as done — so the scraper won't re-write them, but the
+        // slot-coverage check will also catch any stragglers.
+        scrapedHitIds.clear();
+        for (const h of hitMap.values()) {
+          if (h.status === "done" && h.chainHitNum && chainSessionId) {
+            scrapedHitIds.add((chainSessionId||"nosession") + "_hit_" + h.chainHitNum);
+          }
+        }
         if (data.session) handleRemoteSession(data.session);
         permissions = (data.permissions && typeof data.permissions==="object") ? data.permissions : {};
         presenceMap.clear();
@@ -1121,9 +1238,20 @@
         renderPanel();
       }
     } else if (data.id && data.id !== chainSessionId) {
+      // Only accept a remote session if its startTime is recent (within 2 hours).
+      // Stale Firebase sessions from previous chains must not set chainStartTime
+      // to a time in the past, which would allow old DOM hits to pass the filter.
+      const remoteStart = data.startTime || 0;
+      const ageMs = Date.now() - remoteStart;
+      if (ageMs > 2 * 60 * 60 * 1000) {
+        // Session is older than 2 hours — stale, ignore it
+        console.warn("[ChainCoord] Ignoring stale remote session, age:", Math.round(ageMs/60000), "min");
+        return;
+      }
       chainSessionId   = data.id;
-      chainStartTime   = data.startTime || Date.now();
+      chainStartTime   = remoteStart || Date.now();
       sessionMinHitNum = null;
+      scrapedHitIds.clear();  // clear dedup so scraper re-evaluates with correct start time
       persistSession();
     }
   }
@@ -1249,10 +1377,17 @@
     const chainNowActive = newCount > 0 && newTimeout > 0;
     if (chainNowActive) {
       if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
-      const apiStartMs = chainStart > 0 ? chainStart*1000 : null;
+      // Infer start time: if API provides chain.start use it; otherwise
+      // estimate from timeout (chain resets at 5 min = 300s, so
+      // start ≈ now - (300 - timeout) seconds).
+      const apiStartMs = chainStart > 0
+        ? chainStart * 1000
+        : (newTimeout > 0 ? Date.now() - (300 - newTimeout) * 1000 : null);
+
       if (!chainSessionId) {
         onChainStart(apiStartMs || Date.now());
-      } else if (apiStartMs && chainStartTime && Math.abs(apiStartMs-chainStartTime) > 10000) {
+      } else if (apiStartMs && chainStartTime && Math.abs(apiStartMs - chainStartTime) > 3000) {
+        // API start time differs from our local start by more than 3s — new chain
         onChainEnd();
         setTimeout(() => onChainStart(apiStartMs), 500);
         return;
@@ -1314,8 +1449,8 @@
     const apiCount = liveChainCount || 0;
     let earliestHitTime = chainHit1Time;
 
-    const candidates = [];
-
+    // ── Step 1: parse all DOM rows ───────────────────────────────────────────
+    const rawCandidates = [];
     for (const row of rows) {
       const chainNumEl = (() => {
         for (const el of row.querySelectorAll("*")) {
@@ -1324,7 +1459,6 @@
         return null;
       })();
       if (!chainNumEl) continue;
-
       const chainHitNum = parseInt(chainNumEl.textContent.trim().replace("#",""));
       if (isNaN(chainHitNum) || chainHitNum < 1) continue;
       if (apiCount > 0 && chainHitNum > apiCount + 1) continue;
@@ -1335,76 +1469,131 @@
       const targetIdMatch  = (targetProfileA.href||"").match(/XID=(\d+)/i);
       if (!targetIdMatch) continue;
 
+      // Parse Torn time display: "Xs", "Xm", "Xh"
+      const sMatch = (row.textContent||"").match(/(\d+)\s*s\b/);
       const tMatch = (row.textContent||"").match(/(\d+)\s*m\b/);
       const hMatch = (row.textContent||"").match(/(\d+)\s*h\b/);
-      let minsAgo = tMatch ? parseInt(tMatch[1]) : 0;
-      if (hMatch && !tMatch) minsAgo = parseInt(hMatch[1])*60;
-      const attackTime = now - minsAgo*60000;
+      let secsAgo = 0;
+      if      (sMatch && !tMatch && !hMatch) secsAgo = parseInt(sMatch[1]);
+      else if (tMatch && !hMatch)            secsAgo = parseInt(tMatch[1]) * 60;
+      else if (hMatch)                       secsAgo = parseInt(hMatch[1]) * 3600 + (tMatch ? parseInt(tMatch[1]) * 60 : 0);
+      const attackTime = now - secsAgo * 1000;
 
-      if (attackTime < chainStartTime - 60000) continue;
+      // Pre-filter: more than 10 min before session start is definitely old
+      if (attackTime < chainStartTime - 10 * 60000) continue;
 
-      candidates.push({
-        chainHitNum,
+      rawCandidates.push({
+        chainHitNum, secsAgo, attackTime,
         targetId:    targetIdMatch[1],
-        targetName:  (targetProfileA.textContent||"").trim() || `Player #${targetIdMatch[1]}`,
+        targetName:  (targetProfileA.textContent||"").trim() || "Player #" + targetIdMatch[1],
         attackerName:(profileLinks[0].textContent||"").trim() || "Unknown",
-        attackUrl:   `https://www.torn.com/loader.php?sid=attack&user2ID=${targetIdMatch[1]}`,
-        attackTime,
-        row,
+        attackUrl:   "https://www.torn.com/loader.php?sid=attack&user2ID=" + targetIdMatch[1],
       });
     }
+    if (!rawCandidates.length) return;
 
-    if (!candidates.length) return;
-
-    // Establish sessionMinHitNum anchor
-    if (sessionMinHitNum === null) {
-      const sorted = [...candidates].sort((a,b) => a.chainHitNum - b.chainHitNum);
-      const hitNums = new Set(sorted.map(c => c.chainHitNum));
-      let top = 0;
-      for (const c of sorted) {
-        if (c.chainHitNum <= apiCount + 1) top = c.chainHitNum;
+    // ── Step 2: ONE hit per chain slot ───────────────────────────────────────
+    // A chain can only have ONE hit at position #N. The DOM may show two hits
+    // with the same number from consecutive chains (e.g. old #3 and new #3).
+    // Pick the MOST RECENT hit that is on or after chainStartTime.
+    // If both are before chainStartTime, pick the one closest to it.
+    const byHitNum = new Map();
+    for (const c of rawCandidates) {
+      const ex = byHitNum.get(c.chainHitNum);
+      if (!ex) { byHitNum.set(c.chainHitNum, c); continue; }
+      const cAfter = c.attackTime  >= chainStartTime;
+      const eAfter = ex.attackTime >= chainStartTime;
+      if      (cAfter && !eAfter)  byHitNum.set(c.chainHitNum, c);             // c is in session, ex isn't
+      else if (cAfter &&  eAfter && c.secsAgo < ex.secsAgo) byHitNum.set(c.chainHitNum, c); // both in session, c is newer
+      else if (!cAfter && !eAfter) {                                            // both before session
+        if (Math.abs(c.attackTime - chainStartTime) < Math.abs(ex.attackTime - chainStartTime))
+          byHitNum.set(c.chainHitNum, c);
       }
+    }
+
+    // ── Step 3: sorted candidate list, monotonic time filter ────────────────
+    // In a real chain, hit numbers increase as time progresses:
+    //   #1 (oldest) → #2 → #3 → #4 (most recent)
+    // So attackTime must INCREASE as chainHitNum increases.
+    // If hit #4 is older than hit #3, hit #4 is from a previous chain.
+    //
+    // Walk ascending by chainHitNum. Track the most recent attackTime seen.
+    // Any hit whose attackTime is more than 120s older than the previous
+    // valid hit is rejected (120s slack for Torn's minute rounding).
+    const sorted = [...byHitNum.values()].sort((a,b) => a.chainHitNum - b.chainHitNum);
+    const candidates = [];
+    let prevAttackTime = 0;
+    for (const c of sorted) {
+      if (candidates.length === 0) {
+        // First hit — accept unconditionally
+        candidates.push(c);
+        prevAttackTime = c.attackTime;
+      } else if (c.attackTime >= prevAttackTime - 120000) {
+        // This hit is newer than (or within 120s of) the previous — valid
+        candidates.push(c);
+        prevAttackTime = Math.max(prevAttackTime, c.attackTime);
+      }
+      // else: this hit is more than 120s older than the previous — old chain, skip
+    }
+
+    // ── Step 4: establish session anchor ─────────────────────────────────────
+    // sessionMinHitNum = lowest hit in the consecutive run that ends at
+    // liveChainCount. Hits below this belong to a previous chain.
+    if (sessionMinHitNum === null) {
+      const hitNums = new Set(candidates.map(c => c.chainHitNum));
+      // Find highest hit that is confirmed to be in this session
+      let top = 0;
+      for (const c of candidates) {
+        if (c.chainHitNum <= apiCount + 1 && c.attackTime >= chainStartTime) top = c.chainHitNum;
+      }
+      if (top === 0 && apiCount > 0) top = apiCount; // use API count if no post-start hit found
       if (top > 0) {
         let anchor = top;
         while (anchor > 1 && hitNums.has(anchor - 1)) anchor--;
         sessionMinHitNum = anchor;
-      } else if (candidates.some(c => c.chainHitNum === 1)) {
+      } else if (candidates.some(c => c.chainHitNum === 1 && c.attackTime >= chainStartTime)) {
         sessionMinHitNum = 1;
       }
       if (sessionMinHitNum !== null) persistSession();
     }
-
     if (sessionMinHitNum === null) return;
 
+    // ── Step 5: process validated hits ───────────────────────────────────────
     for (const c of candidates) {
       if (c.chainHitNum < sessionMinHitNum) continue;
 
-      const dedupKey = `${chainSessionId||"nosession"}_hit_${c.chainHitNum}`;
+      const dedupKey = (chainSessionId||"nosession") + "_hit_" + c.chainHitNum;
       if (scrapedHitIds.has(dedupKey)) continue;
       scrapedHitIds.add(dedupKey);
 
-      if (c.chainHitNum === 1 && (!earliestHitTime || c.attackTime < earliestHitTime)) {
+      if (c.chainHitNum === 1 && (!earliestHitTime || c.attackTime < earliestHitTime))
         earliestHitTime = c.attackTime;
-      }
-      if (c.chainHitNum >= CHAIN_CONFIRM_HITS && earliestHitTime !== null) {
+      if (c.chainHitNum >= CHAIN_CONFIRM_HITS && earliestHitTime !== null)
         if (c.attackTime - earliestHitTime <= 5*60000) chainConfirmed = true;
-      }
+
+      // Skip entire slot if already marked done — prevents double-writes on repoll
+      const slotDone = [...hitMap.values()].some(h =>
+        h.status === "done" && (h.chainHitNum === c.chainHitNum || h.hitNumber === c.chainHitNum)
+      );
+      if (slotDone) continue;
 
       const matchedEntry = [...hitMap.entries()].find(([,h]) =>
         h.status==="pending" && String(h.targetId)===String(c.targetId)
       );
-
       if (matchedEntry) {
-        const [matchId] = matchedEntry;
-        // FIX #1: use fbUpdateHit (full node) for reliable cross-client sync
-        fbUpdateHit(matchId, {
+        fbUpdateHit(matchedEntry[0], {
           status:"done", doneAt:c.attackTime,
           hitNumber:c.chainHitNum, chainHitNum:c.chainHitNum,
           claimedBy:c.attackerName, targetId:c.targetId, targetName:c.targetName,
         });
       } else {
-        const untrackedId = `scraped_${dedupKey}`;
-        if (!hitMap.has(untrackedId)) {
+        if (c.attackTime < chainStartTime - 90000) continue; // strict cutoff for untracked
+        const untrackedId = "scraped_" + dedupKey;
+        // Don't write untracked if any done hit already covers this chain slot
+        const slotTaken = [...hitMap.values()].some(h =>
+          h.status === "done" && (h.chainHitNum === c.chainHitNum || h.hitNumber === c.chainHitNum)
+        );
+        if (!slotTaken && !hitMap.has(untrackedId)) {
           fbWriteHit({
             id:untrackedId, hitNumber:c.chainHitNum, chainHitNum:c.chainHitNum,
             targetId:c.targetId, targetName:c.targetName, claimedBy:c.attackerName,
@@ -1447,9 +1636,13 @@
     const pendingHits = getPendingHits();
     const doneHits    = getDoneHits();  // FIX #3: now sorted ascending by chainHitNum
 
-    // Pill badge
+    // Pill + icon badges
     pillBadge.textContent = pendingHits.length;
     pillBadge.classList.toggle("visible", pendingHits.length > 0);
+    if (iconBadge) {
+      iconBadge.textContent = pendingHits.length;
+      iconBadge.classList.toggle("visible", pendingHits.length > 0);
+    }
 
     // Next-hit strip
     const nextHit = pendingHits[0] || null;
@@ -1510,7 +1703,8 @@
           <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">✓ ${escHtml(hit.claimedBy)}</span>
           <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${escHtml(hit.targetName)}</span>
           <span class="chain-hit-timer done">Done</span>
-          <a class="chain-hit-attack" href="${escHtml(hit.attackUrl||"#")}" target="_blank" style="opacity:.2;pointer-events:none">⚔</a>
+          <a class="chain-hit-attack" href="${escHtml(hit.attackUrl||"#")}" target="_blank" style="opacity:.2;pointer-events:none">🗡</a>
+          <span></span>
         </div>`;
     }
 
@@ -1521,6 +1715,7 @@
       const timerText = queuePos===0 ? "NOW" : formatTime(rem);
       const tc        = queuePos===0 ? "due" : hitTimerClass(rem);
       const rc        = queuePos===0 ? "due" : hitRowClass(rem, hosp, hit.untracked);
+      const canRemoveHit = canClear || hit.claimedBy === ownName;
 
       const hospSub = hosp
         ? `<span class="chain-hit-hosp-sub" data-hosp-id="${hit.id}">out in ${formatTime(hit.hospReleaseAt-now)}</span>`
@@ -1530,10 +1725,11 @@
         <div class="chain-hit-row ${rc}" data-hit-id="${hit.id}" data-queue-pos="${queuePos}">
           <span class="chain-hit-num">${hit.chainHitNum||hit.hitNumber}</span>
           <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">${escHtml(hit.claimedBy)}</span>
-          <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${escHtml(hit.targetName)}</span>
+          <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${(hit.outside||!hit.targetId)?'<span style="font-size:9px;color:#88bbff;margin-right:2px">OUT</span>':""}${escHtml(hit.targetName)}</span>
           <span class="chain-hit-timer ${tc}" data-pos="${queuePos}">${timerText}</span>
           <a class="chain-hit-attack" href="${escHtml(hit.attackUrl)}" target="_blank"
-             ${!hit.attackUrl||hit.attackUrl==="#"?'style="opacity:.2;pointer-events:none"':''}>⚔</a>
+             ${!hit.attackUrl||hit.attackUrl==="#"?'style="opacity:.2;pointer-events:none"':''}>🗡</a>
+          ${canRemoveHit ? `<button class="chain-hit-remove" data-remove-id="${hit.id}" title="Remove this hit">✕</button>` : '<span></span>'}
           ${hospSub}
         </div>`;
       queuePos++;
@@ -1558,6 +1754,22 @@
     }
 
     inner.innerHTML = html;
+
+    // Wire remove buttons via event delegation
+    inner.querySelectorAll(".chain-hit-remove").forEach(btn => {
+      btn.addEventListener("click", e => {
+        e.preventDefault(); e.stopPropagation();
+        const hitId = btn.dataset.removeId;
+        if (!hitId) return;
+        const hit = hitMap.get(hitId);
+        if (!hit) return;
+        if (!confirm(`Remove ${hit.targetName} from the queue?`)) return;
+        fbDelete(P.hit(hitId));
+        hitMap.delete(hitId);
+        reNumberPending();
+        renderPanel();
+      });
+    });
 
     // FIX #3: auto-scroll to bottom so the active queue is always visible
     inner.scrollTop = inner.scrollHeight;
@@ -1694,6 +1906,9 @@
     return h.startsWith("http")?h:"https://www.torn.com"+h;
   }
 
+  // Only inject target buttons on the factions war page
+  const IS_FACTIONS_PAGE = /factions\.php/.test(window.location.pathname);
+
   function isInsideWarList(el) {
     const WAR_SELS='[class*="rankedWar"],[class*="ranked-war"],[class*="warFilter"],[class*="war-filter"],[class*="memberList"],[class*="member-list"],[class*="factionMembers"],[class*="members-list"],[class*="membersTable"]';
     let node=el.parentElement;
@@ -1702,6 +1917,7 @@
   }
 
   function injectTargetButtons() {
+    if (!IS_FACTIONS_PAGE) return;
     document.querySelectorAll('a[href*="profiles.php?XID="]').forEach(profileA => {
       if(panel.contains(profileA))return;
       if(profileA.dataset.chainBtnInjected)return;
