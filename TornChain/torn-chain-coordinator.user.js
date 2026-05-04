@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.2.8
+// @version      4.2.9
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -2628,21 +2628,33 @@
               timeout:10000,
               onload(r) {
                 if (r.status>=200 && r.status<300) {
-                  showBanner("chain-banner-debug", true, "✓ Lobby check-in OK. fid="+factionId+" uid="+fbUid+" Starting sync…");
-                  setTimeout(()=>showBanner("chain-banner-debug",false), 5000);
+                  showBanner("chain-banner-debug", true, "✓ Lobby check-in OK. fid="+factionId+" uid="+fbUid+" Verifying…");
                   setSyncDot("live");
-                  fbRegisterMember();   // write to /factions/{fid}/members/{fbUid} under new rules
-                  // Check whitelist before starting sync — non-whitelisted factions are blocked
-                  fbCheckWhitelist(allowed => {
-                    if (!allowed) {
-                      showBanner("chain-banner-locked", true);
-                      setSyncDot("error");
-                      return;
-                    }
-                    showBanner("chain-banner-locked", false);
-                    fbStartMainListener();
-                    pollFactionChain();
-                    setInterval(pollFactionChain, CHAIN_POLL_MS);
+                  fbRegisterMember();
+                  // Read back our own lobby entry before starting the main listener.
+                  // This acts as a propagation barrier — Firebase rules on /factions
+                  // read lobby.factionId, and the rules engine may not see the lobby
+                  // write yet if we poll immediately after the PUT returns 200.
+                  // A successful GET of our own lobby entry guarantees it's committed.
+                  const lobbyReadUrl = P.lobbyMe();
+                  GM_xmlhttpRequest({
+                    method: "GET", url: lobbyReadUrl, timeout: 8000,
+                    onload(rr) {
+                      setTimeout(()=>showBanner("chain-banner-debug",false), 3000);
+                      fbCheckWhitelist(allowed => {
+                        if (!allowed) {
+                          showBanner("chain-banner-locked", true);
+                          setSyncDot("error");
+                          return;
+                        }
+                        showBanner("chain-banner-locked", false);
+                        fbStartMainListener();
+                        pollFactionChain();
+                        setInterval(pollFactionChain, CHAIN_POLL_MS);
+                      });
+                    },
+                    onerror()  { /* proceed anyway */ fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    ontimeout(){ /* proceed anyway */ fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
                   });
                 } else {
                   setSyncDot("error");
@@ -2676,7 +2688,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "4.2.8";
+  const CURRENT_VERSION = "4.2.9";
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
