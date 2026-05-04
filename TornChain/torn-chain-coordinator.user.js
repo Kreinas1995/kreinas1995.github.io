@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      3.8.1
+// @version      4.0.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,8 @@
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
 
   // ─── Timing constants ─────────────────────────────────────────────────────
-    const PRESENCE_HEARTBEAT   = 15000;
+  const CHAIN_POLL_MS        = 5000;
+  const PRESENCE_HEARTBEAT   = 15000;
   const PRESENCE_TIMEOUT     = 35000;
   const HIT_DELAY_MS         = 4 * 60 * 1000;
   const HIT_INTERVAL         = 5 * 60 * 1000;
@@ -63,7 +64,16 @@
   const SK_CHAIN_COUNT    = "chain_live_count";
 
   // ─── App state ────────────────────────────────────────────────────────────
-  let tornApiKey    = (GM_getValue(SK_API_KEY, "") || "").trim();
+  // Read API key: localStorage first (survives TM UUID changes on reinstall /
+  // paste-install), fall back to GM storage (works with proper TM auto-updates).
+  // Write to both so whichever path works next time.
+  let tornApiKey = "";
+  try { tornApiKey = (localStorage.getItem("tcc_api_key") || "").trim(); } catch { /**/ }
+  if (!tornApiKey) tornApiKey = (GM_getValue(SK_API_KEY, "") || "").trim();
+  if (tornApiKey) {
+    try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ }
+    GM_setValue(SK_API_KEY, tornApiKey);
+  }
   let panelW        = GM_getValue(SK_PANEL_W, 360);
   let panelH        = GM_getValue(SK_PANEL_H, null);
   let viewMode      = GM_getValue(SK_VIEW_MODE, 1);
@@ -89,7 +99,6 @@
   let liveChainSecs    = null;
   let lastTimerReadAt  = null;
   let liveChainCount   = null;
-  let chainCooldown    = false;   // true when chain ended but cooldown timer running
   let lastKnownCount   = null;
   let chainConfirmed   = false;
   let chainHit1Time    = null;
@@ -130,7 +139,10 @@
     members:     () => `${fBase()}/members.json${auth()}`,
     member:      uid => `${fBase()}/members/${uid}.json${auth()}`,
     memberById:  id  => `${fBase()}/members/torn_${id}.json${auth()}`,
-    chainState:  () => `${fBase()}/chainState.json${auth()}`,
+    // Lobby: keyed by fbUid — auth.uid === $uid always passes, no chicken-and-egg
+    lobbyMe:      () => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}.json${auth()}` : null,
+    lobbyMeField: f  => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}/${f}.json${auth()}` : null,
+    lobbyAll:     () => `${FIREBASE_DB_URL}/lobby.json${auth()}`,
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -296,11 +308,6 @@
       background:rgba(255,140,0,.07) !important; border-bottom:1px solid rgba(255,140,0,.12) !important;
       text-align:center !important; flex-shrink:0 !important; letter-spacing:.2px !important;
     }
-    #chain-cooldown-msg {
-      font-size:10px !important; color:#88ccff !important; padding:3px 10px !important;
-      background:rgba(80,160,255,.07) !important; border-bottom:1px solid rgba(80,160,255,.15) !important;
-      text-align:center !important; flex-shrink:0 !important; letter-spacing:.2px !important;
-    }
     @keyframes chain-pulse { from{background:rgba(255,85,85,.04)} to{background:rgba(255,85,85,.14)} }
 
     /* ── Popovers ── */
@@ -365,28 +372,18 @@
     }
 
     /* ── Hit list ── */
-    /* ── Sticky NOW/on-deck rows ── */
-    /* Pending hits marked sticky sit at top when scrolled above, bottom when scrolled below */
-    .chain-hit-row.sticky-top {
-      position:sticky !important;
-      top:0 !important;
-      z-index:10 !important;
-      background:rgba(12,15,22,.97) !important;
-      border-bottom:1px solid rgba(68,255,136,.2) !important;
+    /* ── Pinned NOW/on-deck rows ── */
+    #chain-pinned {
+      flex-shrink:0 !important; background:rgba(0,0,0,.18) !important;
     }
-    .chain-hit-row.sticky-bottom {
-      position:sticky !important;
-      bottom:0 !important;
-      z-index:10 !important;
-      background:rgba(12,15,22,.97) !important;
-      border-top:1px solid rgba(255,200,0,.2) !important;
+    #chain-pinned .chain-hit-row.due {
+      background:rgba(68,255,136,.08) !important;
+      border-left-color:#44ff88 !important;
+      animation:none !important;  /* no flicker on pinned row */
     }
-    .chain-hit-row.sticky-top.due,
-    .chain-hit-row.sticky-bottom.due {
-      background:rgba(12,22,15,.97) !important;
-    }
+    #chain-pinned .chain-hit-row { border-radius:0 !important; }
 
-    #chain-panel-inner { overflow-y:auto !important; flex:1 !important; max-height:340px !important; padding:4px 0 !important; }
+    #chain-panel-inner { overflow-y:auto !important; flex:1 !important; max-height:280px !important; padding:4px 0 !important; }
     #chain-panel-inner::-webkit-scrollbar { width:5px; }
     #chain-panel-inner::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:3px; }
 
@@ -468,15 +465,12 @@
   panel.innerHTML = `
     <div id="chain-panel-header">
       <button id="chain-api-btn" title="Set Torn API key">API</button>
-      <a id="chain-update-btn" href="https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js" target="_blank" title="Install latest version" style="background:rgba(255,200,0,.15);border:1px solid rgba(255,200,0,.35);color:#ffd700;border-radius:5px;padding:2px 6px;font-size:10px;font-weight:700;cursor:pointer;text-decoration:none;line-height:1.5;white-space:nowrap;flex-shrink:0">Update</a>
       <span id="chain-panel-title">⛓ Chain Board</span>
       <span id="chain-pill-content">
         <span id="chain-pill-icon">⛓</span>
         <span id="chain-pill-timer" class="ct-none">—</span>
-        <span id="chain-pill-hitnum" style="font-size:10px;color:#556;font-weight:700;margin-left:4px"></span>
         <span id="chain-pill-sep" style="color:#334;font-size:10px">→</span>
-        <span id="chain-pill-next" style="font-size:11px;font-weight:600;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0e0e0">—</span>
-        <a id="chain-pill-attack" class="chain-hit-attack" href="#" target="_blank" style="display:none;width:18px;height:18px;font-size:12px">🗡</a>
+        <span id="chain-pill-next" style="font-size:11px;font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0e0e0">—</span>
         <span id="chain-pill-badge">0</span>
       </span>
       <span id="chain-sync-dot" title="Sync status"></span>
@@ -518,7 +512,6 @@
       <span id="chain-count-badge" class="none">0</span>
     </div>
     <div id="chain-warming-msg" style="display:none">🔥 Chain warming up — keep hitting!</div>
-    <div id="chain-cooldown-msg" style="display:none">❄ Chain cooling down — wait for next chain.</div>
 
     <div id="chain-panel-body">
       <div id="chain-banner-nokey"  class="chain-banner warn" style="display:none">⚠ No API key — click API above.</div>
@@ -526,11 +519,15 @@
       <div id="chain-banner-nofact" class="chain-banner info" style="display:none">ℹ Not in a faction — queue unavailable.</div>
       <div id="chain-banner-status" class="chain-banner info" style="display:none"></div>
       <div id="chain-banner-debug"  class="chain-banner warn" style="display:none;font-size:10px;word-break:break-all"></div>
-
+      <div id="chain-banner-update" class="chain-banner warn" style="display:none">
+        ⬆ New version available — <a id="chain-update-link" href="#" target="_blank" style="color:#ffd700;font-weight:700;text-decoration:underline">click to update</a>
+        <span id="chain-update-ver" style="color:#ffaa44;font-size:10px;margin-left:4px"></span>
+      </div>
       <div id="chain-col-header" style="display:none">
         <span>#</span><span>Claimer</span><span>Target</span>
         <span style="text-align:right">Window</span><span></span><span></span>
       </div>
+      <div id="chain-pinned" style="display:none;border-bottom:2px solid rgba(68,255,136,.2);flex-shrink:0"></div>
       <div id="chain-panel-inner">
         <div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">
           No hits queued.<br>Click 🎯 next to an attack button.
@@ -772,15 +769,19 @@
     const val = apiInput.value.trim();
     if (!val) { apiStatus.textContent="Please enter a key."; apiStatus.style.color="#ff8888"; return; }
     tornApiKey = val; GM_setValue(SK_API_KEY, tornApiKey);
+    try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ }
     apiStatus.textContent="Saved — connecting…"; apiStatus.style.color="#ffcc66";
     updateApiBtn(); setTimeout(closeAllPopovers, 700); fetchOwnProfile();
   };
-  apiClear.onclick = () => { tornApiKey=""; GM_setValue(SK_API_KEY,""); apiInput.value=""; apiStatus.textContent="Key cleared."; apiStatus.style.color="#ff8888"; updateApiBtn(); showBanner("chain-banner-nokey",true); };
+  apiClear.onclick = () => { tornApiKey=""; GM_setValue(SK_API_KEY,""); try{localStorage.removeItem("tcc_api_key");}catch{/**/ } apiInput.value=""; apiStatus.textContent="Key cleared."; apiStatus.style.color="#ff8888"; updateApiBtn(); showBanner("chain-banner-nokey",true); };
   apiCancel.onclick = closeAllPopovers;
   apiInput.addEventListener("keydown", e => { if(e.key==="Enter") apiSave.click(); });
   function updateApiBtn() {
     apiBtn.classList.toggle("has-key", !!tornApiKey);
     apiBtn.title = tornApiKey ? `API key set (${ownName}) — click to change` : "Set Torn API key";
+    if (tornApiKey && !fbToken) {
+      showBanner("chain-banner-status", true, "Connecting…");
+    }
   }
   updateApiBtn();
 
@@ -1053,15 +1054,46 @@
   //  Firebase member registration + heartbeat
   // ══════════════════════════════════════════════════════════════════════════
   function fbRegisterMember() {
-    if (!factionId || !ownId || !fbConfigured()) return;
-    // Use torn_<ownId> as the key so the same player always overwrites their
-    // own entry regardless of which anonymous Firebase UID they get this session.
-    fbPut(P.memberById(ownId), { name: ownName, lastSeen: Date.now(), tornId: ownId });
+    if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
+    // Write to /lobby/{fbUid} — this path uses auth.uid === $uid so it ALWAYS
+    // succeeds on first login without any pre-existing member record.
+    // The lobby record includes factionId so the faction board can filter by faction.
+    const lobbyUrl = P.lobbyMe();
+    if (!lobbyUrl) return;
+    fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() });
   }
 
   function fbHeartbeat() {
-    if (!factionId || !ownId || !fbConfigured()) return;
-    fbPut(`${fBase()}/members/torn_${ownId}/lastSeen.json${auth()}`, Date.now());
+    if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
+    // Heartbeat goes to lobby — same rule (auth.uid === $uid), always permitted.
+    const url = P.lobbyMeField("lastSeen");
+    if (url) fbPut(url, Date.now());
+  }
+
+  // Read /lobby and populate presenceMap with members of the same faction.
+  // Lobby entries are keyed by fbUid and include { name, tornId, factionId, lastSeen }.
+  function fbSyncLobbyPresence() {
+    if (!factionId || !fbConfigured()) return;
+    const url = P.lobbyAll();
+    GM_xmlhttpRequest({
+      method: "GET", url, timeout: 8000,
+      onload(r) {
+        if (r.status >= 200 && r.status < 300) {
+          try {
+            const lobby = JSON.parse(r.responseText);
+            if (!lobby || typeof lobby !== "object") return;
+            // Merge lobby entries for this faction into presenceMap
+            Object.entries(lobby).forEach(([uid, m]) => {
+              if (m && m.factionId === factionId) {
+                presenceMap.set(uid, m);
+              }
+            });
+            updateOnlineCount();
+          } catch { /**/ }
+        }
+      },
+      onerror(){}, ontimeout(){},
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1075,82 +1107,15 @@
   let ssePollInterval = null;
   let lastPollEtag    = null;   // rough change detection
 
-  let sseActive = false;
-
   function fbStartMainListener() {
     if (!factionId || !fbConfigured()) return;
     if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
 
-    // Try GM_xmlhttpRequest streaming SSE first (bypasses Torn CSP)
-    // Falls back to polling if streaming unavailable
-    sseActive = false;
-    tryGmSse();
-
-    // Always do an immediate full fetch on connect
+    // Immediate first fetch
     fbPollOnce();
-  }
 
-  let sseBuffer = "";
-  let sseRequest = null;
-
-  function tryGmSse() {
-    if (sseRequest) { try { sseRequest.abort(); } catch {/**/ } sseRequest = null; }
-    sseBuffer = "";
-    
-    let gotData = false;
-    sseRequest = GM_xmlhttpRequest({
-      method: "GET",
-      url: P.root().replace(".json", "") + ".json" + (fbToken ? "?auth="+fbToken : ""),
-      headers: { "Accept": "text/event-stream", "Cache-Control": "no-cache" },
-      responseType: "stream",
-      timeout: 0,
-      onprogress(r) {
-        if (!r.responseText) return;
-        gotData = true; sseActive = true;
-        // Parse SSE chunks
-        const newData = r.responseText.slice(sseBuffer.length);
-        sseBuffer = r.responseText;
-        parseSseText(newData);
-        setSyncDot("live");
-        // Cancel fallback polling while SSE is active
-        if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
-      },
-      onerror()  { sseActive = false; sseRequest = null; startFallbackPolling(); },
-      ontimeout(){ sseActive = false; sseRequest = null; startFallbackPolling(); },
-      onload()   { sseActive = false; sseRequest = null; setTimeout(tryGmSse, 2000); },
-    });
-
-    // If no data after 4s, SSE not supported — use polling
-    setTimeout(() => {
-      if (!gotData) {
-        sseActive = false;
-        if (sseRequest) { try { sseRequest.abort(); } catch {/**/ } sseRequest = null; }
-        startFallbackPolling();
-      }
-    }, 4000);
-  }
-
-  function parseSseText(text) {
-    const lines = text.split("\n");
-    let eventType = "put", dataLines = [];
-    for (const line of lines) {
-      if (line.startsWith("event:")) eventType = line.slice(6).trim();
-      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
-      else if (line === "" && dataLines.length) {
-        try {
-          const ev = JSON.parse(dataLines.join("\n"));
-          if (eventType === "put") applyPatch(ev.path, ev.data);
-          else if (eventType === "patch" && ev.data) Object.entries(ev.data).forEach(([k,v]) => applyPatch(ev.path+"/"+k, v));
-        } catch {/**/ }
-        eventType = "put"; dataLines = [];
-      }
-    }
-  }
-
-  function startFallbackPolling() {
-    if (ssePollInterval || sseActive) return;
-    console.log("[ChainCoord] SSE unavailable, polling every 3s");
-    ssePollInterval = setInterval(fbPollOnce, 3000);
+    // Then every 3 seconds
+    ssePollInterval = setInterval(fbPollOnce, 1500);
   }
 
   let pollInFlight = false;
@@ -1251,11 +1216,6 @@
       return;
     }
 
-    if (path === "/chainState") {
-      if (data && typeof data === "object") handleRemoteChainState(data);
-      return;
-    }
-
     if (path === "/permissions") {
       permissions = (data && typeof data === "object") ? data : {};
       updateClearBtn();
@@ -1298,6 +1258,12 @@
       return;
     }
 
+    // Lobby presence updates — filter by factionId to only show faction-mates
+    if (path === "/lobby" || path.startsWith("/lobby/")) {
+      fbSyncLobbyPresence();
+      return;
+    }
+
     // Root full load
     if (path === "/") {
       if (data && typeof data === "object") {
@@ -1323,12 +1289,13 @@
           }
         }
         if (data.session) handleRemoteSession(data.session);
-        if (data.chainState && typeof data.chainState === "object") handleRemoteChainState(data.chainState);
         permissions = (data.permissions && typeof data.permissions==="object") ? data.permissions : {};
         presenceMap.clear();
         if (data.members && typeof data.members==="object") {
           Object.entries(data.members).forEach(([uid,m]) => { if(m) presenceMap.set(uid,m); });
         }
+        // Also populate presence from lobby (lobby is the authoritative presence source)
+        fbSyncLobbyPresence();
         updateOnlineCount();
         reNumberPending();
         updateClearBtn();
@@ -1408,20 +1375,6 @@
     persistSession();
     renderPanel();
     updateChainTimerUI();
-  }
-
-  function handleRemoteChainState(state) {
-    // Non-leaders apply chain state written by the leader
-    if (!state || !state.updatedAt) return;
-    // Ignore stale data (> 15s old)
-    if (Date.now() - state.updatedAt > 15000) return;
-    onChainApiData({
-      current:  state.current  || 0,
-      timeout:  state.timeout  || 0,
-      cooldown: state.cooldown || 0,
-      start:    state.start    || 0,
-      modifier: state.modifier || 1,
-    });
   }
 
   function handleRemoteSession(data) {
@@ -1538,120 +1491,23 @@
   startTimerRetryLoop();
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Chain API poll — round-robin among all online users
-  //
-  //  Every second the 1s tick fires. Each client checks if it's their turn
-  //  to poll based on their position in the sorted-by-tornId online list.
-  //
-  //  Example: 6 users online, sorted by tornId → [A, B, C, D, E, F]
-  //   Second 0: A polls  (slot 0, tick % 6 === 0)
-  //   Second 1: B polls  (slot 1, tick % 6 === 1)
-  //   ...
-  //   Second 5: F polls  (slot 5, tick % 6 === 5)
-  //   Second 6: A polls again → collective rate = 1/s, each user = 1/6 s = 10/min
-  //
-  //  Rate cap: each user polls at most once every MAX(N, 3) seconds,
-  //  and never exceeds 20/min (one poll per 3s minimum).
-  //
-  //  Each client writes their result to Firebase /chainState, so all
-  //  clients benefit from every poll regardless of who made it.
+  //  Chain API poll — count + session detection
   // ══════════════════════════════════════════════════════════════════════════
-  let roundRobinTick  = 0;   // incremented every second
-  let myPollSlot      = -1;  // my position in the sorted online list
-  let myIntervalSecs  = 8;   // how many seconds between my polls (recalculated)
-  let lastMyPollAt    = 0;   // timestamp of my last poll
-
-  function getOnlineListSorted() {
-    // Returns sorted list of numeric tornIds for all online members including self
-    const now = Date.now();
-    const ids = [...presenceMap.values()]
-      .filter(m => (now - (m.lastSeen || 0)) < PRESENCE_TIMEOUT && m.tornId)
-      .map(m => parseInt(m.tornId))
-      .filter(id => !isNaN(id) && id > 0);
-    if (ownId) ids.push(parseInt(ownId));
-    // Deduplicate and sort ascending
-    return [...new Set(ids)].sort((a, b) => a - b);
-  }
-
-  function shouldIPollNow() {
-    if (!tornApiKey || !factionId || !ownId) return false;
-    const list      = getOnlineListSorted();
-    const myId      = parseInt(ownId);
-    const mySlot    = list.indexOf(myId);
-    if (mySlot === -1) return false;
-
-    const n         = list.length;
-    // Each user polls every N seconds (collective = 1/s)
-    // Cap: minimum 3s between polls = max 20/min per user
-    const interval  = Math.max(n, 3);
-    myIntervalSecs  = interval;
-    myPollSlot      = mySlot;
-
-    // My turn when tick % interval === mySlot
-    return (roundRobinTick % interval) === mySlot;
-  }
-
   function pollFactionChain() {
-    roundRobinTick++;
-
-    if (!shouldIPollNow()) return;
-
-    // Rate guard: never poll faster than 3s regardless of calculation
-    const now = Date.now();
-    if (now - lastMyPollAt < 3000) return;
-    lastMyPollAt = now;
-
+    if (!tornApiKey || !factionId) return;
     GM_xmlhttpRequest({
       method:"GET",
       url:`https://api.torn.com/faction/${factionId}?selections=chain&key=${encodeURIComponent(tornApiKey)}`,
       timeout:8000,
-      onload(r) {
-        try {
-          const d = JSON.parse(r.responseText);
-          if (d && d.error && d.error.code === 5) {
-            // Too many requests — back off: skip next 2 turns
-            lastMyPollAt = Date.now() + myIntervalSecs * 2000;
-            return;
-          }
-          if (d && !d.error) {
-            const chain = d.chain || {};
-            onChainApiData(chain);
-            // Broadcast to Firebase so all clients benefit from this poll
-            fbPut(P.chainState(), {
-              current:   chain.current  || 0,
-              timeout:   chain.timeout  || 0,
-              cooldown:  chain.cooldown || 0,
-              start:     chain.start    || 0,
-              modifier:  chain.modifier || 1,
-              updatedAt: Date.now(),
-              pollerId:  ownId,
-            });
-          }
-        } catch {/**/ }
-      },
+      onload(r) { try { const d=JSON.parse(r.responseText); if(d&&!d.error) onChainApiData(d.chain||{}); } catch {/**/ } },
       onerror(){}, ontimeout(){},
     });
   }
 
   function onChainApiData(chain) {
-    const newCount   = chain.current  || 0;
-    const newTimeout = chain.timeout  || 0;
-    const cooldown   = chain.cooldown || 0;   // seconds remaining in cooldown
-    const chainStart = chain.start    || 0;
-
-    // Cooldown: chain ended but cooldown timer is running
-    // Show banner but don't wipe hits yet — let cooldown expire first
-    if (cooldown > 0 || (newCount === 0 && newTimeout === 0 && chainSessionId)) {
-      chainCooldown = (cooldown > 0);
-      if (!chainCooldown && chainSessionId) {
-        // No cooldown, chain truly inactive
-        if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
-        onChainEnd();
-      }
-      updateChainTimerUI();
-      return;
-    }
-    chainCooldown = false;
+    const newCount   = chain.current || 0;
+    const newTimeout = chain.timeout || 0;
+    const chainStart = chain.start   || 0;
 
     if (newTimeout === 0 && chainSessionId) {
       if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
@@ -1715,19 +1571,12 @@
       const cls = disp<=30?"ct-danger":disp<=90?"ct-warn":"ct-ok";
       chainTimerVal.className=cls; pillTimer.className=cls;
     }
-    const cooldownEl = document.getElementById("chain-cooldown-msg");
-    if (chainCooldown) {
-      chainCountBadge.className="none";
-      warmingMsg.style.display = "none";
-      if (cooldownEl) cooldownEl.style.display = "";
-    } else if (count!==null) {
+    if (count!==null) {
       chainCountBadge.textContent=count;
       chainCountBadge.className = chainConfirmed?"running":"warming";
       warmingMsg.style.display  = chainConfirmed?"none":"";
-      if (cooldownEl) cooldownEl.style.display = "none";
     } else {
       chainCountBadge.className="none"; warmingMsg.style.display="none";
-      if (cooldownEl) cooldownEl.style.display = "none";
     }
   }
 
@@ -1914,21 +1763,20 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Panel render
   //
-  //  ALL rows live in one scrollable container (#chain-panel-inner).
-  //  The first 2 pending hits get CSS `position:sticky` so they:
-  //   - Scroll normally with the list
-  //   - Stick to the TOP when the user scrolls past them upward
-  //   - Stick to the BOTTOM when the user scrolls past them downward
-  //  (sticky-top on hit #1, sticky-bottom on hit #2)
-  //
-  //  Full re-render only happens when hit structure changes.
-  //  Timer/hosp cells are patched in-place by the 1s tick.
+  //  Architecture:
+  //   - #chain-pinned: sticky top area — shows hit #1 (NOW) and hit #2 (on deck)
+  //     always visible regardless of scroll. Never wiped, only text-patched.
+  //   - #chain-panel-inner: scrollable history (done hits) only.
+  //     Pending hits beyond #1 and #2 are also shown here, below done hits.
+  //   - Hosp flicker fix: innerHTML is only rewritten when the hit LIST
+  //     changes (different IDs). Timer/status cells are patched in the 1s tick.
   // ══════════════════════════════════════════════════════════════════════════
 
+  // Track last rendered hit ID list to avoid unnecessary full re-renders
   let lastRenderedIds = "";
 
-  function hitRowHtml(hit, queuePos, now, stickyClass) {
-    const hosp   = isHospStillIn(hit);
+  function hitRowHtml(hit, queuePos, now) {
+    const hosp = isHospStillIn(hit);
     const isDone = hit.status === "done";
     let rc, tc, timerText;
     if (isDone) {
@@ -1936,20 +1784,21 @@
       tc = "done"; timerText = "Done";
     } else {
       const rem = pendingCountdownMs(queuePos);
+      // pos=0 shows the chain timer (when to hit), not "NOW"
+      // "NOW" only shows when timer has expired (rem <= 0)
       timerText = rem <= 0 ? "NOW" : formatTime(rem);
-      tc  = hitTimerClass(rem);
-      rc  = hitRowClass(rem, hosp, hit.untracked);
+      tc = hitTimerClass(rem);
+      rc = hitRowClass(rem, hosp, hit.untracked);
     }
-    const sticky       = stickyClass ? ` ${stickyClass}` : "";
     const canRemoveHit = !isDone && (canClear || hit.claimedBy === ownName);
-    const hospSub      = (!isDone && hosp)
+    const hospSub = (!isDone && hosp)
       ? `<span class="chain-hit-hosp-sub" data-hosp-id="${hit.id}">out in ${formatTime(hit.hospReleaseAt - now)}</span>`
       : "";
     const attackDisabled = isDone || !hit.attackUrl || hit.attackUrl === "#";
     const outBadge = (hit.outside || !hit.targetId) && !isDone
       ? '<span style="font-size:9px;color:#88bbff;margin-right:2px">OUT</span>' : "";
     const claimerPrefix = isDone ? "✓ " : "";
-    return `<div class="chain-hit-row ${rc}${sticky}" data-hit-id="${hit.id}" data-queue-pos="${isDone ? -1 : queuePos}">
+    return `<div class="chain-hit-row ${rc}" data-hit-id="${hit.id}" data-queue-pos="${isDone ? -1 : queuePos}">
       <span class="chain-hit-num">${hit.chainHitNum || hit.hitNumber}</span>
       <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">${claimerPrefix}${escHtml(hit.claimedBy)}</span>
       <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${outBadge}${escHtml(hit.targetName)}</span>
@@ -1979,13 +1828,14 @@
 
   function renderPanel() {
     const inner   = document.getElementById("chain-panel-inner");
+    const pinned  = document.getElementById("chain-pinned");
     const colHead = document.getElementById("chain-col-header");
     const titleEl = document.getElementById("chain-panel-title");
     if (!inner) return;
 
     if (titleEl) titleEl.textContent = factionName ? `⛓ ${factionName}` : "⛓ Chain Board";
 
-    // Refresh 🎯 war-list buttons
+    // Refresh 🎯 buttons
     document.querySelectorAll(".chain-target-btn").forEach(btn => {
       const profileA = btn.nextElementSibling;
       if (!profileA) return;
@@ -2004,121 +1854,100 @@
     pillBadge.classList.toggle("visible", pendingHits.length > 0);
     if (iconBadge) { iconBadge.textContent = pendingHits.length; iconBadge.classList.toggle("visible", pendingHits.length > 0); }
     if (pillNext) {
-      const nextUp   = (!nextMissesChain && pendingHits[0]) || null;
-      const pillHit  = document.getElementById("chain-pill-hitnum");
-      const pillAtk  = document.getElementById("chain-pill-attack");
+      const nextUp = pendingHits[0];
       pillNext.textContent = nextUp ? nextUp.targetName : "Unclaimed";
       pillNext.style.color = nextUp ? "" : "#ff8888";
       if (pillSep) pillSep.style.display = "";
-      if (pillHit) pillHit.textContent = nextUp ? `#${nextUp.hitNumber}` : "";
-      if (pillAtk) {
-        if (nextUp && nextUp.attackUrl && nextUp.attackUrl !== "#") {
-          pillAtk.href = nextUp.attackUrl;
-          pillAtk.style.display = "";
-        } else {
-          pillAtk.style.display = "none";
+    }
+
+    // ── Pinned section: hit #1 (NOW) + hit #2 (on deck) ──────────────────────
+    if (pinned) {
+      if (pendingHits.length > 0) {
+        pinned.style.display = "";
+        const now = Date.now();
+        let pinnedHtml = "";
+        // Always show first 2 pending hits pinned
+        pendingHits.slice(0, 2).forEach((hit, i) => { pinnedHtml += hitRowHtml(hit, i, now); });
+        // If no queue (just unclaimed) show unclaimed row
+        if (pendingHits.length === 0) {
+          const nextSlot = getHighestDoneHitNum() + 1;
+          const disp = Math.round(chainTimerMs() / 1000);
+          const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
+          pinnedHtml = `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span></div>`;
         }
+        pinned.innerHTML = pinnedHtml;
+        wireRemoveButtons(pinned);
+      } else if (liveChainCount !== null) {
+        pinned.style.display = "";
+        const nextSlot = getHighestDoneHitNum() + 1;
+        const disp = Math.round(chainTimerMs() / 1000);
+        const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
+        pinned.innerHTML = `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
+      } else {
+        pinned.style.display = "none";
       }
     }
-    // Next-hit strip (pill mode)
-    const nextHit = pendingHits[0] || null;
-    if (nextHit) {
-      const rem0 = pendingCountdownMs(0);
-      nextNum.textContent   = `#${nextHit.hitNumber}`;
-      nextName.textContent  = nextHit.targetName;
-      nextName.style.color  = "";
-      nextTimer.textContent = rem0 <= 0 ? "NOW" : formatTime(rem0);
-      nextTimer.className   = hitTimerClass(rem0);
-      nextAttack.href       = nextHit.attackUrl; nextAttack.style.display = "";
-    } else {
-      const nextSlot = getHighestDoneHitNum() + 1;
-      nextNum.textContent  = `#${nextSlot}`;
-      nextName.textContent = "Unclaimed"; nextName.style.color = "#ff8888";
-      nextAttack.style.display = "none";
-      const rem  = chainTimerMs();
-      const disp = Math.round(rem / 1000);
-      nextTimer.textContent = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-      nextTimer.className   = hitTimerClass(rem);
-    }
 
-    // If the next queued hit's window is beyond the chain timer, it won't land in time
-    // Show Unclaimed as the effective "next" hit
-    const chainMs        = chainTimerMs();
-    const nextQueued     = pendingHits[0];
-    const nextMissesChain = nextQueued && chainMs > 0 && pendingCountdownMs(0) > chainMs + 5000;
+    // ── Scrollable inner: done history + overflow pending ────────────────────
+    // Build a key from all hit IDs+statuses to detect structural changes
+    const allHits = [...doneHits, ...pendingHits.slice(2)];
+    const renderKey = allHits.map(h => h.id + h.status + (h.chainHitNum||"")).join("|");
 
-    // Empty state
     const hasDoneOrPending = doneHits.length > 0 || pendingHits.length > 0;
     if (!hasDoneOrPending) {
       colHead.style.display = "none";
-      if (liveChainCount !== null) {
-        colHead.style.display = "";
-        const disp = Math.round(chainTimerMs() / 1000);
-        const t    = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-        const tc   = disp <= 30 ? "due" : disp <= 90 ? "soon" : "wait";
-        const slot = getHighestDoneHitNum() + 1;
-        inner.innerHTML = `<div class="chain-hit-row unclaimed sticky-top">
-          <span class="chain-hit-num">${slot}</span>
-          <span class="chain-hit-claimer">—</span>
-          <span class="chain-hit-target">Unclaimed</span>
-          <span class="chain-hit-timer ${tc}">${t}</span>
-          <span></span><span></span>
-        </div>`;
-      } else {
+      if (!pinned || pinned.style.display === "none") {
         inner.innerHTML = `<div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">No hits queued.<br>Click 🎯 next to an attack button.</div>`;
+      } else {
+        inner.innerHTML = "";
       }
-      lastRenderedIds = "";
+      lastRenderedIds = renderKey;
       return;
     }
 
     colHead.style.display = "";
-    const now = Date.now();
 
-    // Build render key — only re-render when structure changes
-    const renderKey = [...doneHits, ...pendingHits].map(h => h.id + h.status + (h.chainHitNum || "")).join("|");
-    if (renderKey === lastRenderedIds) return;
-    lastRenderedIds = renderKey;
+    // Only do full innerHTML rewrite when structure changes (avoids flicker)
+    if (renderKey !== lastRenderedIds) {
+      lastRenderedIds = renderKey;
+      const now = Date.now();
+      let html = "";
 
-    // Preserve scroll position
-    const prevScroll  = inner.scrollTop;
-    const atBottom    = inner.scrollHeight - prevScroll - inner.clientHeight < 40;
+      // Done hits (history)
+      for (const hit of doneHits) {
+        html += hitRowHtml(hit, -1, now);
+      }
 
-    let html = "";
+      // Pending hits beyond the pinned 2
+      let queuePos = 2;
+      for (const hit of pendingHits.slice(2)) {
+        html += hitRowHtml(hit, queuePos, now);
+        queuePos++;
+      }
 
-    // Done hits (history) — no sticky
-    for (const hit of doneHits) {
-      html += hitRowHtml(hit, -1, now, null);
+      // Unclaimed placeholder after queue
+      if (pendingHits.length === 0 && doneHits.length > 0) {
+        const nextSlot = getHighestDoneHitNum() + 1;
+        const disp = Math.round(chainTimerMs() / 1000);
+        const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
+        html += `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
+      }
+
+      const prevScroll = inner.scrollTop;
+      const wasAtBottom = inner.scrollHeight - inner.scrollTop - inner.clientHeight < 40;
+      inner.innerHTML = html;
+      wireRemoveButtons(inner);
+
+      // Scroll behavior:
+      // - First load (prevScroll=0, no history): show top of scrollable area
+      // - User has scrolled up to history: preserve their position
+      // - User was at the bottom (watching queue): stay at bottom
+      if (wasAtBottom || prevScroll === 0) {
+        inner.scrollTop = inner.scrollHeight;
+      } else {
+        inner.scrollTop = prevScroll;
+      }
     }
-
-    // Pending hits:
-    //   hit[0] → sticky-top  (locks to top when scrolled above)
-    //   hit[1] → sticky-bottom (locks to bottom when scrolled below)
-    //   hit[2+] → normal
-    pendingHits.forEach((hit, i) => {
-      const stickyClass = i === 0 ? "sticky-top" : i === 1 ? "sticky-bottom" : null;
-      html += hitRowHtml(hit, i, now, stickyClass);
-    });
-
-    // Unclaimed placeholder when no pending hits
-    if (pendingHits.length === 0 && doneHits.length > 0) {
-      const slot  = getHighestDoneHitNum() + 1;
-      const disp  = Math.round(chainTimerMs() / 1000);
-      const t     = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-      const tc    = disp <= 30 ? "due" : disp <= 90 ? "soon" : "wait";
-      html += `<div class="chain-hit-row unclaimed sticky-bottom">
-        <span class="chain-hit-num">${slot}</span>
-        <span class="chain-hit-claimer">—</span>
-        <span class="chain-hit-target">Unclaimed</span>
-        <span class="chain-hit-timer ${tc}">${t}</span>
-        <span></span><span></span>
-      </div>`;
-    }
-
-    inner.innerHTML = html;
-    wireRemoveButtons(inner);
-
-    // Restore scroll: stay at bottom if was there, otherwise preserve position
-    inner.scrollTop = atBottom ? inner.scrollHeight : prevScroll;
   }
 
 
@@ -2129,26 +1958,24 @@
     const now = Date.now();
     updateChainTimerUI();
     scrapeRecentAttacks();
-    pollFactionChain();   // round-robin: each user polls on their turn
 
-    // Patch timer cells in-place (avoids full re-render, prevents hosp flicker)
-    const pendingList = getPendingHits();
+    // Patch timer cells in BOTH pinned and scrollable sections (avoids full re-render)
     document.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
       const pos = parseInt(cell.dataset.pos);
       if (pos < 0) return;
-      const hit  = pendingList[pos];
+      const hit = [...hitMap.values()].find(h => h.status === "pending" && !([...hitMap.values()].filter(x=>x.status==="pending").sort((a,b)=>a.hitNumber-b.hitNumber).slice(0,pos).some(x=>x===h)) );
       const hosp = hit ? isHospStillIn(hit) : false;
-      const rem  = pendingCountdownMs(pos);
+      const rem = pendingCountdownMs(pos);
       cell.textContent = rem <= 0 ? "NOW" : formatTime(rem);
       cell.className   = `chain-hit-timer ${hitTimerClass(rem)}`;
       const row = cell.closest(".chain-hit-row");
       if (row) {
-        const sticky = pos === 0 ? " sticky-top" : pos === 1 ? " sticky-bottom" : "";
-        row.className = `chain-hit-row ${hitRowClass(rem, hosp, hit?.untracked || false)}${sticky}`;
+        const newRc = pos===0?"due":hitRowClass(rem,hosp,false);
+        if (!row.closest("#chain-pinned")) row.className = `chain-hit-row ${newRc}`;
       }
     });
-    // Update hosp sub-timers
-    document.querySelectorAll("[data-hosp-id]").forEach(hc => {
+    // Update hosp sub-timers in pinned section too
+    document.querySelectorAll("#chain-pinned [data-hosp-id], #chain-panel-inner [data-hosp-id]").forEach(hc => {
       const hit = hitMap.get(hc.dataset.hospId);
       if (!hit) { hc.remove(); return; }
       if (!isHospStillIn(hit)) { hc.textContent = ""; hc.removeAttribute("data-hosp-id"); }
@@ -2281,71 +2108,39 @@
   // ── Top-bar chain status badge (all pages) ────────────────────────────────
   let topBarBadge = null;
 
-  // Selectors for Torn's top status bar chain area (tried in order)
-  const TOP_BAR_SELS = [
-    // Chain icon link in the status icons row
-    'a[href*="factions.php?step=your"]:not(#chain-panel *)',
-    // Chain icon by class hint
-    '[class*="chain"]:not(#chain-panel *):not([class*="chain-"])',
-    // The status icons bar itself — insert at end
-    '[class*="statusIcons"]:not(#chain-panel *)',
-    '[class*="status-icons"]:not(#chain-panel *)',
-    '[class*="topBar"]:not(#chain-panel *)',
-    '[class*="top-bar"]:not(#chain-panel *)',
-    '[class*="userIcons"]:not(#chain-panel *)',
-    // Fallback: torn's fixed header
-    '#topBar:not(#chain-panel *)',
-    '#header:not(#chain-panel *)',
-    'header:not(#chain-panel *)',
-  ];
-
-  function findTopBarAnchor() {
-    for (const sel of TOP_BAR_SELS) {
-      try {
-        const el = document.querySelector(sel);
-        if (el) return el;
-      } catch { /**/ }
-    }
-    return null;
-  }
-
   function injectTopBarBadge() {
-    if (topBarBadge && document.body.contains(topBarBadge)) return;
-    topBarBadge = null;  // reset if detached
+    if (topBarBadge) return;  // already injected
 
-    const anchor = findTopBarAnchor();
-    if (!anchor) return;  // retry later via updateTopBarBadge
+    // Find Torn's chain link in the top bar — it's an <a> with href containing "chain"
+    // or the chain icon area in the sidebar stats
+    const chainLink = document.querySelector(
+      'a[href*="factions.php"]:not(#chain-panel *), [class*="chainIcon"]:not(#chain-panel *)'
+    );
+    const statsBar = document.querySelector('[class*="topStats"], [class*="top-stats"], [class*="statusIcons"]');
+    const insertAfter = chainLink || statsBar;
+    if (!insertAfter) return;
 
-    topBarBadge = document.createElement("div");
+    topBarBadge = document.createElement("span");
     topBarBadge.id = "chain-topbar-badge";
     topBarBadge.style.cssText = [
-      "display:none",
-      "position:fixed", "bottom:60px", "right:8px", "z-index:999998",
-      "align-items:center", "gap:4px",
-      "padding:4px 10px", "border-radius:20px",
-      "background:rgba(10,12,18,.95)", "border:1px solid rgba(255,255,255,.15)",
-      "font-size:12px", "font-family:monospace", "font-weight:700",
-      "color:#44ff88", "cursor:pointer", "line-height:1.4",
-      "white-space:nowrap", "box-shadow:0 4px 16px rgba(0,0,0,.5)",
-      "transition:opacity .2s",
+      "display:inline-flex", "align-items:center", "gap:3px",
+      "margin-left:6px", "padding:2px 6px", "border-radius:10px",
+      "background:rgba(16,18,24,.85)", "border:1px solid rgba(255,255,255,.15)",
+      "font-size:11px", "font-family:monospace", "font-weight:700",
+      "color:#44ff88", "cursor:default", "vertical-align:middle",
+      "line-height:1.4", "white-space:nowrap"
     ].join(";");
-    topBarBadge.title = "Chain active — click to open coordinator";
+    topBarBadge.title = "Chain Coordinator — click to open panel";
     topBarBadge.onclick = () => {
       viewMode = 0;
       GM_setValue(SK_VIEW_MODE, viewMode);
       applyViewMode();
     };
-    document.body.appendChild(topBarBadge);
+    insertAfter.parentNode.insertBefore(topBarBadge, insertAfter.nextSibling);
   }
 
   function updateTopBarBadge() {
-    // Don't show on factions page — the main panel is already there
-    if (IS_FACTIONS_PAGE) return;
-
-    if (!topBarBadge || !document.body.contains(topBarBadge)) {
-      injectTopBarBadge();
-      if (!topBarBadge) return;
-    }
+    if (!topBarBadge) { injectTopBarBadge(); return; }
 
     if (liveChainSecs === null || lastTimerReadAt === null) {
       topBarBadge.style.display = "none";
@@ -2357,22 +2152,14 @@
     const mm      = Math.floor(disp / 60);
     const ss      = String(disp % 60).padStart(2, "0");
     const count   = liveChainCount || 0;
-    const pending = getPendingHits();
-    const nextHit = pending[0];
     const danger  = disp <= 30;
     const warn    = disp <= 90;
-    const color   = danger ? "#ff5555" : warn ? "#ffcc66" : "#44ff88";
-    const border  = danger ? "rgba(255,85,85,.4)" : warn ? "rgba(255,200,0,.3)" : "rgba(68,255,136,.3)";
 
-    topBarBadge.style.display    = "flex";
-    topBarBadge.style.color      = color;
-    topBarBadge.style.borderColor = border;
-
-    // Show: ⛓ 3:42 · #16 · → TargetName
-    let label = `⛓ ${mm}:${ss} · #${count}`;
-    if (nextHit) label += ` · → ${nextHit.targetName}`;
-    topBarBadge.textContent = label;
-    topBarBadge.title = `Chain ${count} hits — ${mm}:${ss} remaining${nextHit ? `. Next: ${nextHit.targetName}` : ""}. Click to open coordinator.`;
+    topBarBadge.style.display = "";
+    topBarBadge.style.color   = danger ? "#ff5555" : warn ? "#ffcc66" : "#44ff88";
+    topBarBadge.style.borderColor = danger ? "rgba(255,85,85,.4)" : warn ? "rgba(255,200,0,.3)" : "rgba(68,255,136,.3)";
+    topBarBadge.textContent   = `⛓ ${mm}:${ss}  #${count}`;
+    topBarBadge.title         = `Chain ${count} hits — ${mm}:${ss} remaining. Click to open panel.`;
   }
 
   function injectTargetButtons() {
@@ -2470,34 +2257,35 @@
               return;
             }
 
-            // CRITICAL: register member FIRST and wait for confirmation
-            // before opening the SSE listener or writing any faction data.
-            // DB rules require /members/{uid} to exist before /hits or /session
-            // writes are permitted — fire-and-forget causes a race condition.
-            const memberUrl = P.memberById(ownId);
-            showBanner("chain-banner-debug", true, "⏳ Registering member… uid="+fbUid+" fid="+factionId);
+            // Write to /lobby/{fbUid} — auth.uid === $uid rule always passes.
+            // No chicken-and-egg: the lobby path doesn't require pre-existing membership.
+            // After the lobby write succeeds we start listening; hits/session writes go to
+            // /factions/{fid}/... which the rules gate on lobby membership (see Firebase rules).
+            const lobbyUrl = P.lobbyMe();
+            showBanner("chain-banner-debug", true, "⏳ Lobby check-in… uid="+fbUid+" fid="+factionId);
             GM_xmlhttpRequest({
-              method:"PUT", url: memberUrl,
+              method:"PUT", url: lobbyUrl,
               headers:{"Content-Type":"application/json"},
-              data: JSON.stringify({ name: ownName, lastSeen: Date.now() }),
+              data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() }),
               timeout:10000,
               onload(r) {
                 if (r.status>=200 && r.status<300) {
-                  showBanner("chain-banner-debug", true, "✓ Member registered. fid="+factionId+" uid="+fbUid+" Starting SSE…");
+                  showBanner("chain-banner-debug", true, "✓ Lobby check-in OK. fid="+factionId+" uid="+fbUid+" Starting sync…");
                   setTimeout(()=>showBanner("chain-banner-debug",false), 5000);
                   setSyncDot("live");
                   fbStartMainListener();
-                  pollFactionChain();  // first immediate poll
+                  pollFactionChain();
+                  setInterval(pollFactionChain, CHAIN_POLL_MS);
                 } else {
                   setSyncDot("error");
                   let msg = r.responseText;
                   try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
-                  showBanner("chain-banner-debug", true, "❌ Member reg failed "+r.status+": "+msg+" | url: "+memberUrl.replace(/auth=[^&]+/,"auth=***"));
-                  console.warn("[ChainCoord] Member registration failed", r.status, r.responseText, memberUrl);
+                  showBanner("chain-banner-debug", true, "❌ Lobby check-in failed "+r.status+": "+msg+" | url: "+lobbyUrl.replace(/auth=[^&]+/,"auth=***"));
+                  console.warn("[ChainCoord] Lobby check-in failed", r.status, r.responseText, lobbyUrl);
                 }
               },
-              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Member reg network error — check @connect firebaseio.com"); },
-              ontimeout() { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Member reg timed out"); },
+              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Lobby check-in network error — check @connect firebaseio.com"); },
+              ontimeout() { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Lobby check-in timed out"); },
             });
 
             setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
@@ -2514,14 +2302,54 @@
   // ══════════════════════════════════════════════════════════════════════════
   GM_registerMenuCommand("Set Torn API Key", openApiPopover);
   GM_registerMenuCommand("Clear Torn API Key", () => {
-    tornApiKey=""; GM_setValue(SK_API_KEY,""); updateApiBtn(); showBanner("chain-banner-nokey",true);
+    tornApiKey=""; GM_setValue(SK_API_KEY,""); try{localStorage.removeItem("tcc_api_key");}catch{/**/ } updateApiBtn(); showBanner("chain-banner-nokey",true);
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Version info
+  //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION    = "3.8.0";
+  const CURRENT_VERSION = "4.0.1";
+  const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
+
+  function checkForUpdate() {
+    GM_xmlhttpRequest({
+      method: "GET",
+      url: SCRIPT_RAW_URL + "?nocache=" + Date.now(),
+      timeout: 10000,
+      onload(r) {
+        if (r.status !== 200) return;
+        const match = r.responseText.match(/@version\s+([\d.]+)/);
+        if (!match) return;
+        const latest = match[1];
+        if (isNewerVersion(latest, CURRENT_VERSION)) {
+          const banner = document.getElementById("chain-banner-update");
+          const link   = document.getElementById("chain-update-link");
+          const ver    = document.getElementById("chain-update-ver");
+          if (banner) {
+            banner.style.display = "";
+            banner.className = "chain-banner update";
+          }
+          if (link)  link.href = SCRIPT_INSTALL_URL;
+          if (ver)   ver.textContent = "(v" + CURRENT_VERSION + " → v" + latest + ")";
+        }
+      },
+      onerror()  {},
+      ontimeout(){},
+    });
+  }
+
+  function isNewerVersion(a, b) {
+    // Returns true if version string a is newer than b
+    const pa = a.split(".").map(Number);
+    const pb = b.split(".").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const na = pa[i] || 0, nb = pb[i] || 0;
+      if (na > nb) return true;
+      if (na < nb) return false;
+    }
+    return false;
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Boot
@@ -2529,6 +2357,7 @@
   renderPanel();
   fetchOwnProfile();
   injectTargetButtons();
-
+  // Check for updates once, 8 seconds after boot (non-blocking)
+  setTimeout(checkForUpdate, 8000);
 
 })();
