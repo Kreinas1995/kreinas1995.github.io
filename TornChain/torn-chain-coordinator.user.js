@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.2.5
+// @version      4.2.8
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -26,6 +26,7 @@
 // @connect      api.torn.com
 // @connect      firebaseio.com
 // @connect      googleapis.com
+// @connect      securetoken.googleapis.com
 // @updateURL    https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js
 // @run-at       document-idle
@@ -95,6 +96,7 @@
 
   // ─── Firebase state ───────────────────────────────────────────────────────
   let fbToken       = null;
+  let fbRefreshToken = null;  // used to refresh the ID token before it expires (1hr TTL)
   let fbUid         = null;
   let hitMap        = new Map();
   let permissions   = {};
@@ -929,6 +931,11 @@
     if (!fbConfigured()){ alert("Firebase not configured."); return; }
 
     const now2 = Date.now();
+    const activeHits = [...hitMap.values()].filter(h => h.status !== "done").sort((a,b) => a.scheduledAt - b.scheduledAt);
+    const scheduledAt = activeHits.length
+      ? activeHits[activeHits.length - 1].scheduledAt + HIT_INTERVAL
+      : now2;
+
     const outsideHit = {
       id:           `hit_${now2}_${Math.random().toString(36).slice(2)}`,
       hitNumber:    0,
@@ -936,7 +943,7 @@
       targetName:   "Outside Hit",
       claimedBy:    ownName,
       claimedAt:    now2,
-      scheduledAt:  now2,
+      scheduledAt,
       hospReleaseAt:null,
       attackUrl:    null,
       status:       "pending",
@@ -1233,11 +1240,46 @@
             console.warn("[ChainCoord] Firebase anon auth failed:", r.responseText);
             showBanner("chain-banner-status", true, "⚠ Firebase auth failed — check API key or project settings.");
           }
+          if (d.refreshToken) {
+            fbRefreshToken = d.refreshToken;
+            // Proactively refresh 5 minutes before the 1-hour expiry
+            const expiresIn = parseInt(d.expiresIn || 3600);
+            setTimeout(fbRefreshIdToken, (expiresIn - 300) * 1000);
+          }
           cb(d.idToken||null, d.localId||null);
         } catch(e) { console.warn("[ChainCoord] Firebase auth parse error",e); cb(null,null); }
       },
       onerror(e)  { console.warn("[ChainCoord] Firebase auth network error",e); cb(null,null); },
       ontimeout(){ console.warn("[ChainCoord] Firebase auth timeout"); cb(null,null); },
+    });
+  }
+
+  function fbRefreshIdToken() {
+    if (!fbRefreshToken) return;
+    GM_xmlhttpRequest({
+      method:"POST",
+      url:`https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`,
+      headers:{"Content-Type":"application/json"},
+      data:JSON.stringify({ grant_type:"refresh_token", refresh_token:fbRefreshToken }),
+      timeout:10000,
+      onload(r) {
+        try {
+          const d = JSON.parse(r.responseText);
+          if (d.id_token) {
+            fbToken = d.id_token;
+            if (d.refresh_token) fbRefreshToken = d.refresh_token;
+            const expiresIn = parseInt(d.expires_in || 3600);
+            setTimeout(fbRefreshIdToken, (expiresIn - 300) * 1000);
+            console.log("[ChainCoord] Firebase token refreshed OK");
+          } else {
+            console.warn("[ChainCoord] Token refresh failed:", r.responseText);
+            // Fall back to full re-auth
+            fbSignInAnon((token, uid) => { if (token) fbToken = token; });
+          }
+        } catch(e) { console.warn("[ChainCoord] Token refresh parse error",e); }
+      },
+      onerror()  { console.warn("[ChainCoord] Token refresh network error — will retry"); setTimeout(fbRefreshIdToken, 30000); },
+      ontimeout(){ console.warn("[ChainCoord] Token refresh timeout — will retry"); setTimeout(fbRefreshIdToken, 30000); },
     });
   }
 
@@ -1323,10 +1365,26 @@
           }
         } else {
           setSyncDot("error");
-          let msg = r.responseText;
-          try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
-          showBanner("chain-banner-debug", true, "❌ Poll failed "+r.status+": "+msg);
-          console.warn("[ChainCoord] Poll failed", r.status, r.responseText);
+          if (r.status === 401 || r.status === 403) {
+            // Could be expired token or whitelist denial.
+            // Try refreshing the token first — if that fixes it, it was expiry not whitelist.
+            if (fbRefreshToken) {
+              fbRefreshIdToken();
+              // Restart poll after a short delay to let the refresh complete
+              if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
+              setTimeout(() => { fbStartMainListener(); }, 3000);
+            } else {
+              // No refresh token — must be a genuine permission denial
+              showBanner("chain-banner-locked", true);
+              showBanner("chain-banner-debug", false);
+              if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
+            }
+          } else {
+            let msg = r.responseText;
+            try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
+            showBanner("chain-banner-debug", true, "❌ Poll failed "+r.status+": "+msg);
+            console.warn("[ChainCoord] Poll failed", r.status, r.responseText);
+          }
         }
       },
       onerror()  { pollInFlight=false; setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Poll network error — check @connect firebaseio.com"); },
@@ -2618,7 +2676,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "4.2.5";
+  const CURRENT_VERSION = "4.2.8";
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
