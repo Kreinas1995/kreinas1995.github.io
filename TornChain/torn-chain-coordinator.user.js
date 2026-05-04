@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.2.3
+// @version      4.2.5
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -415,7 +415,7 @@
 
     /* ── Column header ── */
     #chain-col-header {
-      display:grid !important; grid-template-columns:26px 1fr 1fr 58px 20px 18px !important;
+      display:grid !important; grid-template-columns:48px 1fr 1fr 58px 20px 18px !important;
       gap:0 5px !important; padding:4px 10px !important; font-size:10px !important;
       text-transform:uppercase !important; letter-spacing:.5px !important; color:#445 !important;
       border-bottom:1px solid rgba(255,255,255,.06) !important; flex-shrink:0 !important;
@@ -437,7 +437,7 @@
     #chain-panel-inner::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:3px; }
 
     .chain-hit-row {
-      display:grid !important; grid-template-columns:26px 1fr 1fr 58px 20px 18px !important;
+      display:grid !important; grid-template-columns:48px 1fr 1fr 58px 20px 18px !important;
       align-items:center !important; gap:0 5px !important; padding:4px 10px !important;
       border-left:3px solid transparent !important; font-size:11px !important; transition:background .1s !important;
     }
@@ -501,7 +501,7 @@
 
     /* Inline slot number input (leader/co-leader on pending rows) */
     .chain-hit-num-input {
-      width:22px !important; font-size:12px !important; font-weight:700 !important;
+      width:44px !important; font-size:12px !important; font-weight:700 !important;
       background:transparent !important; border:1px solid transparent !important;
       border-radius:4px !important; color:#556 !important; text-align:center !important;
       padding:0 !important; outline:none !important; font-family:inherit !important;
@@ -841,7 +841,7 @@
   //  Corner resize
   // ══════════════════════════════════════════════════════════════════════════
   (function makeResizable() {
-    const MIN_W=260,MAX_W=700,MIN_H=120,MAX_H=900;
+    const MIN_W=280,MAX_W=700,MIN_H=120,MAX_H=900;
     let resizing=false,sx,sy,sw,sh;
     function start(cx,cy){resizing=true;sx=cx;sy=cy;sw=panel.offsetWidth;sh=panel.offsetHeight;document.body.style.cursor="se-resize";}
     function move(cx,cy){if(!resizing)return;panel.style.width=Math.min(MAX_W,Math.max(MIN_W,sw+cx-sx))+"px";panel.style.height=Math.min(MAX_H,Math.max(MIN_H,sh+cy-sy))+"px";}
@@ -2618,7 +2618,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "4.2.3";
+  const CURRENT_VERSION = "4.2.5";
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
