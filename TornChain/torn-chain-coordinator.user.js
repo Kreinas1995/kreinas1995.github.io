@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      3.7.0
+// @version      3.7.2
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -900,12 +900,17 @@
     return"waiting";
   }
 
+  function chainTimerMs() {
+    if (liveChainSecs === null || lastTimerReadAt === null) return 0;
+    return Math.max(0, (liveChainSecs - (performance.now() - lastTimerReadAt) / 1000)) * 1000;
+  }
+
+  // pendingCountdownMs(pos): ms until hit at queue position pos should be attacked.
+  // pos=0 → attack when chain timer expires (= chain timer remaining)
+  // pos=1 → attack HIT_DELAY after pos=0 lands
+  // pos=N → attack N*HIT_DELAY after pos=0 lands
   function pendingCountdownMs(pos) {
-    if (pos===0) return 0;
-    const chcMs = liveChainSecs!==null && lastTimerReadAt!==null
-      ? Math.max(0,(liveChainSecs-(performance.now()-lastTimerReadAt)/1000))*1000
-      : 0;
-    return chcMs + (pos-1)*HIT_DELAY_MS;
+    return chainTimerMs() + pos * HIT_DELAY_MS;
   }
 
   function getPendingHits() {
@@ -1723,9 +1728,11 @@
       tc = "done"; timerText = "Done";
     } else {
       const rem = pendingCountdownMs(queuePos);
-      timerText = queuePos === 0 ? "NOW" : formatTime(rem);
-      tc = queuePos === 0 ? "due" : hitTimerClass(rem);
-      rc = queuePos === 0 ? "due" : hitRowClass(rem, hosp, hit.untracked);
+      // pos=0 shows the chain timer (when to hit), not "NOW"
+      // "NOW" only shows when timer has expired (rem <= 0)
+      timerText = rem <= 0 ? "NOW" : formatTime(rem);
+      tc = hitTimerClass(rem);
+      rc = hitRowClass(rem, hosp, hit.untracked);
     }
     const canRemoveHit = !isDone && (canClear || hit.claimedBy === ownName);
     const hospSub = (!isDone && hosp)
@@ -1808,7 +1815,7 @@
         // If no queue (just unclaimed) show unclaimed row
         if (pendingHits.length === 0) {
           const nextSlot = getHighestDoneHitNum() + 1;
-          const disp = Math.round(pendingCountdownMs(1) / 1000);
+          const disp = Math.round(chainTimerMs() / 1000);
           const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
           pinnedHtml = `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span></div>`;
         }
@@ -1817,7 +1824,7 @@
       } else if (liveChainCount !== null) {
         pinned.style.display = "";
         const nextSlot = getHighestDoneHitNum() + 1;
-        const disp = Math.round(pendingCountdownMs(1) / 1000);
+        const disp = Math.round(chainTimerMs() / 1000);
         const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
         pinned.innerHTML = `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
       } else {
@@ -1865,16 +1872,25 @@
       // Unclaimed placeholder after queue
       if (pendingHits.length === 0 && doneHits.length > 0) {
         const nextSlot = getHighestDoneHitNum() + 1;
-        const disp = Math.round(pendingCountdownMs(1) / 1000);
+        const disp = Math.round(chainTimerMs() / 1000);
         const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
         html += `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
       }
 
+      const prevScroll = inner.scrollTop;
+      const wasAtBottom = inner.scrollHeight - inner.scrollTop - inner.clientHeight < 40;
       inner.innerHTML = html;
       wireRemoveButtons(inner);
 
-      // Scroll to bottom of history so most recent done hit is visible
-      inner.scrollTop = inner.scrollHeight;
+      // Scroll behavior:
+      // - First load (prevScroll=0, no history): show top of scrollable area
+      // - User has scrolled up to history: preserve their position
+      // - User was at the bottom (watching queue): stay at bottom
+      if (wasAtBottom || prevScroll === 0) {
+        inner.scrollTop = inner.scrollHeight;
+      } else {
+        inner.scrollTop = prevScroll;
+      }
     }
   }
 
@@ -1894,8 +1910,8 @@
       const hit = [...hitMap.values()].find(h => h.status === "pending" && !([...hitMap.values()].filter(x=>x.status==="pending").sort((a,b)=>a.hitNumber-b.hitNumber).slice(0,pos).some(x=>x===h)) );
       const hosp = hit ? isHospStillIn(hit) : false;
       const rem = pendingCountdownMs(pos);
-      cell.textContent = pos===0 ? "NOW" : formatTime(rem);
-      cell.className   = `chain-hit-timer ${pos===0?"due":hitTimerClass(rem)}`;
+      cell.textContent = rem <= 0 ? "NOW" : formatTime(rem);
+      cell.className   = `chain-hit-timer ${hitTimerClass(rem)}`;
       const row = cell.closest(".chain-hit-row");
       if (row) {
         const newRc = pos===0?"due":hitRowClass(rem,hosp,false);
@@ -1911,12 +1927,15 @@
     });
 
     const nh = getPendingHits()[0];
-    if (nh) { nextTimer.textContent="NOW"; nextTimer.className="due"; }
-    else if (liveChainSecs !== null) {
-      const rem  = pendingCountdownMs(1);
+    if (nh) {
+      const rem0 = pendingCountdownMs(0);
+      nextTimer.textContent = rem0 <= 0 ? "NOW" : formatTime(rem0);
+      nextTimer.className   = hitTimerClass(rem0);
+    } else if (liveChainSecs !== null) {
+      const rem  = chainTimerMs();
       const disp = Math.round(rem/1000);
       nextTimer.textContent = `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`;
-      nextTimer.className   = disp<=30?"due":disp<=90?"soon":"wait";
+      nextTimer.className   = hitTimerClass(rem);
     }
 
     // Top-bar chain badge (all pages)
@@ -2033,39 +2052,71 @@
   // ── Top-bar chain status badge (all pages) ────────────────────────────────
   let topBarBadge = null;
 
+  // Selectors for Torn's top status bar chain area (tried in order)
+  const TOP_BAR_SELS = [
+    // Chain icon link in the status icons row
+    'a[href*="factions.php?step=your"]:not(#chain-panel *)',
+    // Chain icon by class hint
+    '[class*="chain"]:not(#chain-panel *):not([class*="chain-"])',
+    // The status icons bar itself — insert at end
+    '[class*="statusIcons"]:not(#chain-panel *)',
+    '[class*="status-icons"]:not(#chain-panel *)',
+    '[class*="topBar"]:not(#chain-panel *)',
+    '[class*="top-bar"]:not(#chain-panel *)',
+    '[class*="userIcons"]:not(#chain-panel *)',
+    // Fallback: torn's fixed header
+    '#topBar:not(#chain-panel *)',
+    '#header:not(#chain-panel *)',
+    'header:not(#chain-panel *)',
+  ];
+
+  function findTopBarAnchor() {
+    for (const sel of TOP_BAR_SELS) {
+      try {
+        const el = document.querySelector(sel);
+        if (el) return el;
+      } catch { /**/ }
+    }
+    return null;
+  }
+
   function injectTopBarBadge() {
-    if (topBarBadge) return;  // already injected
+    if (topBarBadge && document.body.contains(topBarBadge)) return;
+    topBarBadge = null;  // reset if detached
 
-    // Find Torn's chain link in the top bar — it's an <a> with href containing "chain"
-    // or the chain icon area in the sidebar stats
-    const chainLink = document.querySelector(
-      'a[href*="factions.php"]:not(#chain-panel *), [class*="chainIcon"]:not(#chain-panel *)'
-    );
-    const statsBar = document.querySelector('[class*="topStats"], [class*="top-stats"], [class*="statusIcons"]');
-    const insertAfter = chainLink || statsBar;
-    if (!insertAfter) return;
+    const anchor = findTopBarAnchor();
+    if (!anchor) return;  // retry later via updateTopBarBadge
 
-    topBarBadge = document.createElement("span");
+    topBarBadge = document.createElement("div");
     topBarBadge.id = "chain-topbar-badge";
     topBarBadge.style.cssText = [
-      "display:inline-flex", "align-items:center", "gap:3px",
-      "margin-left:6px", "padding:2px 6px", "border-radius:10px",
-      "background:rgba(16,18,24,.85)", "border:1px solid rgba(255,255,255,.15)",
-      "font-size:11px", "font-family:monospace", "font-weight:700",
-      "color:#44ff88", "cursor:default", "vertical-align:middle",
-      "line-height:1.4", "white-space:nowrap"
+      "display:none",
+      "position:fixed", "bottom:60px", "right:8px", "z-index:999998",
+      "align-items:center", "gap:4px",
+      "padding:4px 10px", "border-radius:20px",
+      "background:rgba(10,12,18,.95)", "border:1px solid rgba(255,255,255,.15)",
+      "font-size:12px", "font-family:monospace", "font-weight:700",
+      "color:#44ff88", "cursor:pointer", "line-height:1.4",
+      "white-space:nowrap", "box-shadow:0 4px 16px rgba(0,0,0,.5)",
+      "transition:opacity .2s",
     ].join(";");
-    topBarBadge.title = "Chain Coordinator — click to open panel";
+    topBarBadge.title = "Chain active — click to open coordinator";
     topBarBadge.onclick = () => {
       viewMode = 0;
       GM_setValue(SK_VIEW_MODE, viewMode);
       applyViewMode();
     };
-    insertAfter.parentNode.insertBefore(topBarBadge, insertAfter.nextSibling);
+    document.body.appendChild(topBarBadge);
   }
 
   function updateTopBarBadge() {
-    if (!topBarBadge) { injectTopBarBadge(); return; }
+    // Don't show on factions page — the main panel is already there
+    if (IS_FACTIONS_PAGE) return;
+
+    if (!topBarBadge || !document.body.contains(topBarBadge)) {
+      injectTopBarBadge();
+      if (!topBarBadge) return;
+    }
 
     if (liveChainSecs === null || lastTimerReadAt === null) {
       topBarBadge.style.display = "none";
@@ -2077,14 +2128,22 @@
     const mm      = Math.floor(disp / 60);
     const ss      = String(disp % 60).padStart(2, "0");
     const count   = liveChainCount || 0;
+    const pending = getPendingHits();
+    const nextHit = pending[0];
     const danger  = disp <= 30;
     const warn    = disp <= 90;
+    const color   = danger ? "#ff5555" : warn ? "#ffcc66" : "#44ff88";
+    const border  = danger ? "rgba(255,85,85,.4)" : warn ? "rgba(255,200,0,.3)" : "rgba(68,255,136,.3)";
 
-    topBarBadge.style.display = "";
-    topBarBadge.style.color   = danger ? "#ff5555" : warn ? "#ffcc66" : "#44ff88";
-    topBarBadge.style.borderColor = danger ? "rgba(255,85,85,.4)" : warn ? "rgba(255,200,0,.3)" : "rgba(68,255,136,.3)";
-    topBarBadge.textContent   = `⛓ ${mm}:${ss}  #${count}`;
-    topBarBadge.title         = `Chain ${count} hits — ${mm}:${ss} remaining. Click to open panel.`;
+    topBarBadge.style.display    = "flex";
+    topBarBadge.style.color      = color;
+    topBarBadge.style.borderColor = border;
+
+    // Show: ⛓ 3:42 · #16 · → TargetName
+    let label = `⛓ ${mm}:${ss} · #${count}`;
+    if (nextHit) label += ` · → ${nextHit.targetName}`;
+    topBarBadge.textContent = label;
+    topBarBadge.title = `Chain ${count} hits — ${mm}:${ss} remaining${nextHit ? `. Next: ${nextHit.targetName}` : ""}. Click to open coordinator.`;
   }
 
   function injectTargetButtons() {
@@ -2233,7 +2292,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "3.7.0";
+  const CURRENT_VERSION = "3.7.2";
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
