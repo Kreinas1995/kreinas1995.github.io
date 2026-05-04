@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      3.5.2
+// @version      3.6.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -347,6 +347,7 @@
     #chain-panel-body { display:flex !important; flex-direction:column !important; flex:1 !important; overflow:hidden !important; border-radius:0 0 12px 12px; }
     .chain-banner { padding:5px 10px !important; font-size:11px !important; text-align:center !important; flex-shrink:0 !important; line-height:1.3 !important; }
     .chain-banner.warn { color:#ff8888; background:rgba(255,60,60,.08); border-bottom:1px solid rgba(255,60,60,.15); }
+    .chain-banner.update { color:#ffcc66; background:rgba(255,180,0,.08); border-bottom:1px solid rgba(255,180,0,.2); }
     .chain-banner.info { color:#88aacc; background:rgba(80,120,200,.08); border-bottom:1px solid rgba(80,120,200,.15); }
 
     /* ── Column header ── */
@@ -449,7 +450,7 @@
         <span id="chain-pill-badge">0</span>
       </span>
       <span id="chain-sync-dot" title="Sync status"></span>
-      <button id="chain-presence-btn" class="chain-hbtn" title="Who's online">👥</button>
+      <button id="chain-presence-btn" class="chain-hbtn" title="Who's online">👥<span id="chain-online-count" style="margin-left:3px;font-size:10px;color:#44ff88;font-weight:700"></span></button>
       <button id="chain-view-btn" class="chain-hbtn" title="Cycle view">▦</button>
       <button id="chain-manage-btn" class="chain-hbtn leader" style="display:none" title="Manage clear permissions">⚙</button>
       <button id="chain-clear-btn" class="chain-hbtn danger" style="display:none" title="Clear chain list">✕</button>
@@ -494,6 +495,10 @@
       <div id="chain-banner-nofact" class="chain-banner info" style="display:none">ℹ Not in a faction — queue unavailable.</div>
       <div id="chain-banner-status" class="chain-banner info" style="display:none"></div>
       <div id="chain-banner-debug"  class="chain-banner warn" style="display:none;font-size:10px;word-break:break-all"></div>
+      <div id="chain-banner-update" class="chain-banner warn" style="display:none">
+        ⬆ New version available — <a id="chain-update-link" href="#" target="_blank" style="color:#ffd700;font-weight:700;text-decoration:underline">click to update</a>
+        <span id="chain-update-ver" style="color:#ffaa44;font-size:10px;margin-left:4px"></span>
+      </div>
       <div id="chain-col-header" style="display:none">
         <span>#</span><span>Claimer</span><span>Target</span>
         <span style="text-align:right">Window</span><span></span><span></span>
@@ -824,6 +829,17 @@
     presencePopover.classList.add("open");
   });
 
+  function updateOnlineCount() {
+    const now = Date.now();
+    const seen = new Set();
+    const count = [...presenceMap.values()]
+      .filter(m => (now - (m.lastSeen||0)) < PRESENCE_TIMEOUT)
+      .filter(m => { if(seen.has(m.name)) return false; seen.add(m.name); return true; })
+      .length;
+    const badge = document.getElementById("chain-online-count");
+    if (badge) badge.textContent = count > 0 ? count : "";
+  }
+
   function renderPresence() {
     const now = Date.now();
     presenceList.innerHTML = "";
@@ -837,6 +853,8 @@
         return true;
       })
       .sort((a,b) => a[1].name.localeCompare(b[1].name));
+
+    updateOnlineCount();
 
     if (!online.length) {
       presenceList.innerHTML = `<div style="font-size:11px;color:#445;text-align:center;padding:4px">No one else online</div>`;
@@ -1032,7 +1050,7 @@
     fbPollOnce();
 
     // Then every 3 seconds
-    ssePollInterval = setInterval(fbPollOnce, 3000);
+    ssePollInterval = setInterval(fbPollOnce, 1500);
   }
 
   function fbPollOnce() {
@@ -1854,6 +1872,9 @@
       nextTimer.className   = disp<=30?"due":disp<=90?"soon":"wait";
     }
 
+    // Top-bar chain badge (all pages)
+    updateTopBarBadge();
+
     document.querySelectorAll("[data-hosp-id]").forEach(hc => {
       const hit = hitMap.get(hc.dataset.hospId);
       if (!hit) { hc.remove(); return; }
@@ -1958,14 +1979,72 @@
     return h.startsWith("http")?h:"https://www.torn.com"+h;
   }
 
-  // Only inject target buttons on the factions war page
+  // Page detection
   const IS_FACTIONS_PAGE = /factions\.php/.test(window.location.pathname);
+  const IS_ANY_TORN_PAGE = /torn\.com/.test(window.location.hostname);
 
   function isInsideWarList(el) {
     const WAR_SELS='[class*="rankedWar"],[class*="ranked-war"],[class*="warFilter"],[class*="war-filter"],[class*="memberList"],[class*="member-list"],[class*="factionMembers"],[class*="members-list"],[class*="membersTable"]';
     let node=el.parentElement;
     while(node&&node!==document.body){try{if(node.matches&&node.matches(WAR_SELS))return true;}catch{/**/ }node=node.parentElement;}
     return false;
+  }
+
+  // ── Top-bar chain status badge (all pages) ────────────────────────────────
+  let topBarBadge = null;
+
+  function injectTopBarBadge() {
+    if (topBarBadge) return;  // already injected
+
+    // Find Torn's chain link in the top bar — it's an <a> with href containing "chain"
+    // or the chain icon area in the sidebar stats
+    const chainLink = document.querySelector(
+      'a[href*="factions.php"]:not(#chain-panel *), [class*="chainIcon"]:not(#chain-panel *)'
+    );
+    const statsBar = document.querySelector('[class*="topStats"], [class*="top-stats"], [class*="statusIcons"]');
+    const insertAfter = chainLink || statsBar;
+    if (!insertAfter) return;
+
+    topBarBadge = document.createElement("span");
+    topBarBadge.id = "chain-topbar-badge";
+    topBarBadge.style.cssText = [
+      "display:inline-flex", "align-items:center", "gap:3px",
+      "margin-left:6px", "padding:2px 6px", "border-radius:10px",
+      "background:rgba(16,18,24,.85)", "border:1px solid rgba(255,255,255,.15)",
+      "font-size:11px", "font-family:monospace", "font-weight:700",
+      "color:#44ff88", "cursor:default", "vertical-align:middle",
+      "line-height:1.4", "white-space:nowrap"
+    ].join(";");
+    topBarBadge.title = "Chain Coordinator — click to open panel";
+    topBarBadge.onclick = () => {
+      viewMode = 0;
+      GM_setValue(SK_VIEW_MODE, viewMode);
+      applyViewMode();
+    };
+    insertAfter.parentNode.insertBefore(topBarBadge, insertAfter.nextSibling);
+  }
+
+  function updateTopBarBadge() {
+    if (!topBarBadge) { injectTopBarBadge(); return; }
+
+    if (liveChainSecs === null || lastTimerReadAt === null) {
+      topBarBadge.style.display = "none";
+      return;
+    }
+
+    const elapsed = (performance.now() - lastTimerReadAt) / 1000;
+    const disp    = Math.max(0, Math.round(liveChainSecs - elapsed));
+    const mm      = Math.floor(disp / 60);
+    const ss      = String(disp % 60).padStart(2, "0");
+    const count   = liveChainCount || 0;
+    const danger  = disp <= 30;
+    const warn    = disp <= 90;
+
+    topBarBadge.style.display = "";
+    topBarBadge.style.color   = danger ? "#ff5555" : warn ? "#ffcc66" : "#44ff88";
+    topBarBadge.style.borderColor = danger ? "rgba(255,85,85,.4)" : warn ? "rgba(255,200,0,.3)" : "rgba(68,255,136,.3)";
+    topBarBadge.textContent   = `⛓ ${mm}:${ss}  #${count}`;
+    topBarBadge.title         = `Chain ${count} hits — ${mm}:${ss} remaining. Click to open panel.`;
   }
 
   function injectTargetButtons() {
@@ -2112,10 +2191,58 @@
   });
 
   // ══════════════════════════════════════════════════════════════════════════
+  //  Version check — compare running version against GitHub raw file
+  // ══════════════════════════════════════════════════════════════════════════
+  const CURRENT_VERSION = "3.5.2";
+  const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
+  const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
+
+  function checkForUpdate() {
+    GM_xmlhttpRequest({
+      method: "GET",
+      url: SCRIPT_RAW_URL + "?nocache=" + Date.now(),
+      timeout: 10000,
+      onload(r) {
+        if (r.status !== 200) return;
+        const match = r.responseText.match(/@version\s+([\d.]+)/);
+        if (!match) return;
+        const latest = match[1];
+        if (isNewerVersion(latest, CURRENT_VERSION)) {
+          const banner = document.getElementById("chain-banner-update");
+          const link   = document.getElementById("chain-update-link");
+          const ver    = document.getElementById("chain-update-ver");
+          if (banner) {
+            banner.style.display = "";
+            banner.className = "chain-banner update";
+          }
+          if (link)  link.href = SCRIPT_INSTALL_URL;
+          if (ver)   ver.textContent = "(v" + CURRENT_VERSION + " → v" + latest + ")";
+        }
+      },
+      onerror()  {},
+      ontimeout(){},
+    });
+  }
+
+  function isNewerVersion(a, b) {
+    // Returns true if version string a is newer than b
+    const pa = a.split(".").map(Number);
+    const pb = b.split(".").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const na = pa[i] || 0, nb = pb[i] || 0;
+      if (na > nb) return true;
+      if (na < nb) return false;
+    }
+    return false;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   //  Boot
   // ══════════════════════════════════════════════════════════════════════════
   renderPanel();
   fetchOwnProfile();
   injectTargetButtons();
+  // Check for updates once, 8 seconds after boot (non-blocking)
+  setTimeout(checkForUpdate, 8000);
 
 })();
