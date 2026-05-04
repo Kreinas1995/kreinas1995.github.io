@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.0.1
+// @version      4.0.9
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -109,6 +109,8 @@
   let chainTimerObserver = null;
   let timerRetryInterval = null;   // FIX #2: fallback retry for timer observer
   let sessionMinHitNum = null;
+  let chainCooldownSecs   = null;   // seconds remaining on cooldown (from API)
+  let chainCooldownReadAt = null;   // performance.now() when cooldown was last read
 
   // Session is restored from Firebase on first poll — do not restore from
   // GM storage as stale chainStartTime causes the scraper to accept hits
@@ -190,7 +192,10 @@
     #chain-panel.view-mini #chain-manage-btn,
     #chain-panel.view-mini #chain-presence-btn,
     #chain-panel.view-mini #chain-api-btn,
+    #chain-panel.view-mini #chain-update-btn,
     #chain-panel.view-mini #chain-timer-bar,
+    #chain-panel.view-mini #chain-warming-msg,
+    #chain-panel.view-mini #chain-cooling-msg,
     #chain-panel.view-mini #chain-warming-msg,
     #chain-panel.view-mini #chain-panel-body,
     #chain-panel.view-mini #chain-resize-handle { display:none !important; }
@@ -221,6 +226,7 @@
     #chain-panel.view-icon #chain-panel-header { display:none !important; }
     #chain-panel.view-icon #chain-timer-bar,
     #chain-panel.view-icon #chain-warming-msg,
+    #chain-panel.view-icon #chain-cooling-msg,
     #chain-panel.view-icon #chain-panel-body,
     #chain-panel.view-icon #chain-resize-handle { display:none !important; }
     #chain-icon-btn {
@@ -281,6 +287,17 @@
     #chain-api-btn:hover   { background:rgba(100,160,255,.3) !important; }
     #chain-api-btn.has-key { background:rgba(68,255,136,.12) !important; border-color:rgba(68,255,136,.35) !important; color:#44ff88 !important; }
 
+    /* ── Update arrow ── */
+    #chain-update-btn {
+      display:inline-flex !important; align-items:center !important; justify-content:center !important;
+      width:18px !important; height:18px !important; border-radius:5px !important;
+      background:rgba(68,255,136,.15) !important; border:1px solid rgba(68,255,136,.4) !important;
+      color:#44ff88 !important; font-size:13px !important; font-weight:700 !important;
+      text-decoration:none !important; cursor:pointer !important; flex-shrink:0 !important;
+      line-height:1 !important; transition:background .12s !important;
+    }
+    #chain-update-btn:hover { background:rgba(68,255,136,.32) !important; }
+
     /* ── Sync dot ── */
     #chain-sync-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:#334; transition:background .3s; }
     #chain-sync-dot.live    { background:#44ff88; }
@@ -306,6 +323,11 @@
     #chain-warming-msg {
       font-size:10px !important; color:#ffaa44 !important; padding:3px 10px !important;
       background:rgba(255,140,0,.07) !important; border-bottom:1px solid rgba(255,140,0,.12) !important;
+      text-align:center !important; flex-shrink:0 !important; letter-spacing:.2px !important;
+    }
+    #chain-cooling-msg {
+      font-size:10px !important; color:#66ccff !important; padding:3px 10px !important;
+      background:rgba(60,160,255,.07) !important; border-bottom:1px solid rgba(60,160,255,.14) !important;
       text-align:center !important; flex-shrink:0 !important; letter-spacing:.2px !important;
     }
     @keyframes chain-pulse { from{background:rgba(255,85,85,.04)} to{background:rgba(255,85,85,.14)} }
@@ -465,6 +487,7 @@
   panel.innerHTML = `
     <div id="chain-panel-header">
       <button id="chain-api-btn" title="Set Torn API key">API</button>
+      <a id="chain-update-btn" href="https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js" target="_blank" title="Reinstall / update to latest version">↑</a>
       <span id="chain-panel-title">⛓ Chain Board</span>
       <span id="chain-pill-content">
         <span id="chain-pill-icon">⛓</span>
@@ -512,6 +535,7 @@
       <span id="chain-count-badge" class="none">0</span>
     </div>
     <div id="chain-warming-msg" style="display:none">🔥 Chain warming up — keep hitting!</div>
+    <div id="chain-cooling-msg" style="display:none">❄️ Chain cooldown — <span id="chain-cooldown-timer">—</span></div>
 
     <div id="chain-panel-body">
       <div id="chain-banner-nokey"  class="chain-banner warn" style="display:none">⚠ No API key — click API above.</div>
@@ -567,6 +591,8 @@
   const chainTimerVal   = document.getElementById("chain-timer-value");
   const chainCountBadge = document.getElementById("chain-count-badge");
   const warmingMsg      = document.getElementById("chain-warming-msg");
+  const coolingMsg      = document.getElementById("chain-cooling-msg");
+  const cooldownTimer   = document.getElementById("chain-cooldown-timer");
   const resizeHandle    = document.getElementById("chain-resize-handle");
   const managePopover   = document.getElementById("chain-manage-popover");
   const manageList      = document.getElementById("chain-manage-list");
@@ -584,43 +610,47 @@
 
   // ══════════════════════════════════════════════════════════════════════════
   //  View modes
-  //   0 = full board
-  //   1 = mini pill  (chain timer + badge only)
-  //   2 = icon button (just the ⛓ icon, chat-bar sized)
-  //  Cycling: full → mini → icon → full
-  //  From icon: tap anywhere → full
-  //  From mini: tap view btn → icon, or panel → full
+  //   0 = full board  (Large)
+  //   1 = icon button (Button — just the ⛓ icon)
+  //   2 = mini pill   (Mini — timer + badge)
+  //  Cycling: full → icon → mini → full
+  //  Button icon always shows what the NEXT state looks like.
   // ══════════════════════════════════════════════════════════════════════════
-  // Remap persisted legacy modes (old 0=next,1=full,2=pill) → new 0=full,1=mini,2=icon
-  if (viewMode === 0) viewMode = 0;  // was "next" → map to full
+  // Remap any persisted value that was saved under the old ordering (1=mini,2=icon)
+  // to the new ordering (1=icon,2=mini) so existing users don't land on the wrong mode.
+  if (viewMode === 1) viewMode = 2;   // old mini → new mini (slot changed)
+  else if (viewMode === 2) viewMode = 1; // old icon → new icon (slot changed)
 
   function applyViewMode() {
     panel.style.overflow = "hidden";
     panel.classList.remove("view-full","view-mini","view-icon");
 
     if (viewMode === 0) {
+      // Large — next is Icon (1): show single dot
       panel.classList.add("view-full");
       panel.style.width  = panelW+"px";
       panel.style.height = panelH ? panelH+"px" : "";
       panel.style.cursor = "";
-      viewBtn.textContent = "◉";
-      viewBtn.title = "Minimise";
+      viewBtn.textContent = "●";
+      viewBtn.title = "Switch to button view";
       if (outsideBar) outsideBar.style.display = "";
     } else if (viewMode === 1) {
+      // Button (icon) — next is Mini (2): show dash (no dots)
+      panel.classList.add("view-icon");
+      panel.style.width  = "";
+      panel.style.height = "";
+      panel.style.cursor = "pointer";
+      viewBtn.textContent = "—";
+      viewBtn.title = "Switch to mini view";
+      if (outsideBar) outsideBar.style.display = "none";
+    } else {
+      // Mini pill — next is Large (0): show grid of dots
       panel.classList.add("view-mini");
       panel.style.width  = "";
       panel.style.height = "";
       panel.style.cursor = "pointer";
       viewBtn.textContent = "▦";
-      viewBtn.title = "Expand";
-      if (outsideBar) outsideBar.style.display = "none";
-    } else {
-      panel.classList.add("view-icon");
-      panel.style.width  = "";
-      panel.style.height = "";
-      panel.style.cursor = "pointer";
-      viewBtn.textContent = "▦";
-      viewBtn.title = "Expand";
+      viewBtn.title = "Switch to full view";
       if (outsideBar) outsideBar.style.display = "none";
     }
 
@@ -629,7 +659,7 @@
     }, 160);
   }
 
-  // View button: full→mini, mini→icon, icon→full
+  // View button: full→icon, icon→mini, mini→full
   viewBtn.onclick = e => {
     e.stopPropagation();
     viewMode = (viewMode + 1) % 3;
@@ -637,14 +667,12 @@
     applyViewMode();
   };
 
-  // Clicking mini or icon panel → expand to full (only if not a drag)
+  // Tapping the icon button panel → expand to mini (not full).
   panel.addEventListener("click", e => {
-    if (viewMode === 0) return;
+    if (viewMode !== 1) return;
     if (e.target === viewBtn || e.target.closest("#chain-panel-header button")) return;
-    // In icon mode, the drag handler sets didDrag — check via a small move threshold
-    // We use a data attribute set by the drag handler to signal a drag just ended
     if (panel.dataset.justDragged === "1") { delete panel.dataset.justDragged; return; }
-    viewMode = 0;
+    viewMode = 2;
     GM_setValue(SK_VIEW_MODE, viewMode);
     applyViewMode();
   });
@@ -716,10 +744,10 @@
 
     // Icon mode: drag on the whole panel (header is hidden)
     panel.addEventListener("mousedown",e=>{
-      if(viewMode===2) startDrag(e.clientX,e.clientY);
+      if(viewMode===1) startDrag(e.clientX,e.clientY);
     });
     panel.addEventListener("touchstart",e=>{
-      if(viewMode===2){
+      if(viewMode===1){
         const t=e.touches[0]; startDrag(t.clientX,t.clientY);
       }
     },{passive:true});
@@ -1061,6 +1089,10 @@
     const lobbyUrl = P.lobbyMe();
     if (!lobbyUrl) return;
     fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() });
+    // Also write to /factions/{fid}/members/{fbUid} — this is readable by all
+    // faction members via the new rules and is the authoritative presence source
+    // for the Online Now list (reading /lobby directly is blocked by new rules).
+    fbPut(P.member(fbUid), { name: ownName, tornId: ownId, lastSeen: Date.now() });
   }
 
   function fbHeartbeat() {
@@ -1068,32 +1100,18 @@
     // Heartbeat goes to lobby — same rule (auth.uid === $uid), always permitted.
     const url = P.lobbyMeField("lastSeen");
     if (url) fbPut(url, Date.now());
+    // Also update /factions/{fid}/members/{fbUid}/lastSeen so the main poll
+    // picks up presence under the new rules (reading /lobby is blocked faction-side).
+    fbPut(`${fBase()}/members/${fbUid}/lastSeen.json${auth()}`, Date.now());
   }
 
-  // Read /lobby and populate presenceMap with members of the same faction.
-  // Lobby entries are keyed by fbUid and include { name, tornId, factionId, lastSeen }.
+  // Presence is served by /factions/{fid}/members which is written on register/heartbeat
+  // and read by the main poll (fbPollOnce). Under the new Firebase rules, reading
+  // /lobby (the full subtree) is denied — only /lobby/{uid} for auth.uid === uid is
+  // accessible. So we no longer attempt a /lobby root read here.
+  // This function is kept as a no-op stub so existing call-sites don't need to change.
   function fbSyncLobbyPresence() {
-    if (!factionId || !fbConfigured()) return;
-    const url = P.lobbyAll();
-    GM_xmlhttpRequest({
-      method: "GET", url, timeout: 8000,
-      onload(r) {
-        if (r.status >= 200 && r.status < 300) {
-          try {
-            const lobby = JSON.parse(r.responseText);
-            if (!lobby || typeof lobby !== "object") return;
-            // Merge lobby entries for this faction into presenceMap
-            Object.entries(lobby).forEach(([uid, m]) => {
-              if (m && m.factionId === factionId) {
-                presenceMap.set(uid, m);
-              }
-            });
-            updateOnlineCount();
-          } catch { /**/ }
-        }
-      },
-      onerror(){}, ontimeout(){},
-    });
+    // no-op: presence is populated via /factions/{fid}/members in the main poll
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1115,7 +1133,8 @@
     fbPollOnce();
 
     // Then every 3 seconds
-    ssePollInterval = setInterval(fbPollOnce, 1500);
+    // Poll every 3s — halves network + parse load vs 1.5s with no noticeable UX difference
+    ssePollInterval = setInterval(fbPollOnce, 3000);
   }
 
   let pollInFlight = false;
@@ -1482,9 +1501,17 @@
     }, 2000);
   }
 
-  // MutationObserver on body as a trigger (existing behaviour, kept)
-  new MutationObserver(() => { if (!chainTimerObserver) startChainTimerObserver(); })
-    .observe(document.body, { childList:true, subtree:true });
+  // Observe the Torn content area (not body) for chain timer element appearance.
+  // The retry loop (startTimerRetryLoop) handles the case where the element isn't
+  // present yet — the observer here is just a fast-path trigger when it appears.
+  (function setupTimerObserver() {
+    const tornRoot = document.getElementById("mainContainer")
+      || document.getElementById("torn-app")
+      || document.querySelector('[class*="mainContainer"]')
+      || document.body;
+    new MutationObserver(() => { if (!chainTimerObserver) startChainTimerObserver(); })
+      .observe(tornRoot, { childList: true, subtree: true });
+  })();
 
   // FIX #2: also start the retry loop immediately on boot so we don't
   // miss the timer when the chain section is opened later
@@ -1508,6 +1535,19 @@
     const newCount   = chain.current || 0;
     const newTimeout = chain.timeout || 0;
     const chainStart = chain.start   || 0;
+    const newCooldown = chain.cooldown || 0;
+
+    // ── Cooldown detection ──────────────────────────────────────────────────
+    // cooldown is non-zero when a confirmed chain (≥10 hits) has ended and is
+    // in its cooldown window. We show the icy blue banner during this period.
+    if (newCooldown > 0) {
+      chainCooldownSecs   = newCooldown;
+      chainCooldownReadAt = performance.now();
+    } else if (chainCooldownSecs !== null && newCooldown === 0) {
+      // Cooldown just finished
+      chainCooldownSecs   = null;
+      chainCooldownReadAt = null;
+    }
 
     if (newTimeout === 0 && chainSessionId) {
       if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
@@ -1577,6 +1617,23 @@
       warmingMsg.style.display  = chainConfirmed?"none":"";
     } else {
       chainCountBadge.className="none"; warmingMsg.style.display="none";
+    }
+
+    // ── Cooldown banner ────────────────────────────────────────────────────
+    if (chainCooldownSecs !== null && chainCooldownReadAt !== null) {
+      const elapsed = (performance.now() - chainCooldownReadAt) / 1000;
+      const remaining = Math.max(0, Math.round(chainCooldownSecs - elapsed));
+      if (remaining > 0) {
+        const mm = Math.floor(remaining / 60);
+        const ss = String(remaining % 60).padStart(2, "0");
+        if (cooldownTimer) cooldownTimer.textContent = `${mm}:${ss}`;
+        coolingMsg.style.display = "";
+      } else {
+        // Cooldown expired locally — hide until next API poll confirms
+        coolingMsg.style.display = "none";
+      }
+    } else {
+      coolingMsg.style.display = "none";
     }
   }
 
@@ -1957,15 +2014,21 @@
   setInterval(() => {
     const now = Date.now();
     updateChainTimerUI();
-    scrapeRecentAttacks();
+    // Only scrape when a confirmed active chain session is running — saves
+    // repeated DOM queries every second during warmup, cooldown, and idle.
+    if (chainStartTime && chainConfirmed) scrapeRecentAttacks();
 
     // Patch timer cells in BOTH pinned and scrollable sections (avoids full re-render)
+    // Pre-build sorted pending array ONCE — avoids O(n²) allocs inside the loop
+    const sortedPending = [...hitMap.values()]
+      .filter(h => h.status === "pending")
+      .sort((a, b) => a.hitNumber - b.hitNumber);
     document.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
       const pos = parseInt(cell.dataset.pos);
       if (pos < 0) return;
-      const hit = [...hitMap.values()].find(h => h.status === "pending" && !([...hitMap.values()].filter(x=>x.status==="pending").sort((a,b)=>a.hitNumber-b.hitNumber).slice(0,pos).some(x=>x===h)) );
+      const hit  = sortedPending[pos] || null;
       const hosp = hit ? isHospStillIn(hit) : false;
-      const rem = pendingCountdownMs(pos);
+      const rem  = pendingCountdownMs(pos);
       cell.textContent = rem <= 0 ? "NOW" : formatTime(rem);
       cell.className   = `chain-hit-timer ${hitTimerClass(rem)}`;
       const row = cell.closest(".chain-hit-row");
@@ -2187,10 +2250,23 @@
     });
   }
 
-  let injectQueued=false;
-  new MutationObserver(()=>{if(injectQueued)return;injectQueued=true;setTimeout(()=>{injectQueued=false;injectTargetButtons();},150);})
-    .observe(document.body,{childList:true,subtree:true});
-  setInterval(injectTargetButtons,3000);
+  // Observe only the Torn content area for inject button triggers — not the whole body.
+  // document.body with subtree:true fires on every DOM mutation site-wide (chat, timers,
+  // notifications) and is the primary cause of main-thread slowdowns.
+  // We target the closest stable Torn container; fall back to body only if not found.
+  (function setupInjectObserver() {
+    const tornRoot = document.getElementById("mainContainer")
+      || document.getElementById("torn-app")
+      || document.querySelector('[class*="mainContainer"]')
+      || document.body;
+    let injectQueued = false;
+    new MutationObserver(() => {
+      if (injectQueued) return;
+      injectQueued = true;
+      setTimeout(() => { injectQueued = false; injectTargetButtons(); }, 150);
+    }).observe(tornRoot, { childList: true, subtree: true });
+  })();
+  // No setInterval fallback needed — the MutationObserver covers all DOM changes.
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Torn API — profile + faction boot
@@ -2273,6 +2349,7 @@
                   showBanner("chain-banner-debug", true, "✓ Lobby check-in OK. fid="+factionId+" uid="+fbUid+" Starting sync…");
                   setTimeout(()=>showBanner("chain-banner-debug",false), 5000);
                   setSyncDot("live");
+                  fbRegisterMember();   // write to /factions/{fid}/members/{fbUid} under new rules
                   fbStartMainListener();
                   pollFactionChain();
                   setInterval(pollFactionChain, CHAIN_POLL_MS);
@@ -2308,7 +2385,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "4.0.1";
+  const CURRENT_VERSION = "4.0.9";
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
