@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.2.1
+// @version      4.2.3
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -502,9 +502,14 @@
     /* Inline slot number input (leader/co-leader on pending rows) */
     .chain-hit-num-input {
       width:22px !important; font-size:12px !important; font-weight:700 !important;
-      background:rgba(255,200,0,.15) !important; border:1px solid rgba(255,200,0,.5) !important;
-      border-radius:4px !important; color:#ffd700 !important; text-align:center !important;
+      background:transparent !important; border:1px solid transparent !important;
+      border-radius:4px !important; color:#556 !important; text-align:center !important;
       padding:0 !important; outline:none !important; font-family:inherit !important;
+      cursor:pointer !important;
+    }
+    .chain-hit-num-input:focus {
+      background:rgba(255,200,0,.15) !important; border-color:rgba(255,200,0,.5) !important;
+      color:#ffd700 !important; cursor:text !important;
     }
 
     /* ── Resize handle ── */
@@ -1798,19 +1803,32 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Recent attacks scraper
   // ══════════════════════════════════════════════════════════════════════════
+  let _scraperContainer = null;   // cached container element
+  let _scraperRows      = [];     // cached row list
+  let _scraperRowCount  = 0;      // last known row count — re-scan only when it changes
+
   function scrapeRecentAttacks() {
     if (!chainStartTime) return;
 
-    const containerSels = ['[class*="recentAttacks"]','[class*="recent-attacks"]','[class*="attackLog"]','[class*="attack-log"]'];
-    let container = null;
-    for (const sel of containerSels) { try { container=document.querySelector(sel); if(container)break; } catch {/**/ } }
-    if (!container) return;
+    // Re-find container only if we don't have one (or it left the DOM)
+    if (!_scraperContainer || !document.contains(_scraperContainer)) {
+      _scraperContainer = null; _scraperRows = []; _scraperRowCount = 0;
+      const containerSels = ['[class*="recentAttacks"]','[class*="recent-attacks"]','[class*="attackLog"]','[class*="attack-log"]'];
+      for (const sel of containerSels) { try { _scraperContainer=document.querySelector(sel); if(_scraperContainer)break; } catch {/**/ } }
+      if (!_scraperContainer) return;
+    }
 
-    const rowSels = ['[class*="attackLogRow"]','[class*="attack-log-row"]','[class*="log-row"]','li[class*="attack"]','li'];
-    let rows = [];
-    for (const sel of rowSels) { try { rows=Array.from(container.querySelectorAll(sel)); if(rows.length)break; } catch {/**/ } }
-    if (!rows.length) return;
+    // Re-scan rows only when count changes (new hit appeared)
+    const currentCount = _scraperContainer.children.length;
+    if (currentCount !== _scraperRowCount) {
+      _scraperRowCount = currentCount;
+      const rowSels = ['[class*="attackLogRow"]','[class*="attack-log-row"]','[class*="log-row"]','li[class*="attack"]','li'];
+      _scraperRows = [];
+      for (const sel of rowSels) { try { _scraperRows=Array.from(_scraperContainer.querySelectorAll(sel)); if(_scraperRows.length)break; } catch {/**/ } }
+    }
+    if (!_scraperRows.length) return;
 
+    const rows   = _scraperRows;
     const now      = Date.now();
     const apiCount = liveChainCount || 0;
     let earliestHitTime = chainHit1Time;
@@ -2113,19 +2131,23 @@
 
     if (titleEl) titleEl.textContent = factionName ? `⛓ ${factionName}` : "⛓ Chain Board";
 
-    // Refresh 🎯 buttons
-    document.querySelectorAll(".chain-target-btn").forEach(btn => {
-      const profileA = btn.nextElementSibling;
-      if (!profileA) return;
-      const m = (profileA.href || "").match(/XID=(\d+)/i);
-      if (!m) return;
-      const queued = [...hitMap.values()].find(h => h.status === "pending" && h.targetId === m[1]);
-      if (queued) { btn.textContent = "✓"; btn.classList.add("claimed"); btn.title = `${profileA.textContent.trim()} queued as hit #${queued.hitNumber}`; }
-      else if (btn.classList.contains("claimed")) { btn.textContent = "🎯"; btn.classList.remove("claimed"); }
-    });
-
     const pendingHits = getPendingHits();
     const doneHits    = getDoneHits();
+
+    // Only refresh 🎯 buttons when hit structure has changed (renderKey will differ)
+    const allHitsForKey = [...doneHits, ...pendingHits];
+    const renderKey = allHitsForKey.map(h => h.id + h.status + (h.chainHitNum||"")).join("|");
+    if (renderKey !== lastRenderedIds) {
+      document.querySelectorAll(".chain-target-btn").forEach(btn => {
+        const profileA = btn.nextElementSibling;
+        if (!profileA) return;
+        const m = (profileA.href || "").match(/XID=(\d+)/i);
+        if (!m) return;
+        const queued = [...hitMap.values()].find(h => h.status === "pending" && h.targetId === m[1]);
+        if (queued) { btn.textContent = "✓"; btn.classList.add("claimed"); btn.title = `${profileA.textContent.trim()} queued as hit #${queued.hitNumber}`; }
+        else if (btn.classList.contains("claimed")) { btn.textContent = "🎯"; btn.classList.remove("claimed"); }
+      });
+    }
 
     // Badges
     pillBadge.textContent = pendingHits.length;
@@ -2139,11 +2161,6 @@
     }
 
     // ── Single scrollable list: done history + all pending ───────────────────
-    // Hit #1 (queue pos 0) gets sticky-now class so it sticks to the top while scrolling.
-    // Build a render key from all hit IDs+statuses to detect structural changes.
-    const allHits = [...doneHits, ...pendingHits];
-    const renderKey = allHits.map(h => h.id + h.status + (h.chainHitNum||"")).join("|");
-
     const hasDoneOrPending = doneHits.length > 0 || pendingHits.length > 0;
     if (!hasDoneOrPending) {
       colHead.style.display = "none";
@@ -2210,11 +2227,11 @@
     // chainConfirmed only becomes true at hit 10, so we must not gate on it here.
     if (chainStartTime) scrapeRecentAttacks();
 
-    // Patch timer cells in BOTH pinned and scrollable sections (avoids full re-render)
-    // Pre-build sorted pending array ONCE — avoids O(n²) allocs inside the loop
+    // Patch timer cells — pre-hoist shared values outside the loop
     const sortedPending = [...hitMap.values()]
       .filter(h => h.status === "pending")
       .sort((a, b) => a.hitNumber - b.hitNumber);
+    const currentHitNum = liveChainCount !== null ? liveChainCount + 1 : getHighestDoneHitNum() + 1;
     document.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
       const pos = parseInt(cell.dataset.pos);
       if (pos < 0) return;
@@ -2227,7 +2244,6 @@
       if (row) {
         const newRc = hitRowClass(rem, hosp, hit?.untracked || false);
         const hitNum = hit ? (hit.chainHitNum || hit.hitNumber) : 0;
-        const currentHitNum = liveChainCount !== null ? liveChainCount + 1 : getHighestDoneHitNum() + 1;
         const isBonus = BONUS_HITS.has(hitNum);
         const isNow   = hitNum === currentHitNum;
         row.className = `chain-hit-row ${newRc}${isBonus?" bonus":""}${isNow?" sticky-now":""}`;
@@ -2602,7 +2618,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "4.2.1";
+  const CURRENT_VERSION = "4.2.3";
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
