@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      3.5.0
+// @version      3.5.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -1461,7 +1461,7 @@
       if (!chainNumEl) continue;
       const chainHitNum = parseInt(chainNumEl.textContent.trim().replace("#",""));
       if (isNaN(chainHitNum) || chainHitNum < 1) continue;
-      if (apiCount > 0 && chainHitNum > apiCount + 1) continue;
+      if (apiCount > 0 && chainHitNum > apiCount) continue;  // strict: API count is the ceiling
 
       const profileLinks = row.querySelectorAll('a[href*="profiles.php?XID="]');
       if (profileLinks.length < 2) continue;
@@ -1544,7 +1544,7 @@
       // Find highest hit that is confirmed to be in this session
       let top = 0;
       for (const c of candidates) {
-        if (c.chainHitNum <= apiCount + 1 && c.attackTime >= chainStartTime) top = c.chainHitNum;
+        if (c.chainHitNum <= apiCount && c.attackTime >= chainStartTime) top = c.chainHitNum;
       }
       if (top === 0 && apiCount > 0) top = apiCount; // use API count if no post-start hit found
       if (top > 0) {
