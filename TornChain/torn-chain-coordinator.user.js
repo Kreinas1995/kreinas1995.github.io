@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.0.9
+// @version      4.2.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -39,6 +39,7 @@
   // ╚══════════════════════════════════════════════════════════════════════════╝
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
+  const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -86,6 +87,11 @@
   let factionCoLeader = null;
   let factionMembers  = {};
   let isLeaderOrCoLeader = false;
+  let inRankedWar         = false;
+  let warOpponentFactionIds = new Set();
+  let isOwner             = false;
+
+  const BONUS_HITS = new Set([10, 25, 50, 100, 250, 500, 1000, 2500, 5000]);
 
   // ─── Firebase state ───────────────────────────────────────────────────────
   let fbToken       = null;
@@ -145,6 +151,8 @@
     lobbyMe:      () => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}.json${auth()}` : null,
     lobbyMeField: f  => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}/${f}.json${auth()}` : null,
     lobbyAll:     () => `${FIREBASE_DB_URL}/lobby.json${auth()}`,
+    whitelist:       () => `${FIREBASE_DB_URL}/whitelist.json${auth()}`,
+    whitelistEntry:  fid => `${FIREBASE_DB_URL}/whitelist/${fid}.json${auth()}`,
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -370,6 +378,26 @@
     #chain-manage-close { padding:4px 0; border-radius:6px; font-size:11px; cursor:pointer; border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.08); color:#ccc; }
     #chain-manage-close:hover { background:rgba(255,255,255,.18); }
 
+    /* ── Whitelist popover ── */
+    #chain-whitelist-popover { left:8px; width:230px; max-height:340px; border:1px solid rgba(100,200,255,.35); }
+    #chain-whitelist-title   { font-size:11px; font-weight:700; color:#66ccff; }
+    #chain-whitelist-subtitle { font-size:10px; color:#556; margin-top:-4px; }
+    #chain-whitelist-list    { overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:3px; max-height:180px; }
+    #chain-whitelist-list::-webkit-scrollbar { width:4px; }
+    #chain-whitelist-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:2px; }
+    .chain-whitelist-row { display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; font-size:11px; color:#ccc; }
+    .chain-whitelist-row span { flex:1; font-family:monospace; }
+    .chain-whitelist-row button { background:rgba(255,60,60,.15); border:1px solid rgba(255,60,60,.35); color:#ff8888; border-radius:4px; font-size:10px; padding:1px 5px; cursor:pointer; }
+    .chain-whitelist-row button:hover { background:rgba(255,60,60,.32); }
+    #chain-whitelist-add-row { display:flex; gap:5px; }
+    #chain-whitelist-input { flex:1; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.15); border-radius:6px; color:#e8e8e8; padding:4px 7px; font-size:11px; font-family:monospace; outline:none; }
+    #chain-whitelist-input:focus { border-color:rgba(100,200,255,.5) !important; }
+    #chain-whitelist-add { padding:4px 8px; border-radius:6px; font-size:11px; cursor:pointer; border:1px solid rgba(100,200,255,.4); background:rgba(60,160,255,.15); color:#66ccff; }
+    #chain-whitelist-add:hover { background:rgba(60,160,255,.28); }
+    #chain-whitelist-status { font-size:10px; color:#445; text-align:center; min-height:13px; }
+    #chain-whitelist-close { padding:4px 0; border-radius:6px; font-size:11px; cursor:pointer; border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.08); color:#ccc; }
+    #chain-whitelist-close:hover { background:rgba(255,255,255,.18); }
+
     /* ── Presence popover ── */
     #chain-presence-popover { left:50%; transform:translateX(-50%); width:200px; border:1px solid rgba(100,200,255,.3); }
     #chain-presence-title   { font-size:11px; font-weight:700; color:#88ccff; }
@@ -394,18 +422,17 @@
     }
 
     /* ── Hit list ── */
-    /* ── Pinned NOW/on-deck rows ── */
-    #chain-pinned {
-      flex-shrink:0 !important; background:rgba(0,0,0,.18) !important;
-    }
-    #chain-pinned .chain-hit-row.due {
-      background:rgba(68,255,136,.08) !important;
+    /* ── Current hit: sticky on both ends — scrolls naturally in the list
+          but is caught at the top and bottom edges of the scroll container ── */
+    #chain-panel-inner .chain-hit-row.sticky-now {
+      position:sticky !important; top:-4px !important; bottom:0 !important; z-index:2 !important;
+      background:rgba(16,18,26,1) !important;
       border-left-color:#44ff88 !important;
-      animation:none !important;  /* no flicker on pinned row */
+      animation:none !important;
+      box-shadow:0 2px 6px rgba(0,0,0,.5) !important;
     }
-    #chain-pinned .chain-hit-row { border-radius:0 !important; }
 
-    #chain-panel-inner { overflow-y:auto !important; flex:1 !important; max-height:280px !important; padding:4px 0 !important; }
+    #chain-panel-inner { overflow-y:auto !important; flex:1 !important; padding:4px 0 !important; }
     #chain-panel-inner::-webkit-scrollbar { width:5px; }
     #chain-panel-inner::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:3px; }
 
@@ -426,6 +453,9 @@
     /* FIX #4: unclaimed placeholder row */
     .chain-hit-row.unclaimed    { border-left-color:#334 !important; border-left-style:dashed !important; opacity:.5 !important; }
     .chain-hit-row.unclaimed .chain-hit-target { color:#ff8888 !important; }
+    /* Bonus chain hit — gold highlight */
+    .chain-hit-row.bonus        { background:rgba(255,200,0,.10) !important; border-left-color:#ffd700 !important; }
+    .chain-hit-row.bonus .chain-hit-num { color:#ffd700 !important; }
     @keyframes chain-row-pulse { from{background:rgba(68,255,136,.04)} to{background:rgba(68,255,136,.14)} }
 
     .chain-hit-num     { font-weight:700; font-size:12px; color:#556; text-align:center; }
@@ -455,6 +485,27 @@
       line-height:1 !important; flex-shrink:0 !important;
     }
     .chain-hit-remove:hover { background:rgba(255,60,60,.35) !important; color:#fff !important; }
+
+    .chain-hit-reorder {
+      display:flex !important; flex-direction:column !important; align-items:center !important;
+      justify-content:center !important; gap:1px !important; width:16px !important;
+    }
+    .chain-hit-reorder button {
+      display:flex !important; align-items:center !important; justify-content:center !important;
+      width:14px !important; height:10px !important; padding:0 !important;
+      background:rgba(255,255,255,.07) !important; border:none !important;
+      border-radius:2px !important; color:#556 !important; font-size:8px !important;
+      cursor:pointer !important; line-height:1 !important;
+    }
+    .chain-hit-reorder button:hover { background:rgba(255,255,255,.2) !important; color:#ccc !important; }
+
+    /* Inline slot number input (leader/co-leader on pending rows) */
+    .chain-hit-num-input {
+      width:22px !important; font-size:12px !important; font-weight:700 !important;
+      background:rgba(255,200,0,.15) !important; border:1px solid rgba(255,200,0,.5) !important;
+      border-radius:4px !important; color:#ffd700 !important; text-align:center !important;
+      padding:0 !important; outline:none !important; font-family:inherit !important;
+    }
 
     /* ── Resize handle ── */
     #chain-resize-handle {
@@ -500,6 +551,7 @@
       <button id="chain-presence-btn" class="chain-hbtn" title="Who's online">👥<span id="chain-online-count" style="margin-left:3px;font-size:10px;color:#44ff88;font-weight:700"></span></button>
       <button id="chain-view-btn" class="chain-hbtn" title="Cycle view">▦</button>
       <button id="chain-manage-btn" class="chain-hbtn leader" style="display:none" title="Manage clear permissions">⚙</button>
+      <button id="chain-whitelist-btn" class="chain-hbtn" style="display:none" title="Manage faction whitelist">🔒</button>
       <button id="chain-clear-btn" class="chain-hbtn danger" style="display:none" title="Clear chain list">✕</button>
 
       <!-- API popover -->
@@ -522,6 +574,19 @@
         <button id="chain-manage-close">Done</button>
       </div>
 
+      <!-- Whitelist popover (owner only) -->
+      <div id="chain-whitelist-popover" class="chain-popover">
+        <div id="chain-whitelist-title">🔒 Faction Whitelist</div>
+        <div id="chain-whitelist-subtitle">Only listed factions can access the board</div>
+        <div id="chain-whitelist-list"></div>
+        <div id="chain-whitelist-add-row">
+          <input id="chain-whitelist-input" type="number" placeholder="Faction ID" min="1">
+          <button id="chain-whitelist-add">Add</button>
+        </div>
+        <div id="chain-whitelist-status"></div>
+        <button id="chain-whitelist-close">Done</button>
+      </div>
+
       <!-- Presence popover -->
       <div id="chain-presence-popover" class="chain-popover">
         <div id="chain-presence-title">👥 Online Now</div>
@@ -541,6 +606,7 @@
       <div id="chain-banner-nokey"  class="chain-banner warn" style="display:none">⚠ No API key — click API above.</div>
       <div id="chain-banner-nofb"   class="chain-banner warn" style="display:none">⚠ Firebase not configured — see FIREBASE_SETUP.md.</div>
       <div id="chain-banner-nofact" class="chain-banner info" style="display:none">ℹ Not in a faction — queue unavailable.</div>
+      <div id="chain-banner-locked" class="chain-banner warn" style="display:none">🔒 Access Locked — your faction is not whitelisted.</div>
       <div id="chain-banner-status" class="chain-banner info" style="display:none"></div>
       <div id="chain-banner-debug"  class="chain-banner warn" style="display:none;font-size:10px;word-break:break-all"></div>
       <div id="chain-banner-update" class="chain-banner warn" style="display:none">
@@ -551,7 +617,6 @@
         <span>#</span><span>Claimer</span><span>Target</span>
         <span style="text-align:right">Window</span><span></span><span></span>
       </div>
-      <div id="chain-pinned" style="display:none;border-bottom:2px solid rgba(68,255,136,.2);flex-shrink:0"></div>
       <div id="chain-panel-inner">
         <div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">
           No hits queued.<br>Click 🎯 next to an attack button.
@@ -579,6 +644,7 @@
   const outsideBar      = document.getElementById("chain-outside-bar");
   const iconBadge       = document.getElementById("chain-icon-badge");
   const manageBtn       = document.getElementById("chain-manage-btn");
+  const whitelistBtn    = document.getElementById("chain-whitelist-btn");
   const presenceBtn     = document.getElementById("chain-presence-btn");
   const syncDot         = document.getElementById("chain-sync-dot");
   const apiBtn          = document.getElementById("chain-api-btn");
@@ -695,7 +761,9 @@
 
   // ── Close all popovers ────────────────────────────────────────────────────
   function closeAllPopovers() {
-    [apiPopover, managePopover, presencePopover].forEach(p => p.classList.remove("open"));
+    [apiPopover, managePopover, presencePopover,
+     document.getElementById("chain-whitelist-popover")
+    ].forEach(p => p && p.classList.remove("open"));
   }
 
   document.addEventListener("click", e => {
@@ -927,8 +995,98 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Helpers
+  //  Whitelist (owner only)
   // ══════════════════════════════════════════════════════════════════════════
+  const whitelistPopover = document.getElementById("chain-whitelist-popover");
+  const whitelistList    = document.getElementById("chain-whitelist-list");
+  const whitelistInput   = document.getElementById("chain-whitelist-input");
+  const whitelistAdd     = document.getElementById("chain-whitelist-add");
+  const whitelistStatus  = document.getElementById("chain-whitelist-status");
+  const whitelistClose   = document.getElementById("chain-whitelist-close");
+
+  if (whitelistBtn) {
+    whitelistBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      if (whitelistPopover.classList.contains("open")) { closeAllPopovers(); return; }
+      closeAllPopovers();
+      openWhitelistPopover();
+    });
+  }
+  if (whitelistClose) whitelistClose.onclick = closeAllPopovers;
+  if (whitelistAdd)   whitelistAdd.onclick   = addWhitelistEntry;
+  if (whitelistInput) whitelistInput.addEventListener("keydown", e => { if (e.key === "Enter") addWhitelistEntry(); });
+
+  function openWhitelistPopover() {
+    whitelistList.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">Loading…</div>`;
+    whitelistStatus.textContent = "";
+    whitelistPopover.classList.add("open");
+    fbGet(P.whitelist(), data => {
+      whitelistList.innerHTML = "";
+      const fids = data ? Object.keys(data) : [];
+      if (!fids.length) {
+        whitelistList.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">No factions whitelisted yet.</div>`;
+        return;
+      }
+      // Render placeholders first, then fill names async
+      fids.forEach(fid => {
+        const row = document.createElement("div");
+        row.className = "chain-whitelist-row";
+        row.id = `chain-wl-row-${fid}`;
+        row.innerHTML = `<span id="chain-wl-name-${escHtml(fid)}" style="color:#445">${escHtml(fid)}…</span><button data-fid="${escHtml(fid)}">✕</button>`;
+        row.querySelector("button").addEventListener("click", () => removeWhitelistEntry(fid));
+        whitelistList.appendChild(row);
+        // Fetch faction name from Torn API
+        if (tornApiKey) {
+          GM_xmlhttpRequest({
+            method: "GET",
+            url: `https://api.torn.com/faction/${fid}?selections=basic&key=${encodeURIComponent(tornApiKey)}`,
+            timeout: 8000,
+            onload(r) {
+              try {
+                const d = JSON.parse(r.responseText);
+                const nameEl = document.getElementById(`chain-wl-name-${fid}`);
+                if (!nameEl) return;
+                if (d && d.name) {
+                  nameEl.textContent = `${d.name} [${fid}]`;
+                  nameEl.style.color = "";
+                } else {
+                  nameEl.textContent = `${fid} (unknown)`;
+                }
+              } catch { /**/ }
+            },
+            onerror()  { /**/ },
+            ontimeout(){ /**/ },
+          });
+        }
+      });
+    });
+  }
+
+  function addWhitelistEntry() {
+    const fid = (whitelistInput.value || "").trim();
+    if (!fid || isNaN(fid)) { whitelistStatus.textContent = "Enter a valid faction ID."; whitelistStatus.style.color="#ff8888"; return; }
+    whitelistStatus.textContent = "Adding…"; whitelistStatus.style.color="#ffcc66";
+    fbPut(P.whitelistEntry(fid), true, () => {
+      whitelistInput.value = "";
+      whitelistStatus.textContent = `✓ ${fid} added.`; whitelistStatus.style.color="#44ff88";
+      openWhitelistPopover();
+    });
+  }
+
+  function removeWhitelistEntry(fid) {
+    fbDelete(P.whitelistEntry(fid), () => openWhitelistPopover());
+  }
+
+  // Check if this client's faction is on the whitelist.
+  // Owner always passes. Everyone else must be present in /whitelist/{factionId}.
+  function fbCheckWhitelist(cb) {
+    if (isOwner) { cb(true); return; }
+    fbGet(P.whitelistEntry(factionId), data => {
+      cb(data === true);
+    });
+  }
+
+
   function escHtml(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
   function formatTime(ms) {
     if (ms<=0) return "NOW";
@@ -1821,12 +1979,11 @@
   //  Panel render
   //
   //  Architecture:
-  //   - #chain-pinned: sticky top area — shows hit #1 (NOW) and hit #2 (on deck)
-  //     always visible regardless of scroll. Never wiped, only text-patched.
-  //   - #chain-panel-inner: scrollable history (done hits) only.
-  //     Pending hits beyond #1 and #2 are also shown here, below done hits.
-  //   - Hosp flicker fix: innerHTML is only rewritten when the hit LIST
-  //     changes (different IDs). Timer/status cells are patched in the 1s tick.
+  //   - #chain-panel-inner: single scrollable container for all hits.
+  //     The current hit (queue pos 0) gets the sticky-now class so it
+  //     sticks to the top of the scroll area. Done hits show above pending.
+  //   - Hosp flicker fix: innerHTML only rewritten when hit list changes.
+  //     Timer/status cells are patched in the 1s tick.
   // ══════════════════════════════════════════════════════════════════════════
 
   // Track last rendered hit ID list to avoid unnecessary full re-renders
@@ -1847,7 +2004,13 @@
       tc = hitTimerClass(rem);
       rc = hitRowClass(rem, hosp, hit.untracked);
     }
-    const canRemoveHit = !isDone && (canClear || hit.claimedBy === ownName);
+    const isBonus = BONUS_HITS.has(hit.chainHitNum || hit.hitNumber);
+    // "Current" hit = the next hit the chain needs right now.
+    // When chain is live: liveChainCount + 1 (e.g. chain at 13 → hit 14 is current).
+    // Fallback: highest done + 1.
+    const currentHitNum = liveChainCount !== null ? liveChainCount + 1 : getHighestDoneHitNum() + 1;
+    const isNow = !isDone && (hit.chainHitNum || hit.hitNumber) === currentHitNum;
+    const canRemoveHit = !isDone && (canClear || hit.claimedBy === ownName || !hit.claimedBy);
     const hospSub = (!isDone && hosp)
       ? `<span class="chain-hit-hosp-sub" data-hosp-id="${hit.id}">out in ${formatTime(hit.hospReleaseAt - now)}</span>`
       : "";
@@ -1855,8 +2018,13 @@
     const outBadge = (hit.outside || !hit.targetId) && !isDone
       ? '<span style="font-size:9px;color:#88bbff;margin-right:2px">OUT</span>' : "";
     const claimerPrefix = isDone ? "✓ " : "";
-    return `<div class="chain-hit-row ${rc}" data-hit-id="${hit.id}" data-queue-pos="${isDone ? -1 : queuePos}">
-      <span class="chain-hit-num">${hit.chainHitNum || hit.hitNumber}</span>
+    const canReorder = isLeaderOrCoLeader && !isDone;
+    const hitNum = hit.chainHitNum || hit.hitNumber;
+    const numCell = canReorder
+      ? `<input class="chain-hit-num-input" type="number" min="1" value="${hitNum}" data-reorder-id="${hit.id}" title="Tap to move to slot">`
+      : `<span class="chain-hit-num">${hitNum}</span>`;
+    return `<div class="chain-hit-row ${rc}${isBonus?" bonus":""}${isNow?" sticky-now":""}" data-hit-id="${hit.id}" data-queue-pos="${isDone ? -1 : queuePos}">
+      ${numCell}
       <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">${claimerPrefix}${escHtml(hit.claimedBy)}</span>
       <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${outBadge}${escHtml(hit.targetName)}</span>
       <span class="chain-hit-timer ${tc}" data-pos="${isDone ? -1 : queuePos}">${timerText}</span>
@@ -1883,9 +2051,62 @@
     });
   }
 
+  function wireReorderButtons(container) {
+    container.querySelectorAll(".chain-hit-num-input").forEach(input => {
+      const hitId = input.dataset.reorderId;
+
+      // Select all text on focus so typing immediately replaces it
+      input.addEventListener("focus", () => input.select());
+
+      // Prevent the row drag/click from stealing focus
+      input.addEventListener("mousedown", e => e.stopPropagation());
+      input.addEventListener("touchstart", e => e.stopPropagation(), { passive: true });
+
+      function commit() {
+        const target = parseInt(input.value);
+        if (isNaN(target) || target < 1) { renderPanel(); return; }
+        moveToSlot(hitId, target);
+      }
+      input.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+        if (e.key === "Escape") { renderPanel(); }
+      });
+      input.addEventListener("blur", commit);
+    });
+  }
+
+  function moveToSlot(hitId, targetSlot) {
+    const pending = [...hitMap.values()]
+      .filter(h => h.status !== "done")
+      .sort((a, b) => a.scheduledAt - b.scheduledAt);
+    if (!pending.length) return;
+
+    const fromIdx = pending.findIndex(h => h.id === hitId);
+    if (fromIdx < 0) return;
+
+    // Clamp target to valid range (1-based slot → 0-based index)
+    const toIdx = Math.max(0, Math.min(pending.length - 1, targetSlot - 1));
+    if (fromIdx === toIdx) { renderPanel(); return; }
+
+    // Splice the hit out and reinsert at the target position
+    const [moved] = pending.splice(fromIdx, 1);
+    pending.splice(toIdx, 0, moved);
+
+    // Reassign scheduledAt in order: each entry gets the scheduledAt of its
+    // new neighbour so relative spacing is preserved
+    const times = pending.map(h => h.scheduledAt).sort((a, b) => a - b);
+    // Re-sort times and assign them in new order
+    pending.forEach((h, i) => {
+      h.scheduledAt = times[i];
+      fbPut(P.hitField(h.id, "scheduledAt"), h.scheduledAt);
+    });
+
+    reNumberPending();
+    renderPanel();
+  }
+
   function renderPanel() {
     const inner   = document.getElementById("chain-panel-inner");
-    const pinned  = document.getElementById("chain-pinned");
     const colHead = document.getElementById("chain-col-header");
     const titleEl = document.getElementById("chain-panel-title");
     if (!inner) return;
@@ -1917,46 +2138,22 @@
       if (pillSep) pillSep.style.display = "";
     }
 
-    // ── Pinned section: hit #1 (NOW) + hit #2 (on deck) ──────────────────────
-    if (pinned) {
-      if (pendingHits.length > 0) {
-        pinned.style.display = "";
-        const now = Date.now();
-        let pinnedHtml = "";
-        // Always show first 2 pending hits pinned
-        pendingHits.slice(0, 2).forEach((hit, i) => { pinnedHtml += hitRowHtml(hit, i, now); });
-        // If no queue (just unclaimed) show unclaimed row
-        if (pendingHits.length === 0) {
-          const nextSlot = getHighestDoneHitNum() + 1;
-          const disp = Math.round(chainTimerMs() / 1000);
-          const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-          pinnedHtml = `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span></div>`;
-        }
-        pinned.innerHTML = pinnedHtml;
-        wireRemoveButtons(pinned);
-      } else if (liveChainCount !== null) {
-        pinned.style.display = "";
-        const nextSlot = getHighestDoneHitNum() + 1;
-        const disp = Math.round(chainTimerMs() / 1000);
-        const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-        pinned.innerHTML = `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
-      } else {
-        pinned.style.display = "none";
-      }
-    }
-
-    // ── Scrollable inner: done history + overflow pending ────────────────────
-    // Build a key from all hit IDs+statuses to detect structural changes
-    const allHits = [...doneHits, ...pendingHits.slice(2)];
+    // ── Single scrollable list: done history + all pending ───────────────────
+    // Hit #1 (queue pos 0) gets sticky-now class so it sticks to the top while scrolling.
+    // Build a render key from all hit IDs+statuses to detect structural changes.
+    const allHits = [...doneHits, ...pendingHits];
     const renderKey = allHits.map(h => h.id + h.status + (h.chainHitNum||"")).join("|");
 
     const hasDoneOrPending = doneHits.length > 0 || pendingHits.length > 0;
     if (!hasDoneOrPending) {
       colHead.style.display = "none";
-      if (!pinned || pinned.style.display === "none") {
-        inner.innerHTML = `<div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">No hits queued.<br>Click 🎯 next to an attack button.</div>`;
+      if (liveChainCount !== null) {
+        const nextSlot = getHighestDoneHitNum() + 1;
+        const disp = Math.round(chainTimerMs() / 1000);
+        const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
+        inner.innerHTML = `<div class="chain-hit-row unclaimed sticky-now"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
       } else {
-        inner.innerHTML = "";
+        inner.innerHTML = `<div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">No hits queued.<br>Click 🎯 next to an attack button.</div>`;
       }
       lastRenderedIds = renderKey;
       return;
@@ -1964,8 +2161,10 @@
 
     colHead.style.display = "";
 
-    // Only do full innerHTML rewrite when structure changes (avoids flicker)
-    if (renderKey !== lastRenderedIds) {
+    // Only do full innerHTML rewrite when structure changes (avoids flicker).
+    // Skip if a slot-number input is focused — rewriting would steal focus mid-edit.
+    const reorderFocused = !!inner.querySelector(".chain-hit-num-input:focus");
+    if (renderKey !== lastRenderedIds && !reorderFocused) {
       lastRenderedIds = renderKey;
       const now = Date.now();
       let html = "";
@@ -1975,30 +2174,23 @@
         html += hitRowHtml(hit, -1, now);
       }
 
-      // Pending hits beyond the pinned 2
-      let queuePos = 2;
-      for (const hit of pendingHits.slice(2)) {
-        html += hitRowHtml(hit, queuePos, now);
-        queuePos++;
-      }
+      // All pending hits — pos 0 gets sticky-now via hitRowHtml
+      pendingHits.forEach((hit, i) => { html += hitRowHtml(hit, i, now); });
 
-      // Unclaimed placeholder after queue
-      if (pendingHits.length === 0 && doneHits.length > 0) {
+      // Unclaimed placeholder when chain is live but queue is empty
+      if (pendingHits.length === 0 && doneHits.length > 0 && liveChainCount !== null) {
         const nextSlot = getHighestDoneHitNum() + 1;
         const disp = Math.round(chainTimerMs() / 1000);
         const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-        html += `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
+        html += `<div class="chain-hit-row unclaimed sticky-now"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
       }
 
       const prevScroll = inner.scrollTop;
       const wasAtBottom = inner.scrollHeight - inner.scrollTop - inner.clientHeight < 40;
       inner.innerHTML = html;
       wireRemoveButtons(inner);
+      wireReorderButtons(inner);
 
-      // Scroll behavior:
-      // - First load (prevScroll=0, no history): show top of scrollable area
-      // - User has scrolled up to history: preserve their position
-      // - User was at the bottom (watching queue): stay at bottom
       if (wasAtBottom || prevScroll === 0) {
         inner.scrollTop = inner.scrollHeight;
       } else {
@@ -2014,9 +2206,9 @@
   setInterval(() => {
     const now = Date.now();
     updateChainTimerUI();
-    // Only scrape when a confirmed active chain session is running — saves
-    // repeated DOM queries every second during warmup, cooldown, and idle.
-    if (chainStartTime && chainConfirmed) scrapeRecentAttacks();
+    // Scrape whenever a chain session is active — including warmup (hits 1-9).
+    // chainConfirmed only becomes true at hit 10, so we must not gate on it here.
+    if (chainStartTime) scrapeRecentAttacks();
 
     // Patch timer cells in BOTH pinned and scrollable sections (avoids full re-render)
     // Pre-build sorted pending array ONCE — avoids O(n²) allocs inside the loop
@@ -2033,12 +2225,16 @@
       cell.className   = `chain-hit-timer ${hitTimerClass(rem)}`;
       const row = cell.closest(".chain-hit-row");
       if (row) {
-        const newRc = pos===0?"due":hitRowClass(rem,hosp,false);
-        if (!row.closest("#chain-pinned")) row.className = `chain-hit-row ${newRc}`;
+        const newRc = hitRowClass(rem, hosp, hit?.untracked || false);
+        const hitNum = hit ? (hit.chainHitNum || hit.hitNumber) : 0;
+        const currentHitNum = liveChainCount !== null ? liveChainCount + 1 : getHighestDoneHitNum() + 1;
+        const isBonus = BONUS_HITS.has(hitNum);
+        const isNow   = hitNum === currentHitNum;
+        row.className = `chain-hit-row ${newRc}${isBonus?" bonus":""}${isNow?" sticky-now":""}`;
       }
     });
     // Update hosp sub-timers in pinned section too
-    document.querySelectorAll("#chain-pinned [data-hosp-id], #chain-panel-inner [data-hosp-id]").forEach(hc => {
+    document.querySelectorAll("#chain-panel-inner [data-hosp-id]").forEach(hc => {
       const hit = hitMap.get(hc.dataset.hospId);
       if (!hit) { hc.remove(); return; }
       if (!isHospStillIn(hit)) { hc.textContent = ""; hc.removeAttribute("data-hosp-id"); }
@@ -2076,22 +2272,11 @@
 
     const activeHits = [...hitMap.values()].filter(h=>h.status!=="done").sort((a,b)=>a.scheduledAt-b.scheduledAt);
 
-    let insertSlot=null, insertPos=-1;
-    if (!activeHits.length) {
-      insertSlot = earliest;
-    } else {
-      for (let i=0; i<=activeHits.length; i++) {
-        const prev=i===0?now:activeHits[i-1].scheduledAt;
-        const cand=Math.max(prev+HIT_INTERVAL, earliest);
-        const next=i<activeHits.length?activeHits[i].scheduledAt:Infinity;
-        if (cand+HIT_INTERVAL<=next||i===activeHits.length) { insertSlot=cand; insertPos=i-1; break; }
-      }
-      if (insertSlot===null) { insertSlot=activeHits[activeHits.length-1].scheduledAt+HIT_INTERVAL; insertPos=activeHits.length-1; }
-    }
-    for (let i=insertPos+1; i<activeHits.length; i++) {
-      const pt=i===0?insertSlot:activeHits[i-1].scheduledAt;
-      if (activeHits[i].scheduledAt<pt+HIT_INTERVAL) activeHits[i].scheduledAt=pt+HIT_INTERVAL;
-    }
+    // Always append to the end of the queue — gap-fitting caused re-queued hits
+    // to reclaim their old slot instead of going to the back of the line.
+    const insertSlot = activeHits.length
+      ? activeHits[activeHits.length - 1].scheduledAt + HIT_INTERVAL
+      : Math.max(now, earliest);
 
     const newHit = {
       id:            `hit_${now}_${Math.random().toString(36).slice(2)}`,
@@ -2141,6 +2326,15 @@
         if(!data||data.error){btn.textContent="🎯";alert(`Torn API error: ${data?.error?.error||"Unknown"}`);return;}
         const state=(data?.status?.state||"").toLowerCase();
         if(["abroad","traveling","jail","federal","fallen"].some(s=>state.includes(s))){btn.textContent="🎯";alert(`${targetName} is ${state} — cannot be scheduled.`);return;}
+        // War gating — if we're in a ranked war, only allow queuing opponents
+        if (inRankedWar && warOpponentFactionIds.size > 0) {
+          const targetFactionId = String(data?.faction?.faction_id || "0");
+          if (targetFactionId === "0" || !warOpponentFactionIds.has(targetFactionId)) {
+            btn.textContent="🎯";
+            alert(`${targetName} is not in a war opponent faction — only war targets can be queued during a ranked war.`);
+            return;
+          }
+        }
         scheduleAndWrite(data,targetId,targetName,attackUrl,btn);
       },
       onerror()  { btn.disabled=false;btn.classList.remove("loading");btn.textContent="🎯";alert("Network error."); },
@@ -2286,6 +2480,18 @@
           factionMembers  = {};
           if(d.members) Object.entries(d.members).forEach(([uid,m])=>{factionMembers[uid]=m.name;});
           isLeaderOrCoLeader=(ownId===factionLeader)||(factionCoLeader!=="0"&&ownId===factionCoLeader);
+          // Parse active ranked wars — collect opponent faction IDs
+          warOpponentFactionIds.clear();
+          inRankedWar = false;
+          if (d.ranked_wars && typeof d.ranked_wars === "object") {
+            Object.values(d.ranked_wars).forEach(w => {
+              if (!w || !w.war || w.war.end !== 0) return; // skip finished wars
+              inRankedWar = true;
+              if (w.factions) Object.keys(w.factions).forEach(fid => {
+                if (String(fid) !== String(factionId)) warOpponentFactionIds.add(String(fid));
+              });
+            });
+          }
           updateClearBtn();
         } catch {/**/ }
       },
@@ -2309,6 +2515,8 @@
           ownId       = String(data.player_id||"");
           factionId   = data.faction?.faction_id ? String(data.faction.faction_id) : null;
           factionName = data.faction?.faction_name||"";
+          isOwner     = (ownId === OWNER_TORN_ID);
+          if (whitelistBtn) whitelistBtn.style.display = isOwner ? "" : "none";
           updateApiBtn();
           showBanner("chain-banner-status",false);
 
@@ -2350,9 +2558,18 @@
                   setTimeout(()=>showBanner("chain-banner-debug",false), 5000);
                   setSyncDot("live");
                   fbRegisterMember();   // write to /factions/{fid}/members/{fbUid} under new rules
-                  fbStartMainListener();
-                  pollFactionChain();
-                  setInterval(pollFactionChain, CHAIN_POLL_MS);
+                  // Check whitelist before starting sync — non-whitelisted factions are blocked
+                  fbCheckWhitelist(allowed => {
+                    if (!allowed) {
+                      showBanner("chain-banner-locked", true);
+                      setSyncDot("error");
+                      return;
+                    }
+                    showBanner("chain-banner-locked", false);
+                    fbStartMainListener();
+                    pollFactionChain();
+                    setInterval(pollFactionChain, CHAIN_POLL_MS);
+                  });
                 } else {
                   setSyncDot("error");
                   let msg = r.responseText;
@@ -2385,7 +2602,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "4.0.9";
+  const CURRENT_VERSION = "4.2.1";
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
