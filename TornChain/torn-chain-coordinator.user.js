@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      3.6.0
+// @version      3.7.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -359,7 +359,18 @@
     }
 
     /* ── Hit list ── */
-    #chain-panel-inner { overflow-y:auto !important; flex:1 !important; max-height:380px !important; padding:4px 0 !important; }
+    /* ── Pinned NOW/on-deck rows ── */
+    #chain-pinned {
+      flex-shrink:0 !important; background:rgba(0,0,0,.18) !important;
+    }
+    #chain-pinned .chain-hit-row.due {
+      background:rgba(68,255,136,.08) !important;
+      border-left-color:#44ff88 !important;
+      animation:none !important;  /* no flicker on pinned row */
+    }
+    #chain-pinned .chain-hit-row { border-radius:0 !important; }
+
+    #chain-panel-inner { overflow-y:auto !important; flex:1 !important; max-height:280px !important; padding:4px 0 !important; }
     #chain-panel-inner::-webkit-scrollbar { width:5px; }
     #chain-panel-inner::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:3px; }
 
@@ -503,6 +514,7 @@
         <span>#</span><span>Claimer</span><span>Target</span>
         <span style="text-align:right">Window</span><span></span><span></span>
       </div>
+      <div id="chain-pinned" style="display:none;border-bottom:2px solid rgba(68,255,136,.2);flex-shrink:0"></div>
       <div id="chain-panel-inner">
         <div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">
           No hits queued.<br>Click 🎯 next to an attack button.
@@ -1053,14 +1065,18 @@
     ssePollInterval = setInterval(fbPollOnce, 1500);
   }
 
+  let pollInFlight = false;
   function fbPollOnce() {
     if (!factionId || !fbConfigured()) return;
+    if (pollInFlight) return;  // skip if previous poll hasn't returned yet
+    pollInFlight = true;
     GM_xmlhttpRequest({
       method: "GET",
       url: P.root(),
       headers: { "Cache-Control": "no-cache" },
       timeout: 8000,
       onload(r) {
+        pollInFlight = false;
         if (r.status >= 200 && r.status < 300) {
           try {
             const data = JSON.parse(r.responseText);
@@ -1078,18 +1094,24 @@
           console.warn("[ChainCoord] Poll failed", r.status, r.responseText);
         }
       },
-      onerror()  { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Poll network error — check @connect firebaseio.com"); },
-      ontimeout(){ setSyncDot("error"); },
+      onerror()  { pollInFlight=false; setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Poll network error — check @connect firebaseio.com"); },
+      ontimeout(){ pollInFlight=false; setSyncDot("error"); },
     });
   }
 
     // Route a Firebase patch to the right handler
   function applyPatch(path, data) {
     if (path === "/hits") {
-      hitMap.clear();
-      if (data && typeof data === "object") {
+      // Only clear+replace if Firebase gave us actual hit data.
+      // A null /hits means the node was deleted (chain cleared) — that's intentional.
+      // But never wipe local state if data is undefined/missing (transient Firebase state).
+      if (data === null) {
+        hitMap.clear();  // deliberate clear from Firebase
+      } else if (data && typeof data === "object") {
+        hitMap.clear();
         Object.entries(data).forEach(([id, h]) => { if(h) hitMap.set(id, h); });
       }
+      // If data is undefined or any other falsy — leave hitMap alone
       reNumberPending();
       setSyncDot("live");
       renderPanel();
@@ -1161,6 +1183,7 @@
       if (data && typeof data === "object") {
         Object.entries(data).forEach(([uid, m]) => { if(m) presenceMap.set(uid, m); });
       }
+      updateOnlineCount();
       return;
     }
 
@@ -1169,6 +1192,7 @@
       const uid = memberMatch[1];
       if (data === null) presenceMap.delete(uid);
       else presenceMap.set(uid, data);
+      updateOnlineCount();
       return;
     }
 
@@ -1177,6 +1201,7 @@
       const uid = heartbeatMatch[1];
       if (presenceMap.has(uid)) presenceMap.get(uid).lastSeen = data;
       else presenceMap.set(uid, { lastSeen: data });
+      updateOnlineCount();
       return;
     }
 
@@ -1186,17 +1211,22 @@
         const keys = Object.keys(data).join(",") || "(empty)";
         showBanner("chain-banner-debug", true, "✓ SSE root received. keys="+keys);
         setTimeout(()=>showBanner("chain-banner-debug",false), 6000);
-        hitMap.clear();
-        if (data.hits && typeof data.hits === "object") {
-          Object.entries(data.hits).forEach(([id,h]) => { if(h) hitMap.set(id,h); });
-        }
-        // After a full repopulation, rebuild scrapedHitIds from what Firebase
-        // already has as done — so the scraper won't re-write them, but the
-        // slot-coverage check will also catch any stragglers.
-        scrapedHitIds.clear();
-        for (const h of hitMap.values()) {
-          if (h.status === "done" && h.chainHitNum && chainSessionId) {
-            scrapedHitIds.add((chainSessionId||"nosession") + "_hit_" + h.chainHitNum);
+        // Only replace hitMap if Firebase actually sent hits data.
+        // If the hits key is absent from the root response, leave local state alone —
+        // it means Firebase returned a partial/transient snapshot, not a deliberate clear.
+        if ("hits" in data) {
+          if (data.hits && typeof data.hits === "object") {
+            hitMap.clear();
+            Object.entries(data.hits).forEach(([id,h]) => { if(h) hitMap.set(id,h); });
+          } else if (data.hits === null) {
+            hitMap.clear();  // deliberate clear
+          }
+          // Rebuild scrapedHitIds to match Firebase state
+          scrapedHitIds.clear();
+          for (const h of hitMap.values()) {
+            if (h.status === "done" && h.chainHitNum && chainSessionId) {
+              scrapedHitIds.add((chainSessionId||"nosession") + "_hit_" + h.chainHitNum);
+            }
           }
         }
         if (data.session) handleRemoteSession(data.session);
@@ -1205,6 +1235,7 @@
         if (data.members && typeof data.members==="object") {
           Object.entries(data.members).forEach(([uid,m]) => { if(m) presenceMap.set(uid,m); });
         }
+        updateOnlineCount();
         reNumberPending();
         updateClearBtn();
         setSyncDot("live");
@@ -1290,7 +1321,9 @@
       if (chainSessionId) {
         chainSessionId = null; chainStartTime = null; chainConfirmed = false;
         chainHit1Time = null; sessionMinHitNum = null; scrapedHitIds.clear();
-        hitMap.clear();
+        // Don't wipe hitMap here — Firebase /hits may still have data.
+        // The poll will reconcile hits on the next cycle.
+        // Only wipe if the /hits node also comes back null (handled in applyPatch).
         persistSession();
         renderPanel();
       }
@@ -1668,165 +1701,53 @@
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Panel render
-  //  FIX #3: done hits sorted ascending (oldest top), pending below,
-  //          auto-scroll to bottom so queue is always in view.
-  //  FIX #4: show "Unclaimed" row in full view when no pending hits.
+  //
+  //  Architecture:
+  //   - #chain-pinned: sticky top area — shows hit #1 (NOW) and hit #2 (on deck)
+  //     always visible regardless of scroll. Never wiped, only text-patched.
+  //   - #chain-panel-inner: scrollable history (done hits) only.
+  //     Pending hits beyond #1 and #2 are also shown here, below done hits.
+  //   - Hosp flicker fix: innerHTML is only rewritten when the hit LIST
+  //     changes (different IDs). Timer/status cells are patched in the 1s tick.
   // ══════════════════════════════════════════════════════════════════════════
-  function renderPanel() {
-    const inner   = document.getElementById("chain-panel-inner");
-    const colHead = document.getElementById("chain-col-header");
-    const titleEl = document.getElementById("chain-panel-title");
-    if (!inner) return;
 
-    if (titleEl) titleEl.textContent = factionName ? `⛓ ${factionName}` : "⛓ Chain Board";
+  // Track last rendered hit ID list to avoid unnecessary full re-renders
+  let lastRenderedIds = "";
 
-    document.querySelectorAll(".chain-target-btn").forEach(btn => {
-      const profileA = btn.nextElementSibling;
-      if (!profileA) return;
-      const m = (profileA.href||"").match(/XID=(\d+)/i);
-      if (!m) return;
-      const queued = [...hitMap.values()].find(h=>h.status==="pending"&&h.targetId===m[1]);
-      if (queued) { btn.textContent="✓"; btn.classList.add("claimed"); btn.title=`${profileA.textContent.trim()} queued as hit #${queued.hitNumber}`; }
-      else if (btn.classList.contains("claimed")) { btn.textContent="🎯"; btn.classList.remove("claimed"); }
-    });
-
-    const pendingHits = getPendingHits();
-    const doneHits    = getDoneHits();  // FIX #3: now sorted ascending by chainHitNum
-
-    // Pill + icon badges
-    pillBadge.textContent = pendingHits.length;
-    pillBadge.classList.toggle("visible", pendingHits.length > 0);
-    if (iconBadge) {
-      iconBadge.textContent = pendingHits.length;
-      iconBadge.classList.toggle("visible", pendingHits.length > 0);
-    }
-    // Pill next-target display
-    if (pillNext) {
-      const nextUp = pendingHits[0] || null;
-      if (nextUp) {
-        pillNext.textContent = nextUp.targetName;
-        pillNext.style.color = "";
-        if (pillSep) pillSep.style.display = "";
-      } else {
-        pillNext.textContent = "Unclaimed";
-        pillNext.style.color = "#ff8888";
-        if (pillSep) pillSep.style.display = "";
-      }
-    }
-
-    // Next-hit strip
-    const nextHit = pendingHits[0] || null;
-    if (nextHit) {
-      nextNum.textContent  = `#${nextHit.hitNumber}`;
-      nextName.textContent = nextHit.targetName;
-      nextName.style.color = "";
-      nextTimer.textContent = "NOW"; nextTimer.className = "due";
-      nextAttack.href = nextHit.attackUrl; nextAttack.style.display = "";
+  function hitRowHtml(hit, queuePos, now) {
+    const hosp = isHospStillIn(hit);
+    const isDone = hit.status === "done";
+    let rc, tc, timerText;
+    if (isDone) {
+      rc = hit.untracked ? "untracked" : "done";
+      tc = "done"; timerText = "Done";
     } else {
-      const nextSlot = getHighestDoneHitNum()+1;
-      nextNum.textContent  = `#${nextSlot}`;
-      nextName.textContent = "Unclaimed"; nextName.style.color = "#ff8888";
-      nextAttack.style.display = "none";
-      const chcMs = pendingCountdownMs(1);
-      const disp  = Math.round(chcMs/1000);
-      nextTimer.textContent = liveChainSecs!==null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-      nextTimer.className   = disp<=30?"due":disp<=90?"soon":"wait";
+      const rem = pendingCountdownMs(queuePos);
+      timerText = queuePos === 0 ? "NOW" : formatTime(rem);
+      tc = queuePos === 0 ? "due" : hitTimerClass(rem);
+      rc = queuePos === 0 ? "due" : hitRowClass(rem, hosp, hit.untracked);
     }
+    const canRemoveHit = !isDone && (canClear || hit.claimedBy === ownName);
+    const hospSub = (!isDone && hosp)
+      ? `<span class="chain-hit-hosp-sub" data-hosp-id="${hit.id}">out in ${formatTime(hit.hospReleaseAt - now)}</span>`
+      : "";
+    const attackDisabled = isDone || !hit.attackUrl || hit.attackUrl === "#";
+    const outBadge = (hit.outside || !hit.targetId) && !isDone
+      ? '<span style="font-size:9px;color:#88bbff;margin-right:2px">OUT</span>' : "";
+    const claimerPrefix = isDone ? "✓ " : "";
+    return `<div class="chain-hit-row ${rc}" data-hit-id="${hit.id}" data-queue-pos="${isDone ? -1 : queuePos}">
+      <span class="chain-hit-num">${hit.chainHitNum || hit.hitNumber}</span>
+      <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">${claimerPrefix}${escHtml(hit.claimedBy)}</span>
+      <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${outBadge}${escHtml(hit.targetName)}</span>
+      <span class="chain-hit-timer ${tc}" data-pos="${isDone ? -1 : queuePos}">${timerText}</span>
+      <a class="chain-hit-attack" href="${escHtml(hit.attackUrl || "#")}" target="_blank"${attackDisabled ? ' style="opacity:.2;pointer-events:none"' : ""}>🗡</a>
+      ${canRemoveHit ? `<button class="chain-hit-remove" data-remove-id="${hit.id}" title="Remove this hit">✕</button>` : "<span></span>"}
+      ${hospSub}
+    </div>`;
+  }
 
-    // Full list: done (asc) then pending (asc), then unclaimed placeholder
-    const hasDoneOrPending = doneHits.length > 0 || pendingHits.length > 0;
-
-    if (!hasDoneOrPending) {
-      colHead.style.display = "none";
-      // FIX #4: even with no hits, show unclaimed if chain is active
-      if (liveChainCount !== null) {
-        colHead.style.display = "";
-        const nextSlot = getHighestDoneHitNum() + 1;
-        const chcMs = pendingCountdownMs(1);
-        const disp  = Math.round(chcMs / 1000);
-        const timerTxt = liveChainSecs !== null
-          ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`
-          : "—";
-        inner.innerHTML = `
-          <div class="chain-hit-row unclaimed">
-            <span class="chain-hit-num">${nextSlot}</span>
-            <span class="chain-hit-claimer">—</span>
-            <span class="chain-hit-target">Unclaimed</span>
-            <span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${timerTxt}</span>
-            <span></span>
-          </div>`;
-      } else {
-        inner.innerHTML = `<div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">No hits queued.<br>Click 🎯 next to an attack button.</div>`;
-      }
-      return;
-    }
-
-    colHead.style.display = "";
-    const now = Date.now();
-    let html = "", queuePos = 0;
-
-    // Done hits first (ascending chainHitNum = oldest at top)
-    for (const hit of doneHits) {
-      html += `
-        <div class="chain-hit-row ${hit.untracked?"untracked":"done"}" data-hit-id="${hit.id}" data-queue-pos="-1">
-          <span class="chain-hit-num">${hit.chainHitNum||hit.hitNumber}</span>
-          <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">✓ ${escHtml(hit.claimedBy)}</span>
-          <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${escHtml(hit.targetName)}</span>
-          <span class="chain-hit-timer done">Done</span>
-          <a class="chain-hit-attack" href="${escHtml(hit.attackUrl||"#")}" target="_blank" style="opacity:.2;pointer-events:none">🗡</a>
-          <span></span>
-        </div>`;
-    }
-
-    // Pending hits below done hits
-    for (const hit of pendingHits) {
-      const hosp = isHospStillIn(hit);
-      const rem       = pendingCountdownMs(queuePos);
-      const timerText = queuePos===0 ? "NOW" : formatTime(rem);
-      const tc        = queuePos===0 ? "due" : hitTimerClass(rem);
-      const rc        = queuePos===0 ? "due" : hitRowClass(rem, hosp, hit.untracked);
-      const canRemoveHit = canClear || hit.claimedBy === ownName;
-
-      const hospSub = hosp
-        ? `<span class="chain-hit-hosp-sub" data-hosp-id="${hit.id}">out in ${formatTime(hit.hospReleaseAt-now)}</span>`
-        : "";
-
-      html += `
-        <div class="chain-hit-row ${rc}" data-hit-id="${hit.id}" data-queue-pos="${queuePos}">
-          <span class="chain-hit-num">${hit.chainHitNum||hit.hitNumber}</span>
-          <span class="chain-hit-claimer" title="${escHtml(hit.claimedBy)}">${escHtml(hit.claimedBy)}</span>
-          <span class="chain-hit-target" title="${escHtml(hit.targetName)}">${(hit.outside||!hit.targetId)?'<span style="font-size:9px;color:#88bbff;margin-right:2px">OUT</span>':""}${escHtml(hit.targetName)}</span>
-          <span class="chain-hit-timer ${tc}" data-pos="${queuePos}">${timerText}</span>
-          <a class="chain-hit-attack" href="${escHtml(hit.attackUrl)}" target="_blank"
-             ${!hit.attackUrl||hit.attackUrl==="#"?'style="opacity:.2;pointer-events:none"':''}>🗡</a>
-          ${canRemoveHit ? `<button class="chain-hit-remove" data-remove-id="${hit.id}" title="Remove this hit">✕</button>` : '<span></span>'}
-          ${hospSub}
-        </div>`;
-      queuePos++;
-    }
-
-    // FIX #4: show unclaimed placeholder after the pending queue
-    if (pendingHits.length === 0 && doneHits.length > 0) {
-      const nextSlot = getHighestDoneHitNum() + 1;
-      const chcMs = pendingCountdownMs(1);
-      const disp  = Math.round(chcMs / 1000);
-      const timerTxt = liveChainSecs !== null
-        ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`
-        : "—";
-      html += `
-        <div class="chain-hit-row unclaimed">
-          <span class="chain-hit-num">${nextSlot}</span>
-          <span class="chain-hit-claimer">—</span>
-          <span class="chain-hit-target">Unclaimed</span>
-          <span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${timerTxt}</span>
-          <span></span>
-        </div>`;
-    }
-
-    inner.innerHTML = html;
-
-    // Wire remove buttons via event delegation
-    inner.querySelectorAll(".chain-hit-remove").forEach(btn => {
+  function wireRemoveButtons(container) {
+    container.querySelectorAll(".chain-hit-remove").forEach(btn => {
       btn.addEventListener("click", e => {
         e.preventDefault(); e.stopPropagation();
         const hitId = btn.dataset.removeId;
@@ -1840,10 +1761,123 @@
         renderPanel();
       });
     });
-
-    // FIX #3: auto-scroll to bottom so the active queue is always visible
-    inner.scrollTop = inner.scrollHeight;
   }
+
+  function renderPanel() {
+    const inner   = document.getElementById("chain-panel-inner");
+    const pinned  = document.getElementById("chain-pinned");
+    const colHead = document.getElementById("chain-col-header");
+    const titleEl = document.getElementById("chain-panel-title");
+    if (!inner) return;
+
+    if (titleEl) titleEl.textContent = factionName ? `⛓ ${factionName}` : "⛓ Chain Board";
+
+    // Refresh 🎯 buttons
+    document.querySelectorAll(".chain-target-btn").forEach(btn => {
+      const profileA = btn.nextElementSibling;
+      if (!profileA) return;
+      const m = (profileA.href || "").match(/XID=(\d+)/i);
+      if (!m) return;
+      const queued = [...hitMap.values()].find(h => h.status === "pending" && h.targetId === m[1]);
+      if (queued) { btn.textContent = "✓"; btn.classList.add("claimed"); btn.title = `${profileA.textContent.trim()} queued as hit #${queued.hitNumber}`; }
+      else if (btn.classList.contains("claimed")) { btn.textContent = "🎯"; btn.classList.remove("claimed"); }
+    });
+
+    const pendingHits = getPendingHits();
+    const doneHits    = getDoneHits();
+
+    // Badges
+    pillBadge.textContent = pendingHits.length;
+    pillBadge.classList.toggle("visible", pendingHits.length > 0);
+    if (iconBadge) { iconBadge.textContent = pendingHits.length; iconBadge.classList.toggle("visible", pendingHits.length > 0); }
+    if (pillNext) {
+      const nextUp = pendingHits[0];
+      pillNext.textContent = nextUp ? nextUp.targetName : "Unclaimed";
+      pillNext.style.color = nextUp ? "" : "#ff8888";
+      if (pillSep) pillSep.style.display = "";
+    }
+
+    // ── Pinned section: hit #1 (NOW) + hit #2 (on deck) ──────────────────────
+    if (pinned) {
+      if (pendingHits.length > 0) {
+        pinned.style.display = "";
+        const now = Date.now();
+        let pinnedHtml = "";
+        // Always show first 2 pending hits pinned
+        pendingHits.slice(0, 2).forEach((hit, i) => { pinnedHtml += hitRowHtml(hit, i, now); });
+        // If no queue (just unclaimed) show unclaimed row
+        if (pendingHits.length === 0) {
+          const nextSlot = getHighestDoneHitNum() + 1;
+          const disp = Math.round(pendingCountdownMs(1) / 1000);
+          const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
+          pinnedHtml = `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span></div>`;
+        }
+        pinned.innerHTML = pinnedHtml;
+        wireRemoveButtons(pinned);
+      } else if (liveChainCount !== null) {
+        pinned.style.display = "";
+        const nextSlot = getHighestDoneHitNum() + 1;
+        const disp = Math.round(pendingCountdownMs(1) / 1000);
+        const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
+        pinned.innerHTML = `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
+      } else {
+        pinned.style.display = "none";
+      }
+    }
+
+    // ── Scrollable inner: done history + overflow pending ────────────────────
+    // Build a key from all hit IDs+statuses to detect structural changes
+    const allHits = [...doneHits, ...pendingHits.slice(2)];
+    const renderKey = allHits.map(h => h.id + h.status + (h.chainHitNum||"")).join("|");
+
+    const hasDoneOrPending = doneHits.length > 0 || pendingHits.length > 0;
+    if (!hasDoneOrPending) {
+      colHead.style.display = "none";
+      if (!pinned || pinned.style.display === "none") {
+        inner.innerHTML = `<div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">No hits queued.<br>Click 🎯 next to an attack button.</div>`;
+      } else {
+        inner.innerHTML = "";
+      }
+      lastRenderedIds = renderKey;
+      return;
+    }
+
+    colHead.style.display = "";
+
+    // Only do full innerHTML rewrite when structure changes (avoids flicker)
+    if (renderKey !== lastRenderedIds) {
+      lastRenderedIds = renderKey;
+      const now = Date.now();
+      let html = "";
+
+      // Done hits (history)
+      for (const hit of doneHits) {
+        html += hitRowHtml(hit, -1, now);
+      }
+
+      // Pending hits beyond the pinned 2
+      let queuePos = 2;
+      for (const hit of pendingHits.slice(2)) {
+        html += hitRowHtml(hit, queuePos, now);
+        queuePos++;
+      }
+
+      // Unclaimed placeholder after queue
+      if (pendingHits.length === 0 && doneHits.length > 0) {
+        const nextSlot = getHighestDoneHitNum() + 1;
+        const disp = Math.round(pendingCountdownMs(1) / 1000);
+        const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
+        html += `<div class="chain-hit-row unclaimed"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
+      }
+
+      inner.innerHTML = html;
+      wireRemoveButtons(inner);
+
+      // Scroll to bottom of history so most recent done hit is visible
+      inner.scrollTop = inner.scrollHeight;
+    }
+  }
+
 
   // ══════════════════════════════════════════════════════════════════════════
   //  1-second tick
@@ -1853,14 +1887,27 @@
     updateChainTimerUI();
     scrapeRecentAttacks();
 
+    // Patch timer cells in BOTH pinned and scrollable sections (avoids full re-render)
     document.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
       const pos = parseInt(cell.dataset.pos);
       if (pos < 0) return;
+      const hit = [...hitMap.values()].find(h => h.status === "pending" && !([...hitMap.values()].filter(x=>x.status==="pending").sort((a,b)=>a.hitNumber-b.hitNumber).slice(0,pos).some(x=>x===h)) );
+      const hosp = hit ? isHospStillIn(hit) : false;
       const rem = pendingCountdownMs(pos);
       cell.textContent = pos===0 ? "NOW" : formatTime(rem);
       cell.className   = `chain-hit-timer ${pos===0?"due":hitTimerClass(rem)}`;
       const row = cell.closest(".chain-hit-row");
-      if (row) row.className = `chain-hit-row ${pos===0?"due":hitRowClass(rem,false,false)}`;
+      if (row) {
+        const newRc = pos===0?"due":hitRowClass(rem,hosp,false);
+        if (!row.closest("#chain-pinned")) row.className = `chain-hit-row ${newRc}`;
+      }
+    });
+    // Update hosp sub-timers in pinned section too
+    document.querySelectorAll("#chain-pinned [data-hosp-id], #chain-panel-inner [data-hosp-id]").forEach(hc => {
+      const hit = hitMap.get(hc.dataset.hospId);
+      if (!hit) { hc.remove(); return; }
+      if (!isHospStillIn(hit)) { hc.textContent = ""; hc.removeAttribute("data-hosp-id"); }
+      else hc.textContent = `out in ${formatTime(hit.hospReleaseAt - Date.now())}`;
     });
 
     const nh = getPendingHits()[0];
@@ -1874,13 +1921,6 @@
 
     // Top-bar chain badge (all pages)
     updateTopBarBadge();
-
-    document.querySelectorAll("[data-hosp-id]").forEach(hc => {
-      const hit = hitMap.get(hc.dataset.hospId);
-      if (!hit) { hc.remove(); return; }
-      if (!isHospStillIn(hit)) hc.remove();
-      else hc.textContent = `out in ${formatTime(hit.hospReleaseAt-now)}`;
-    });
   }, 1000);
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2193,7 +2233,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "3.5.2";
+  const CURRENT_VERSION = "3.7.0";
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
