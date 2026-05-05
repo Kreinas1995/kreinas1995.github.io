@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.7.1
+// @version      4.7.9
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -43,7 +43,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.7.1";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.7.9";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -64,6 +64,15 @@
   const SK_POS_Y          = "chain_pos_y";
   // Legacy key — read once to migrate, then ignored
   const SK_POS_X          = "chain_pos_x";
+  const SK_TRACKER_H      = "chain_tracker_h";
+  const SK_ADMIN_H        = "chain_admin_h";
+  // Per-mode position memory — each view mode remembers its own last position
+  const SK_POS_X_FULL     = "chain_pos_x_full";
+  const SK_POS_Y_FULL     = "chain_pos_y_full";
+  const SK_POS_X_ICON     = "chain_pos_x_icon";
+  const SK_POS_Y_ICON     = "chain_pos_y_icon";
+  const SK_POS_X_MINI     = "chain_pos_x_mini";
+  const SK_POS_Y_MINI     = "chain_pos_y_mini";
   // FIX #2: persist chain session so reload doesn't lose history
   const SK_SESSION_ID     = "chain_session_id";
   const SK_SESSION_START  = "chain_session_start";
@@ -682,9 +691,20 @@
     #chain-tracker-popover {
       position:absolute; top:42px; left:8px; right:8px; z-index:1000001;
       background:rgba(20,22,30,.98); border-radius:10px; border:1px solid rgba(100,180,255,.3);
-      padding:12px; box-shadow:0 8px 24px rgba(0,0,0,.65);
-      display:none; flex-direction:column; gap:8px; max-height:440px;
+      padding:12px 12px 18px; box-shadow:0 8px 24px rgba(0,0,0,.65);
+      display:none; flex-direction:column; gap:8px;
+      min-height:200px; max-height:85vh; overflow:hidden;
     }
+    #chain-tracker-resize-handle {
+      position:absolute; bottom:0; left:0; right:0; height:14px;
+      cursor:ns-resize; border-radius:0 0 10px 10px;
+      display:flex; align-items:center; justify-content:center;
+    }
+    #chain-tracker-resize-handle::after {
+      content:""; display:block; width:36px; height:3px;
+      border-radius:2px; background:rgba(255,255,255,.15);
+    }
+    #chain-tracker-resize-handle:hover::after { background:rgba(255,255,255,.35); }
     #chain-tracker-popover.open { display:flex !important; }
     #chain-tracker-title { font-size:12px; font-weight:700; color:#88bbff; }
     #chain-tracker-list  { overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:5px; }
@@ -709,7 +729,16 @@
     /* ── Admin inbox (owner only) ── */
     #chain-admin-section { display:flex; flex-direction:column; gap:6px; border-top:1px solid rgba(255,255,255,.08); padding-top:8px; }
     #chain-admin-inbox-title { font-size:10px; font-weight:700; color:#ff9966; letter-spacing:.3px; }
-    #chain-admin-inbox { overflow-y:auto; display:flex; flex-direction:column; gap:5px; max-height:200px; }
+    #chain-admin-inbox { overflow-y:auto; display:flex; flex-direction:column; gap:5px; height:200px; min-height:80px; }
+    #chain-admin-inbox-resize {
+      height:10px; cursor:ns-resize; display:flex; align-items:center; justify-content:center;
+      margin: 0 -9px; /* bleed to section edges */
+    }
+    #chain-admin-inbox-resize::after {
+      content:""; display:block; width:28px; height:3px;
+      border-radius:2px; background:rgba(255,255,255,.12);
+    }
+    #chain-admin-inbox-resize:hover::after { background:rgba(255,255,255,.3); }
     #chain-admin-inbox::-webkit-scrollbar { width:4px; }
     #chain-admin-inbox::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:2px; }
     .chain-admin-report { background:rgba(255,255,255,.04); border-radius:7px; padding:7px 9px; border-left:3px solid rgba(255,120,80,.45); }
@@ -742,23 +771,26 @@
   // ══════════════════════════════════════════════════════════════════════════
   const panel = document.createElement("div");
   panel.id = "chain-panel";
-  const savedY = GM_getValue(SK_POS_Y, null);
-  // Primary anchor is LEFT. SK_POS_RIGHT is only read to migrate users who had a
-  // right-based position saved from 4.6.3; after migration it is ignored.
-  let savedLeft = GM_getValue(SK_POS_X, null);
-  if (savedLeft === null) {
-    const legacyRight = GM_getValue(SK_POS_RIGHT, null);
-    if (legacyRight !== null) {
-      // Migrate right → left (best-effort; uses current panelW)
-      savedLeft = Math.max(0, window.innerWidth - legacyRight - panelW);
-      GM_setValue(SK_POS_X, savedLeft);
+  // Boot: restore position for the current viewMode from per-mode keys.
+  // Fall back to shared key for users upgrading from older versions.
+  // SK_POS_RIGHT migration is also handled here for very old saves.
+  {
+    const modeKeys = [
+      { x: SK_POS_X_FULL, y: SK_POS_Y_FULL },
+      { x: SK_POS_X_ICON, y: SK_POS_Y_ICON },
+      { x: SK_POS_X_MINI, y: SK_POS_Y_MINI },
+    ][viewMode] || { x: SK_POS_X_FULL, y: SK_POS_Y_FULL };
+    let bx = GM_getValue(modeKeys.x, null) ?? GM_getValue(SK_POS_X, null);
+    let by = GM_getValue(modeKeys.y, null) ?? GM_getValue(SK_POS_Y, null);
+    if (bx === null) {
+      const legacyRight = GM_getValue(SK_POS_RIGHT, null);
+      bx = legacyRight !== null ? Math.max(0, window.innerWidth - legacyRight - panelW) : Math.max(0, window.innerWidth - panelW - 12);
     }
+    if (by === null) by = 60;
+    panel.style.right = "auto";
+    panel.style.left  = bx + "px";
+    panel.style.top   = by + "px";
   }
-  // Left-anchored at rest. Only icon mode (view 1) switches to right-anchor so the
-  // panel collapses toward the right edge; applyViewMode handles that transition.
-  panel.style.right = "auto";
-  panel.style.left  = (savedLeft !== null ? savedLeft : Math.max(0, window.innerWidth - panelW - 12)) + "px";
-  panel.style.top   = (savedY    !== null ? savedY    : 60)  + "px";
   panel.style.width = panelW+"px";
   if (panelH) panel.style.height = panelH+"px";
 
@@ -824,14 +856,16 @@
       </div>
 
       <!-- Bug tracker popover -->
-      <div id="chain-tracker-popover" class="chain-popover" style="position:absolute;top:42px;left:8px;right:8px;border:1px solid rgba(100,180,255,.3);max-height:440px;">
+      <div id="chain-tracker-popover" class="chain-popover">
         <div id="chain-tracker-title">📋 Bug Tracker</div>
         <div id="chain-tracker-list"></div>
         <div id="chain-admin-section" style="display:none">
           <div id="chain-admin-inbox-title">📥 SUBMITTED REPORTS</div>
+          <div id="chain-admin-inbox-resize" title="Drag to resize inbox"></div>
           <div id="chain-admin-inbox"></div>
         </div>
         <button id="chain-tracker-close">Close</button>
+        <div id="chain-tracker-resize-handle" title="Drag to resize"></div>
       </div>
 
       <!-- API popover -->
@@ -972,29 +1006,57 @@
   // page load, causing icon↔mini to flip on each navigation. The new ordering
   // (0=full, 1=icon, 2=mini) has been stable since 4.6.x — no migration needed.
 
-  // Helper: convert current left-anchored position → right-anchor (for icon mode).
-  // Helper: convert current right-anchored position → left-anchor (leaving icon mode).
-  function toRightAnchor() {
+  // Map mode → SK keys for position memory
+  const MODE_POS_KEYS = [
+    { x: SK_POS_X_FULL, y: SK_POS_Y_FULL },   // 0 = full
+    { x: SK_POS_X_ICON, y: SK_POS_Y_ICON },   // 1 = icon
+    { x: SK_POS_X_MINI, y: SK_POS_Y_MINI },   // 2 = mini
+  ];
+
+  // Save current pixel position to the given mode's keys
+  function savePosForMode(mode) {
     const r = panel.getBoundingClientRect();
-    panel.style.left  = "auto";
-    panel.style.right = Math.max(0, window.innerWidth - r.right) + "px";
+    const left = Math.round(r.left);
+    const top  = Math.round(r.top);
+    const keys = MODE_POS_KEYS[mode];
+    if (keys) { GM_setValue(keys.x, left); GM_setValue(keys.y, top); }
+    // Always keep the shared keys in sync for endDrag / resize
+    GM_setValue(SK_POS_X, left); GM_setValue(SK_POS_Y, top);
   }
-  function toLeftAnchor() {
-    const r = panel.getBoundingClientRect();
-    panel.style.right = "auto";
-    panel.style.left  = Math.max(0, r.left) + "px";
-    GM_setValue(SK_POS_X, Math.max(0, r.left));
+
+  // Restore saved position for mode, clamping to current viewport + new panel size
+  function restorePosForMode(mode, w, h) {
+    const keys = MODE_POS_KEYS[mode];
+    let lx = keys ? GM_getValue(keys.x, null) : null;
+    let ly = keys ? GM_getValue(keys.y, null) : null;
+    // Fall back to shared key (migration for users without per-mode saves yet)
+    if (lx === null) lx = GM_getValue(SK_POS_X, null);
+    if (ly === null) ly = GM_getValue(SK_POS_Y, null);
+    if (lx === null) lx = Math.max(0, window.innerWidth - (w || 380) - 12);
+    if (ly === null) ly = 60;
+    // Clamp so the panel is fully on screen with the new dimensions
+    const maxX = Math.max(0, window.innerWidth  - (w || panel.offsetWidth  || 44));
+    const maxY = Math.max(0, window.innerHeight - (h || panel.offsetHeight || 44));
+    return { x: Math.max(0, Math.min(maxX, lx)), y: Math.max(0, Math.min(maxY, ly)) };
   }
+
+  let _prevViewMode = viewMode;   // track what mode we're leaving
+  let _bootApply    = true;       // true on the very first applyViewMode() call (boot)
 
   function applyViewMode() {
+    // Save position of the mode we're LEAVING before changing anything
+    if (_prevViewMode !== viewMode) {
+      savePosForMode(_prevViewMode);
+      _prevViewMode = viewMode;
+    }
+
+    panel.style.right    = "auto";
     panel.style.overflow = "hidden";
-    const wasIcon = panel.classList.contains("view-icon");
     panel.classList.remove("view-full","view-mini","view-icon");
 
-    if (viewMode !== 0) closeAllPopovers();   // whitelist & others only make sense in full view
+    if (viewMode !== 0) closeAllPopovers();
+
     if (viewMode === 0) {
-      // Large — restore explicit size; left-anchored
-      if (wasIcon) toLeftAnchor();
       panel.classList.add("view-full");
       panel.style.width  = panelW+"px";
       panel.style.height = panelH ? panelH+"px" : "";
@@ -1003,9 +1065,6 @@
       viewBtn.title = "Switch to button view";
       if (outsideBar) outsideBar.style.display = "";
     } else if (viewMode === 1) {
-      // Icon (button) — switch to right-anchor so the panel collapses toward
-      // the right edge; the 44×44px circle stays in place.
-      if (!wasIcon) toRightAnchor();
       panel.classList.add("view-icon");
       panel.style.width  = "";
       panel.style.height = "";
@@ -1014,8 +1073,6 @@
       viewBtn.title = "Switch to mini view";
       if (outsideBar) outsideBar.style.display = "none";
     } else {
-      // Mini pill — left-anchored
-      if (wasIcon) toLeftAnchor();
       panel.classList.add("view-mini");
       panel.style.width  = "";
       panel.style.height = "";
@@ -1025,9 +1082,28 @@
       if (outsideBar) outsideBar.style.display = "none";
     }
 
-    setTimeout(() => {
-      panel.style.overflow = viewMode === 0 ? "visible" : "hidden";
-    }, 160);
+    // On the first (boot) call: boot block already placed the panel correctly,
+    // just clamp in case viewport changed. On subsequent mode switches: restore
+    // the saved position for the new mode.
+    const isBoot = _bootApply;
+    _bootApply = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (isBoot) {
+        // Just clamp — don't overwrite the boot position
+        const w = panel.offsetWidth || panelW;
+        const h = panel.offsetHeight || panelH || 200;
+        const cx = Math.max(0, Math.min(window.innerWidth  - w, parseInt(panel.style.left)||0));
+        const cy = Math.max(0, Math.min(window.innerHeight - h, parseInt(panel.style.top) ||0));
+        panel.style.left = cx+"px"; panel.style.top = cy+"px";
+      } else {
+        const pos = restorePosForMode(viewMode, panel.offsetWidth, panel.offsetHeight);
+        panel.style.left = pos.x+"px";
+        panel.style.top  = pos.y+"px";
+      }
+      setTimeout(() => {
+        panel.style.overflow = viewMode === 0 ? "visible" : "hidden";
+      }, 160);
+    }));
   }
 
   // View button: full→icon, icon→mini, mini→full
@@ -1105,11 +1181,21 @@
       if(!dragging) return;
       dragging=false;
       if(didDrag) {
-        // Stay left-anchored after drag — save left pos directly.
-        // Icon mode is the only exception: applyViewMode switches to right-anchor
-        // when entering mode 1 so the panel collapses toward the right edge.
-        GM_setValue(SK_POS_X, parseInt(panel.style.left));
-        GM_setValue(SK_POS_Y, parseInt(panel.style.top));
+        // startDrag always converts to left-anchor (sets style.left from getBCR).
+        // So after drag the panel is always left-anchored regardless of view mode.
+        // Just clamp to viewport and save.
+        const maxLeft = Math.max(0, window.innerWidth  - panel.offsetWidth);
+        const maxTop  = Math.max(0, window.innerHeight - panel.offsetHeight);
+        const cx = Math.max(0, Math.min(maxLeft, parseInt(panel.style.left)||0));
+        const cy = Math.max(0, Math.min(maxTop,  parseInt(panel.style.top)||0));
+        panel.style.left = cx+"px";
+        panel.style.top  = cy+"px";
+        // Save position for current mode explicitly — no closure risk
+        if      (viewMode === 0) { GM_setValue(SK_POS_X_FULL, cx); GM_setValue(SK_POS_Y_FULL, cy); }
+        else if (viewMode === 1) { GM_setValue(SK_POS_X_ICON, cx); GM_setValue(SK_POS_Y_ICON, cy); }
+        else if (viewMode === 2) { GM_setValue(SK_POS_X_MINI, cx); GM_setValue(SK_POS_Y_MINI, cy); }
+        GM_setValue(SK_POS_X, cx);
+        GM_setValue(SK_POS_Y, cy);
         panel.dataset.justDragged = "1";
         setTimeout(()=>{ delete panel.dataset.justDragged; }, 50);
       }
@@ -1149,7 +1235,7 @@
   //  Corner resize
   // ══════════════════════════════════════════════════════════════════════════
   (function makeResizable() {
-    const MIN_W=360,MAX_W=700,MIN_H=120,MAX_H=900;
+    const MIN_W=280, MAX_W=Math.min(700,window.innerWidth-4), MIN_H=120, MAX_H=Math.min(900,window.innerHeight-60);
     let resizing=false,sx,sy,sw,sh;
     function start(cx,cy){
       resizing=true; sx=cx; sy=cy; sw=panel.offsetWidth; sh=panel.offsetHeight;
@@ -1167,7 +1253,13 @@
       if(!resizing)return; resizing=false; document.body.style.cursor="";
       panelW=panel.offsetWidth; panelH=panel.offsetHeight;
       GM_setValue(SK_PANEL_W,panelW); GM_setValue(SK_PANEL_H,panelH);
-      GM_setValue(SK_POS_X, parseInt(panel.style.left)||0);
+      // Clamp position so resize can't push the panel off screen
+      const cx = Math.max(0, Math.min(window.innerWidth  - panelW, parseInt(panel.style.left)||0));
+      const cy = Math.max(0, Math.min(window.innerHeight - panelH, parseInt(panel.style.top)||0));
+      panel.style.left = cx+"px";
+      panel.style.top  = cy+"px";
+      GM_setValue(SK_POS_X, cx);
+      GM_setValue(SK_POS_Y, cy);
     }
     resizeHandle.addEventListener("mousedown",e=>{e.preventDefault();e.stopPropagation();start(e.clientX,e.clientY);});
     document.addEventListener("mousemove",e=>move(e.clientX,e.clientY));
@@ -1175,6 +1267,37 @@
     resizeHandle.addEventListener("touchstart",e=>{e.stopPropagation();const t=e.touches[0];start(t.clientX,t.clientY);},{passive:true});
     document.addEventListener("touchmove",e=>{if(!resizing)return;e.preventDefault();const t=e.touches[0];move(t.clientX,t.clientY);},{passive:false});
     document.addEventListener("touchend",end);
+
+    // ── Pinch-to-resize (two-finger) ─────────────────────────────────────────
+    // Lets users resize the panel without needing to reach the corner handle.
+    // Only active in full view (mode 0).
+    let pinching=false, pinchDist0=0, pinchW0=0, pinchH0=0;
+    function pinchDist(t){ const dx=t[0].clientX-t[1].clientX, dy=t[0].clientY-t[1].clientY; return Math.sqrt(dx*dx+dy*dy); }
+    panel.addEventListener("touchstart", e => {
+      if (viewMode !== 0 || e.touches.length !== 2) return;
+      pinching=true; pinchDist0=pinchDist(e.touches); pinchW0=panel.offsetWidth; pinchH0=panel.offsetHeight;
+    }, { passive: true });
+    panel.addEventListener("touchmove", e => {
+      if (!pinching || e.touches.length !== 2) return;
+      e.preventDefault();
+      const ratio = pinchDist(e.touches) / pinchDist0;
+      panel.style.width  = Math.min(MAX_W, Math.max(MIN_W, Math.round(pinchW0*ratio)))+"px";
+      panel.style.height = Math.min(MAX_H, Math.max(MIN_H, Math.round(pinchH0*ratio)))+"px";
+    }, { passive: false });
+    panel.addEventListener("touchend", e => {
+      if (!pinching) return;
+      if (e.touches.length < 2) {
+        pinching=false;
+        panelW=panel.offsetWidth; panelH=panel.offsetHeight;
+        GM_setValue(SK_PANEL_W,panelW); GM_setValue(SK_PANEL_H,panelH);
+        // Clamp position after pinch resize
+        const maxX=Math.max(0,window.innerWidth-panelW), maxY=Math.max(0,window.innerHeight-panelH);
+        const cx=Math.max(0,Math.min(maxX,parseInt(panel.style.left)||0));
+        const cy=Math.max(0,Math.min(maxY,parseInt(panel.style.top)||0));
+        panel.style.left=cx+"px"; panel.style.top=cy+"px";
+        GM_setValue(SK_POS_X,cx); GM_setValue(SK_POS_Y,cy);
+      }
+    });
   })();
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1603,6 +1726,63 @@
   if (bugCancelBtn) bugCancelBtn.onclick = closeBugPopovers;
   if (trackerClose) trackerClose.onclick = closeBugPopovers;
 
+  // ── Admin inbox resize handle ────────────────────────────────────────────
+  (function initAdminResize() {
+    const handle = document.getElementById("chain-admin-inbox-resize");
+    const inbox  = document.getElementById("chain-admin-inbox");
+    if (!handle || !inbox) return;
+    const MIN_H = 80, MAX_H = 600;
+    // Restore saved height
+    const savedH = GM_getValue(SK_ADMIN_H, 200);
+    inbox.style.height = Math.min(MAX_H, Math.max(MIN_H, savedH)) + "px";
+
+    let resizing=false, startY=0, startH=0;
+    function onStart(cy) { resizing=true; startY=cy; startH=inbox.offsetHeight; document.body.style.userSelect="none"; }
+    function onMove(cy)  { if(!resizing) return;
+      // Handle is ABOVE the inbox. Drag down = shrink, drag up = grow.
+      inbox.style.height = Math.min(MAX_H, Math.max(MIN_H, startH-(cy-startY)))+"px"; }
+    function onEnd()     { if(!resizing) return; resizing=false; document.body.style.userSelect=""; GM_setValue(SK_ADMIN_H, inbox.offsetHeight); }
+
+    handle.addEventListener("mousedown",  e => { e.preventDefault(); e.stopPropagation(); onStart(e.clientY); });
+    handle.addEventListener("touchstart", e => { e.stopPropagation(); onStart(e.touches[0].clientY); }, {passive:true});
+    document.addEventListener("mousemove", e => onMove(e.clientY));
+    document.addEventListener("touchmove", e => { if(resizing){ e.preventDefault(); onMove(e.touches[0].clientY); } }, {passive:false});
+    document.addEventListener("mouseup",  onEnd);
+    document.addEventListener("touchend", onEnd);
+  })();
+
+  // ── Tracker resize handle ─────────────────────────────────────────────────
+  (function initTrackerResize() {
+    const handle = document.getElementById("chain-tracker-resize-handle");
+    if (!handle || !trackerPopover) return;
+    const MIN_H = 200, MAX_H = Math.round(window.innerHeight * 0.85);
+    let resizing=false, startY=0, startH=0;
+    // Restore saved height
+    const savedH = GM_getValue(SK_TRACKER_H, 440);
+    trackerPopover.style.height = Math.min(MAX_H, Math.max(MIN_H, savedH)) + "px";
+
+    function onStart(cy) {
+      resizing=true; startY=cy; startH=trackerPopover.offsetHeight;
+      document.body.style.userSelect="none";
+    }
+    function onMove(cy) {
+      if (!resizing) return;
+      const newH = Math.min(MAX_H, Math.max(MIN_H, startH + (cy - startY)));
+      trackerPopover.style.height = newH+"px";
+    }
+    function onEnd() {
+      if (!resizing) return; resizing=false;
+      document.body.style.userSelect="";
+      GM_setValue(SK_TRACKER_H, trackerPopover.offsetHeight);
+    }
+    handle.addEventListener("mousedown",  e => { e.preventDefault(); e.stopPropagation(); onStart(e.clientY); });
+    handle.addEventListener("touchstart", e => { e.stopPropagation(); onStart(e.touches[0].clientY); }, {passive:true});
+    document.addEventListener("mousemove", e => onMove(e.clientY));
+    document.addEventListener("touchmove", e => { if(resizing) { e.preventDefault(); onMove(e.touches[0].clientY); } }, {passive:false});
+    document.addEventListener("mouseup",  onEnd);
+    document.addEventListener("touchend", onEnd);
+  })();
+
   // Submit bug report
   if (bugSubmitBtn) bugSubmitBtn.addEventListener("click", e => {
     e.stopPropagation();
@@ -1781,7 +1961,7 @@
           ownerProbeResult = true;
           isOwner = true;
           updateClearBtn();
-          setInterval(fbCleanOwnLobbyEntries, 2 * 60 * 1000);
+          if (!ownerCleanupInterval) ownerCleanupInterval = setInterval(fbCleanOwnLobbyEntries, 2 * 60 * 1000);
         } else {
           ownerProbeResult = false;
         }
@@ -2356,8 +2536,21 @@
   //  On each poll we compare the received data to local state and apply
   //  any changes, giving us near-real-time sync without SSE.
   // ══════════════════════════════════════════════════════════════════════════
-  let ssePollInterval = null;
-  let lastPollEtag    = null;   // rough change detection
+  let ssePollInterval       = null;
+  let lastPollEtag          = null;   // rough change detection
+  let lastPollResponse      = null;   // skip applyPatch when response text unchanged
+  let factionPollInterval   = null;   // handle for pollFactionChain interval
+  let heartbeatInterval     = null;   // handle for fbHeartbeat interval
+  let versionPollInterval   = null;   // handle for fbPollClientVersions interval
+  let ownerCleanupInterval  = null;   // handle for fbCleanOwnLobbyEntries interval
+
+  function clearAllIntervals() {
+    if (factionPollInterval)  { clearInterval(factionPollInterval);  factionPollInterval  = null; }
+    if (heartbeatInterval)    { clearInterval(heartbeatInterval);    heartbeatInterval    = null; }
+    if (versionPollInterval)  { clearInterval(versionPollInterval);  versionPollInterval  = null; }
+    if (ownerCleanupInterval) { clearInterval(ownerCleanupInterval); ownerCleanupInterval = null; }
+    if (ssePollInterval)      { clearInterval(ssePollInterval);      ssePollInterval      = null; }
+  }
 
   function fbStartMainListener() {
     if (!factionId || !fbConfigured()) return;
@@ -2370,8 +2563,8 @@
     // Then every 3 seconds
     // Poll every 3s — halves network + parse load vs 1.5s with no noticeable UX difference
     ssePollInterval = setInterval(fbPollOnce, 3000);
-    // Version poll is low-priority — run every CHAIN_POLL_MS (5s), offset by 1s
-    setTimeout(() => setInterval(fbPollClientVersions, CHAIN_POLL_MS), 1000);
+    // Version poll is low-priority — run every 30s, offset by 2s to stagger with main poll
+    setTimeout(() => { if (!versionPollInterval) versionPollInterval = setInterval(fbPollClientVersions, 30000); }, 2000);
   }
 
   let pollInFlight = false;
@@ -2388,6 +2581,14 @@
         pollInFlight = false;
         if (r.status >= 200 && r.status < 300) {
           try {
+            // Skip full parse+render if response text is identical to last poll.
+            // Firebase caches responses up to 30s server-side, so identical strings
+            // are common between updates. This cuts CPU by ~60% during idle periods.
+            if (r.responseText === lastPollResponse) {
+              setSyncDot("live");
+              return;
+            }
+            lastPollResponse = r.responseText;
             const data = JSON.parse(r.responseText);
             applyPatch("/", data);
             setSyncDot("live");
@@ -3855,6 +4056,10 @@
 
   function fetchOwnProfile() {
     if (!tornApiKey) { showBanner("chain-banner-nokey",true); return; }
+    // Clear any existing intervals before re-running boot — prevents accumulation
+    // when fetchOwnProfile is called again (e.g. after API key save or token refresh).
+    clearAllIntervals();
+    lastPollResponse = null;  // force a fresh applyPatch on next poll
     showBanner("chain-banner-nokey",false);
     showBanner("chain-banner-status",true,"Connecting…");
 
@@ -3931,11 +4136,11 @@
                         showBanner("chain-banner-locked", false);
                         fbStartMainListener();
                         pollFactionChain();
-                        setInterval(pollFactionChain, CHAIN_POLL_MS);
+                        if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_MS);
                       });
                     },
-                    onerror()  { fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
-                    ontimeout(){ fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    onerror()  { fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    ontimeout(){ fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
                   });
                 } else {
                   setSyncDot("error");
@@ -3949,7 +4154,7 @@
               ontimeout() { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Lobby check-in timed out"); },
             });
 
-            setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
+            if (!heartbeatInterval) heartbeatInterval = setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
             // Owner lobby cleanup interval is started inside fbProbeOwner on success.
           });
         } catch { showBanner("chain-banner-status",true,"Failed to parse API response."); }
