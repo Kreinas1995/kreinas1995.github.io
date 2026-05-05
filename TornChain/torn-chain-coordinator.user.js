@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.5.3
+// @version      4.6.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.5.3";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.6.0";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -174,6 +174,11 @@
     // Global client version registry — keyed by torn_{tornId} for dedup across page loads
     clientVersion:   key => `${FIREBASE_DB_URL}/meta/clientVersions/${key}.json${auth()}`,
     clientVersions:  ()  => `${FIREBASE_DB_URL}/meta/clientVersions.json${auth()}`,
+    // Bug reports (authenticated write, owner read) and public tracker (public read)
+    bugReport:    id  => `${FIREBASE_DB_URL}/bugs/${id}.json${auth()}`,
+    bugs:         ()  => `${FIREBASE_DB_URL}/bugs.json${auth()}`,
+    bugTracker:   ()  => `${FIREBASE_DB_URL}/bugTracker.json${auth()}`,
+    bugTrackerEntry: id => `${FIREBASE_DB_URL}/bugTracker/${id}.json${auth()}`,
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -191,8 +196,21 @@
     .chain-target-btn:hover    { background:rgba(255,180,0,.35) !important; }
     .chain-target-btn:disabled { opacity:.4 !important; cursor:default !important; }
     .chain-target-btn.claimed  { background:rgba(68,255,136,.2) !important; border-color:rgba(68,255,136,.6) !important; color:#44ff88 !important; }
-    .chain-target-btn.loading  { animation:chain-blink .6s linear infinite !important; }
-    @keyframes chain-blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .chain-target-btn.chain-target-btn-lg {
+      height:42px !important; width:42px !important; border-radius:5px !important;
+      font-size:20px !important; padding:0 !important; margin:0 12px 12px 0 !important;
+      display:inline-flex !important; align-items:center !important; justify-content:center !important;
+      vertical-align:top !important; flex-shrink:0 !important;
+    }
+    .buttons-list .chain-target-btn, .buttons-wrap .chain-target-btn,
+    .buttons-list a.chain-target-btn, .buttons-wrap a.chain-target-btn {
+      width:36px !important; max-width:36px !important; min-width:unset !important;
+      height:36px !important; max-height:36px !important;
+      padding:0 !important; margin:unset !important; font-size:18px !important;
+      display:inline-flex !important; align-items:center !important; justify-content:center !important;
+      align-self:center !important; flex-shrink:0 !important;
+      box-sizing:border-box !important; overflow:hidden !important;
+    }
 
     #chain-panel {
       position:fixed !important; z-index:999999 !important;
@@ -580,6 +598,102 @@
       border-bottom:2px solid rgba(255,255,255,.35) !important;
       border-radius:1px !important;
     }
+
+    /* ── Bug button & dropdown ── */
+    #chain-bug-btn { font-size:14px !important; line-height:1 !important; }
+    #chain-panel.view-mini #chain-bug-btn,
+    #chain-panel.view-icon #chain-bug-btn { display:none !important; }
+    #chain-bug-menu {
+      display:none; position:absolute; top:36px; right:50px; z-index:1000002;
+      background:rgba(20,22,30,.98); border-radius:8px; border:1px solid rgba(255,255,255,.12);
+      box-shadow:0 6px 20px rgba(0,0,0,.6); flex-direction:column; overflow:hidden; min-width:160px;
+    }
+    #chain-bug-menu.open { display:flex !important; }
+    .chain-bug-menu-item {
+      padding:8px 14px; font-size:12px; cursor:pointer; color:#ccc;
+      display:flex; align-items:center; gap:8px; white-space:nowrap; transition:background .1s;
+    }
+    .chain-bug-menu-item:hover { background:rgba(255,255,255,.08); color:#fff; }
+
+    /* ── Bug report popover ── */
+    #chain-bug-popover {
+      position:absolute; top:42px; left:8px; right:8px; z-index:1000001;
+      background:rgba(20,22,30,.98); border-radius:10px; border:1px solid rgba(255,120,80,.35);
+      padding:12px; box-shadow:0 8px 24px rgba(0,0,0,.65);
+      display:none; flex-direction:column; gap:8px;
+    }
+    #chain-bug-popover.open { display:flex !important; }
+    #chain-bug-popover-title { font-size:12px; font-weight:700; color:#ff9966; }
+    #chain-bug-title-input {
+      width:100%; box-sizing:border-box; background:rgba(255,255,255,.07);
+      border:1px solid rgba(255,255,255,.15); border-radius:6px; color:#e8e8e8;
+      padding:5px 8px; font-size:11px; outline:none; font-family:inherit;
+    }
+    #chain-bug-title-input:focus { border-color:rgba(255,120,80,.5) !important; }
+    #chain-bug-desc-input {
+      width:100%; box-sizing:border-box; background:rgba(255,255,255,.07);
+      border:1px solid rgba(255,255,255,.15); border-radius:6px; color:#e8e8e8;
+      padding:5px 8px; font-size:11px; outline:none; font-family:inherit;
+      resize:vertical; min-height:70px;
+    }
+    #chain-bug-desc-input:focus { border-color:rgba(255,120,80,.5) !important; }
+    #chain-bug-submit {
+      padding:5px 0; border-radius:6px; font-size:11px; cursor:pointer;
+      border:1px solid rgba(255,120,80,.45); background:rgba(255,100,60,.15); color:#ff9966; font-weight:700;
+    }
+    #chain-bug-submit:hover { background:rgba(255,100,60,.3); }
+    #chain-bug-report-status { font-size:10px; color:#556; text-align:center; min-height:14px; }
+    #chain-bug-cancel {
+      padding:4px 0; border-radius:6px; font-size:11px; cursor:pointer;
+      border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.06); color:#888;
+    }
+
+    /* ── Bug tracker popover ── */
+    #chain-tracker-popover {
+      position:absolute; top:42px; left:8px; right:8px; z-index:1000001;
+      background:rgba(20,22,30,.98); border-radius:10px; border:1px solid rgba(100,180,255,.3);
+      padding:12px; box-shadow:0 8px 24px rgba(0,0,0,.65);
+      display:none; flex-direction:column; gap:8px; max-height:440px;
+    }
+    #chain-tracker-popover.open { display:flex !important; }
+    #chain-tracker-title { font-size:12px; font-weight:700; color:#88bbff; }
+    #chain-tracker-list  { overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:5px; }
+    #chain-tracker-list::-webkit-scrollbar  { width:4px; }
+    #chain-tracker-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:2px; }
+    .chain-tracker-entry { background:rgba(255,255,255,.04); border-radius:7px; padding:8px 10px; border-left:3px solid #334; }
+    .chain-tracker-entry.status-new          { border-left-color:#ff4444; }
+    .chain-tracker-entry.status-acknowledged { border-left-color:#ffcc44; }
+    .chain-tracker-entry.status-in_progress  { border-left-color:#ff9933; }
+    .chain-tracker-entry.status-fixed        { border-left-color:#44ff88; }
+    .chain-tracker-entry.status-wontfix      { border-left-color:#556; opacity:.6; }
+    .chain-tracker-badge { display:inline-block; font-size:9px; font-weight:700; border-radius:4px; padding:1px 6px; margin-left:5px; vertical-align:middle; }
+    .chain-tracker-badge.new          { background:rgba(255,60,60,.2);   color:#ff6666; }
+    .chain-tracker-badge.acknowledged { background:rgba(255,200,0,.15);  color:#ffcc44; }
+    .chain-tracker-badge.in_progress  { background:rgba(255,150,0,.18);  color:#ff9933; }
+    .chain-tracker-badge.fixed        { background:rgba(68,255,136,.15); color:#44ff88; }
+    .chain-tracker-badge.wontfix      { background:rgba(100,100,100,.2); color:#778; }
+    .chain-tracker-entry-title { font-size:11px; font-weight:700; color:#ddd; }
+    .chain-tracker-entry-note  { font-size:10px; color:#778; margin-top:3px; font-style:italic; line-height:1.4; }
+    #chain-tracker-close { padding:4px 0; border-radius:6px; font-size:11px; cursor:pointer; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.06); color:#888; }
+
+    /* ── Admin inbox (owner only) ── */
+    #chain-admin-section { display:flex; flex-direction:column; gap:6px; border-top:1px solid rgba(255,255,255,.08); padding-top:8px; }
+    #chain-admin-inbox-title { font-size:10px; font-weight:700; color:#ff9966; letter-spacing:.3px; }
+    #chain-admin-inbox { overflow-y:auto; display:flex; flex-direction:column; gap:5px; max-height:200px; }
+    #chain-admin-inbox::-webkit-scrollbar { width:4px; }
+    #chain-admin-inbox::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:2px; }
+    .chain-admin-report { background:rgba(255,255,255,.04); border-radius:7px; padding:7px 9px; border-left:3px solid rgba(255,120,80,.45); }
+    .chain-admin-report-header { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+    .chain-admin-report-title  { font-size:11px; font-weight:700; color:#ff9966; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .chain-admin-report-meta   { font-size:9px; color:#556; flex-shrink:0; }
+    .chain-admin-report-desc   { font-size:10px; color:#aaa; margin-top:4px; line-height:1.4; word-break:break-word; }
+    .chain-admin-copy-btn { font-size:9px; padding:2px 7px; border-radius:4px; cursor:pointer; border:1px solid rgba(100,160,255,.35); background:rgba(80,140,255,.1); color:#88bbff; }
+    .chain-admin-copy-btn:hover { background:rgba(80,140,255,.25); }
+    .chain-admin-status-row { display:flex; gap:4px; margin-top:5px; flex-wrap:wrap; align-items:center; }
+    .chain-admin-status-row select { font-size:10px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.15); border-radius:5px; color:#ccc; padding:2px 4px; cursor:pointer; outline:none; }
+    .chain-admin-note-input { flex:1; font-size:10px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.15); border-radius:5px; color:#ccc; padding:2px 5px; outline:none; min-width:60px; }
+    .chain-admin-publish-btn { font-size:10px; padding:2px 7px; border-radius:5px; cursor:pointer; border:1px solid rgba(68,255,136,.35); background:rgba(68,255,136,.1); color:#44ff88; }
+    .chain-admin-publish-btn:hover { background:rgba(68,255,136,.25); }
   `);
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -613,7 +727,35 @@
       <button id="chain-view-btn" class="chain-hbtn" title="Cycle view">▦</button>
       <button id="chain-manage-btn" class="chain-hbtn leader" style="display:none" title="Manage clear permissions">⚙</button>
       <button id="chain-whitelist-btn" class="chain-hbtn" style="display:none" title="Manage faction whitelist">🔒</button>
+      <button id="chain-bug-btn" class="chain-hbtn" title="Bug Report / Tracker">🐛</button>
       <button id="chain-clear-btn" class="chain-hbtn danger" style="display:none" title="Clear chain list">✕</button>
+
+      <!-- Bug dropdown menu -->
+      <div id="chain-bug-menu">
+        <div class="chain-bug-menu-item" id="chain-bug-report-item">🪲 Report a Bug</div>
+        <div class="chain-bug-menu-item" id="chain-bug-tracker-item">📋 View Bug Tracker</div>
+      </div>
+
+      <!-- Bug report popover -->
+      <div id="chain-bug-popover" class="chain-popover" style="position:absolute;top:42px;left:8px;right:8px;border:1px solid rgba(255,120,80,.35);">
+        <div id="chain-bug-popover-title">🪲 Report a Bug</div>
+        <input id="chain-bug-title-input" type="text" placeholder="Short title (e.g. Timer not updating)" maxlength="100">
+        <textarea id="chain-bug-desc-input" placeholder="Describe what happened, what you expected, and what page you were on…"></textarea>
+        <button id="chain-bug-submit">Submit Report</button>
+        <div id="chain-bug-report-status"></div>
+        <button id="chain-bug-cancel">Cancel</button>
+      </div>
+
+      <!-- Bug tracker popover -->
+      <div id="chain-tracker-popover" class="chain-popover" style="position:absolute;top:42px;left:8px;right:8px;border:1px solid rgba(100,180,255,.3);max-height:440px;">
+        <div id="chain-tracker-title">📋 Bug Tracker</div>
+        <div id="chain-tracker-list"></div>
+        <div id="chain-admin-section" style="display:none">
+          <div id="chain-admin-inbox-title">📥 SUBMITTED REPORTS</div>
+          <div id="chain-admin-inbox"></div>
+        </div>
+        <button id="chain-tracker-close">Close</button>
+      </div>
 
       <!-- API popover -->
       <div id="chain-api-popover" class="chain-popover">
@@ -829,7 +971,10 @@
   // ── Close all popovers ────────────────────────────────────────────────────
   function closeAllPopovers() {
     [apiPopover, managePopover, presencePopover,
-     document.getElementById("chain-whitelist-popover")
+     document.getElementById("chain-whitelist-popover"),
+     document.getElementById("chain-bug-menu"),
+     document.getElementById("chain-bug-popover"),
+     document.getElementById("chain-tracker-popover"),
     ].forEach(p => p && p.classList.remove("open"));
   }
 
@@ -1246,6 +1391,275 @@
     });
   }
 
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  Bug Report & Tracker
+  // ══════════════════════════════════════════════════════════════════════════
+  const bugBtn          = document.getElementById("chain-bug-btn");
+  const bugMenu         = document.getElementById("chain-bug-menu");
+  const bugReportItem   = document.getElementById("chain-bug-report-item");
+  const bugTrackerItem  = document.getElementById("chain-bug-tracker-item");
+  const bugPopover      = document.getElementById("chain-bug-popover");
+  const bugTitleInput   = document.getElementById("chain-bug-title-input");
+  const bugDescInput    = document.getElementById("chain-bug-desc-input");
+  const bugSubmitBtn    = document.getElementById("chain-bug-submit");
+  const bugCancelBtn    = document.getElementById("chain-bug-cancel");
+  const bugReportStatus = document.getElementById("chain-bug-report-status");
+  const trackerPopover  = document.getElementById("chain-tracker-popover");
+  const trackerList     = document.getElementById("chain-tracker-list");
+  const adminSection    = document.getElementById("chain-admin-section");
+  const adminInbox      = document.getElementById("chain-admin-inbox");
+  const trackerClose    = document.getElementById("chain-tracker-close");
+
+  function closeBugPopovers() {
+    bugMenu.classList.remove("open");
+    bugPopover.classList.remove("open");
+    trackerPopover.classList.remove("open");
+  }
+
+  // Bug button toggles dropdown
+  if (bugBtn) bugBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    const isOpen = bugMenu.classList.contains("open");
+    closeAllPopovers(); closeBugPopovers();
+    if (!isOpen) bugMenu.classList.add("open");
+  });
+
+  // Prevent clicks inside the bug popovers from propagating to the document close handler
+  [bugPopover, trackerPopover, bugMenu].forEach(el => {
+    if (el) el.addEventListener("click", e => e.stopPropagation());
+  });
+
+  // Report Bug item
+  if (bugReportItem) bugReportItem.addEventListener("click", e => {
+    e.stopPropagation();
+    closeBugPopovers();
+    bugTitleInput.value = ""; bugDescInput.value = ""; bugReportStatus.textContent = "";
+    bugPopover.classList.add("open");
+    setTimeout(() => bugTitleInput.focus(), 50);
+  });
+
+  // View Tracker item
+  if (bugTrackerItem) bugTrackerItem.addEventListener("click", e => {
+    e.stopPropagation();
+    closeBugPopovers();
+    openBugTracker();
+  });
+
+  if (bugCancelBtn) bugCancelBtn.onclick = closeBugPopovers;
+  if (trackerClose) trackerClose.onclick = closeBugPopovers;
+
+  // Submit bug report
+  if (bugSubmitBtn) bugSubmitBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    const title = (bugTitleInput.value || "").trim();
+    const desc  = (bugDescInput.value  || "").trim();
+    if (!title) { bugReportStatus.textContent = "Please enter a title."; bugReportStatus.style.color = "#ff8888"; return; }
+    if (!desc)  { bugReportStatus.textContent = "Please describe the issue."; bugReportStatus.style.color = "#ff8888"; return; }
+    if (!fbConfigured()) { bugReportStatus.textContent = "Firebase not configured."; bugReportStatus.style.color = "#ff8888"; return; }
+    bugSubmitBtn.disabled = true;
+    bugReportStatus.textContent = "Submitting…"; bugReportStatus.style.color = "#ffcc66";
+    const bugId = `bug_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+    const report = {
+      id: bugId, title, description: desc,
+      reporter: ownName || "Unknown", tornId: ownId || "",
+      factionId: factionId || "", factionName: factionName || "",
+      version: CURRENT_VERSION, ua: _ua.slice(0, 200),
+      timestamp: Date.now(), status: "new",
+    };
+
+    function doSubmit(token) {
+      const url = `${FIREBASE_DB_URL}/bugs/${bugId}.json${token ? "?auth="+token : ""}`;
+      GM_xmlhttpRequest({
+        method: "PUT", url,
+        headers: { "Content-Type": "application/json" },
+        data: JSON.stringify(report),
+        timeout: 12000,
+        onload(r) {
+          bugSubmitBtn.disabled = false;
+          if (r.status >= 200 && r.status < 300) {
+            bugReportStatus.textContent = "✓ Report submitted — thank you!";
+            bugReportStatus.style.color = "#44ff88";
+            bugTitleInput.value = ""; bugDescInput.value = "";
+            setTimeout(closeBugPopovers, 2500);
+          } else {
+            bugReportStatus.textContent = `❌ Failed (${r.status}) — try again.`;
+            bugReportStatus.style.color = "#ff8888";
+          }
+        },
+        onerror()  { bugSubmitBtn.disabled = false; bugReportStatus.textContent = "❌ Network error."; bugReportStatus.style.color = "#ff8888"; },
+        ontimeout(){ bugSubmitBtn.disabled = false; bugReportStatus.textContent = "❌ Timed out."; bugReportStatus.style.color = "#ff8888"; },
+      });
+    }
+
+    if (fbToken) {
+      doSubmit(fbToken);
+    } else {
+      // No token yet — sign in anonymously first
+      bugReportStatus.textContent = "Authenticating…"; bugReportStatus.style.color = "#ffcc66";
+      fbSignInAnon((token, uid) => {
+        if (token) { fbToken = token; fbUid = uid; doSubmit(token); }
+        else { bugSubmitBtn.disabled = false; bugReportStatus.textContent = "❌ Auth failed."; bugReportStatus.style.color = "#ff8888"; }
+      });
+    }
+  });
+
+  function statusLabel(s) {
+    return { new:"New", acknowledged:"Acknowledged", in_progress:"In Progress", fixed:"Fixed", wontfix:"Won't Fix" }[s] || s;
+  }
+
+  function openBugTracker() {
+    trackerList.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:6px">Loading…</div>`;
+    if (adminSection) adminSection.style.display = "none";
+    trackerPopover.classList.add("open");
+
+    // Load public tracker entries (no auth needed — public read)
+    const publicUrl = `${FIREBASE_DB_URL}/bugTracker.json`;
+    GM_xmlhttpRequest({
+      method: "GET", url: publicUrl, timeout: 10000,
+      onload(r) {
+        try {
+          const data = r.status >= 200 && r.status < 300 ? JSON.parse(r.responseText) : null;
+          trackerList.innerHTML = "";
+          if (!data || !Object.keys(data).length) {
+            trackerList.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:6px">No tracked bugs yet.</div>`;
+          } else {
+            // Sort by most recently updated
+            const entries = Object.values(data).sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
+            entries.forEach(entry => {
+              const div = document.createElement("div");
+              div.className = `chain-tracker-entry status-${entry.status||"new"}`;
+              const badgeClass = (entry.status||"new").replace("_","-");
+              div.innerHTML = `
+                <div class="chain-tracker-entry-title">
+                  ${escHtml(entry.title||"Untitled")}
+                  <span class="chain-tracker-badge ${entry.status||"new"}">${statusLabel(entry.status||"new")}</span>
+                </div>
+                ${entry.adminNote ? `<div class="chain-tracker-entry-note">${escHtml(entry.adminNote)}</div>` : ""}
+              `;
+              trackerList.appendChild(div);
+            });
+          }
+        } catch { trackerList.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:6px">Failed to load tracker.</div>`; }
+
+        // Owner: also load submitted reports
+        if (isOwner) loadAdminInbox();
+      },
+      onerror()  { trackerList.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:6px">Network error.</div>`; },
+      ontimeout(){ trackerList.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:6px">Timed out.</div>`; },
+    });
+  }
+
+  function loadAdminInbox() {
+    if (!isOwner || !adminSection || !adminInbox) return;
+    adminSection.style.display = "";
+    adminInbox.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">Loading reports…</div>`;
+
+    function doLoad(token) {
+      const url = `${FIREBASE_DB_URL}/bugs.json${token ? "?auth="+token : ""}`;
+      GM_xmlhttpRequest({
+        method: "GET", url, timeout: 12000,
+        onload(r) {
+          adminInbox.innerHTML = "";
+          let data = null;
+          try { data = r.status >= 200 && r.status < 300 ? JSON.parse(r.responseText) : null; } catch {/**/ }
+          if (!data || !Object.keys(data).length) {
+            adminInbox.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">No reports yet.</div>`;
+            return;
+          }
+          const reports = Object.values(data).sort((a, b) => (b.timestamp||0) - (a.timestamp||0));
+          reports.forEach(report => {
+            const div = document.createElement("div");
+            div.className = "chain-admin-report";
+            const ts = report.timestamp ? new Date(report.timestamp).toISOString().slice(0,16).replace("T"," ") : "?";
+            div.innerHTML = `
+              <div class="chain-admin-report-header">
+                <span class="chain-admin-report-title">${escHtml(report.title||"Untitled")}</span>
+                <span class="chain-admin-report-meta">${escHtml(report.reporter||"?")} v${escHtml(report.version||"?")} ${ts}</span>
+                <button class="chain-admin-copy-btn" data-copy-id="${escHtml(report.id)}">Copy</button>
+              </div>
+              <div class="chain-admin-report-desc">${escHtml(report.description||"")}</div>
+              <div class="chain-admin-status-row">
+                <select class="chain-admin-status-sel" data-report-id="${escHtml(report.id)}">
+                  ${["new","acknowledged","in_progress","fixed","wontfix"].map(s =>
+                    `<option value="${s}"${(report.status||"new")===s?" selected":""}>${statusLabel(s)}</option>`
+                  ).join("")}
+                </select>
+                <input class="chain-admin-note-input" type="text" placeholder="Admin note…" value="${escHtml(report.adminNote||"")}">
+                <button class="chain-admin-publish-btn" data-report-id="${escHtml(report.id)}" data-report-title="${escHtml(report.title||"")}">Publish</button>
+              </div>
+            `;
+            adminInbox.appendChild(div);
+          });
+
+          // Wire copy buttons
+          adminInbox.querySelectorAll(".chain-admin-copy-btn").forEach(btn => {
+            btn.addEventListener("click", e => {
+              e.stopPropagation();
+              const id = btn.dataset.copyId;
+              const r = reports.find(x => x.id === id);
+              if (!r) return;
+              const txt = `**Bug Report**\nTitle: ${r.title}\nReporter: ${r.reporter} (${r.tornId}) v${r.version}\nFaction: ${r.factionName} (${r.factionId})\nTime: ${new Date(r.timestamp).toISOString()}\nUA: ${r.ua||""}\n\nDescription:\n${r.description}`;
+              try { navigator.clipboard.writeText(txt).then(() => { btn.textContent="✓"; setTimeout(()=>btn.textContent="Copy",1500); }); } catch { btn.textContent="✓"; }
+            });
+          });
+
+          // Wire publish buttons
+          adminInbox.querySelectorAll(".chain-admin-publish-btn").forEach(btn => {
+            btn.addEventListener("click", e => {
+              e.stopPropagation();
+              const reportId = btn.dataset.reportId;
+              const title    = btn.dataset.reportTitle;
+              const row      = btn.closest(".chain-admin-status-row");
+              const status   = row.querySelector(".chain-admin-status-sel").value;
+              const note     = row.querySelector(".chain-admin-note-input").value.trim();
+              const entry = { title, status, adminNote: note, updatedAt: Date.now() };
+              fbPut(P.bugTrackerEntry(reportId), entry, () => {
+                btn.textContent = "✓ Published";
+                setTimeout(() => btn.textContent = "Publish", 2000);
+              });
+              // Also update status on the raw report
+              const orig = reports.find(x => x.id === reportId);
+              if (orig) fbPut(P.bugReport(reportId), { ...orig, status, adminNote: note });
+            });
+          });
+        },
+        onerror()  { adminInbox.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:4px">Network error loading reports.</div>`; },
+        ontimeout(){ adminInbox.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:4px">Timed out loading reports.</div>`; },
+      });
+    }
+
+    if (fbToken) {
+      doLoad(fbToken);
+    } else {
+      adminInbox.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">Authenticating…</div>`;
+      fbSignInAnon((token, uid) => {
+        if (!token) { adminInbox.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:4px">Auth failed.</div>`; return; }
+        fbToken = token; fbUid = uid;
+        // Write lobby entry so Firebase rules can verify tornId === OWNER_TORN_ID
+        const lobbyUrl = `${FIREBASE_DB_URL}/lobby/${uid}.json?auth=${token}`;
+        GM_xmlhttpRequest({
+          method: "PUT", url: lobbyUrl,
+          headers: { "Content-Type": "application/json" },
+          data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId||"", lastSeen: Date.now() }),
+          timeout: 8000,
+          onload() { doLoad(token); },
+          onerror()  { doLoad(token); },  // try anyway
+          ontimeout(){ doLoad(token); },
+        });
+      });
+    }
+  }
+
+  // Close bug popovers when clicking outside panel — but not when clicking inside them
+  document.addEventListener("click", e => {
+    if (!panel.contains(e.target)) {
+      bugMenu.classList.remove("open");
+      // Only close the report/tracker popover if click is outside panel
+      if (bugPopover && !bugPopover.contains(e.target)) bugPopover.classList.remove("open");
+      if (trackerPopover && !trackerPopover.contains(e.target)) trackerPopover.classList.remove("open");
+    }
+  });
 
   function escHtml(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
   function formatTime(ms) {
@@ -2702,7 +3116,9 @@
     reNumberPending();
     fbWriteHit(newHit);  // writes the now-numbered hit to Firebase
 
-    btn.textContent = "✓"; btn.classList.add("claimed");
+    if (btn.dataset.iconClaimed) { btn.innerHTML = btn.dataset.iconClaimed; btn.style.color="#44ff88"; }
+    else { btn.textContent = "✓"; }
+    btn.classList.add("claimed");
     btn.title = isInHosp
       ? `Queued as hit #${newHit.hitNumber} — hosp out in ${formatTime(hospReleaseMs-Date.now())}`
       : `Queued as hit #${newHit.hitNumber}`;
@@ -2719,6 +3135,12 @@
     const already = [...hitMap.values()].find(h=>h.status==="pending"&&h.targetId===targetId);
     if (already) { alert(`${targetName} is already queued as hit #${already.hitNumber}.`); return; }
 
+    const resetBtn = () => {
+      btn.disabled=false; btn.classList.remove("loading");
+      if (btn.dataset.iconDefault) { btn.innerHTML = btn.dataset.iconDefault; btn.style.color=""; }
+      else { btn.textContent="🎯"; }
+    };
+
     btn.disabled=true; btn.classList.add("loading"); btn.textContent="⏳";
 
     GM_xmlhttpRequest({
@@ -2728,22 +3150,22 @@
       onload(r) {
         btn.disabled=false; btn.classList.remove("loading");
         let data=null; try{data=JSON.parse(r.responseText);}catch{/**/ }
-        if(!data||data.error){btn.textContent="🎯";alert(`Torn API error: ${data?.error?.error||"Unknown"}`);return;}
+        if(!data||data.error){resetBtn();alert(`Torn API error: ${data?.error?.error||"Unknown"}`);return;}
         const state=(data?.status?.state||"").toLowerCase();
-        if(["abroad","traveling","jail","federal","fallen"].some(s=>state.includes(s))){btn.textContent="🎯";alert(`${targetName} is ${state} — cannot be scheduled.`);return;}
+        if(["abroad","traveling","jail","federal","fallen"].some(s=>state.includes(s))){resetBtn();alert(`${targetName} is ${state} — cannot be scheduled.`);return;}
         // War gating — if we're in a ranked war, only allow queuing opponents
         if (inRankedWar && warOpponentFactionIds.size > 0) {
           const targetFactionId = String(data?.faction?.faction_id || "0");
           if (targetFactionId === "0" || !warOpponentFactionIds.has(targetFactionId)) {
-            btn.textContent="🎯";
+            resetBtn();
             alert(`${targetName} is not in a war opponent faction — only war targets can be queued during a ranked war.`);
             return;
           }
         }
         scheduleAndWrite(data,targetId,targetName,attackUrl,btn);
       },
-      onerror()  { btn.disabled=false;btn.classList.remove("loading");btn.textContent="🎯";alert("Network error."); },
-      ontimeout(){ btn.disabled=false;btn.classList.remove("loading");btn.textContent="🎯";alert("Request timed out."); },
+      onerror()  { resetBtn(); alert("Network error."); },
+      ontimeout(){ resetBtn(); alert("Request timed out."); },
     });
   }
 
@@ -2760,6 +3182,7 @@
   const IS_FACTIONS_PAGE   = /factions\.php/.test(window.location.pathname);
   const IS_LIST_PAGE       = /page\.php/.test(window.location.pathname) &&
                              /sid=list/.test(window.location.search);
+  const IS_PROFILE_PAGE    = /profiles\.php/.test(window.location.pathname);
   const IS_ANY_TORN_PAGE   = /torn\.com/.test(window.location.hostname);
 
   function isInsideWarList(el) {
@@ -2826,13 +3249,54 @@
     topBarBadge.title         = `Chain ${count} hits — ${mm}:${ss} remaining. Click to open panel.`;
   }
 
+  // ── Profile page: inject directly using XID from URL ─────────────────────
+  let profilePageInjected = false;
+  function injectProfilePageButton() {
+    if (!IS_PROFILE_PAGE || profilePageInjected) return;
+    const m = window.location.search.match(/XID=(\d+)/i) ||
+              window.location.pathname.match(/\/(\d+)$/);
+    if (!m) return;
+    const targetId = m[1];
+    if (ownId && targetId === ownId) return;
+
+    // Find the attack button — it's in the Actions section
+    const attackA = document.querySelector('a[href*="loader.php?sid=attack"], a[href*="user2ID='+targetId+'"]');
+    if (!attackA) return;  // Actions not loaded yet — observer will retry
+    const attackUrl = extractAttackUrl(attackA);
+
+    // Extract name from page title or heading
+    const nameEl = document.querySelector('h4[class*="name"], [class*="profileName"], h1, [class*="user-name"], [class*="userName"]');
+    const targetName = nameEl ? (nameEl.textContent||"").replace(/\[.*?\]/g,"").trim() : "Player #"+targetId;
+
+    profilePageInjected = true;
+    const btn = document.createElement("button");
+    btn.className = "chain-target-btn chain-target-btn-lg";
+    btn.id = "chain-profile-btn";
+    const queued = [...hitMap.values()].find(h => h.status==="pending" && h.targetId===targetId);
+    if (queued) { btn.textContent="✓"; btn.classList.add("claimed"); btn.title=`${targetName} queued as hit #${queued.hitNumber}`; }
+    else { btn.textContent="🎯"; btn.title=`Add ${targetName} to chain queue`; }
+    btn.onclick = e => { e.preventDefault(); e.stopPropagation(); handleTargetClaim(btn, targetId, targetName, attackUrl); };
+    // Insert AFTER the attack button
+    attackA.parentNode.insertBefore(btn, attackA.nextSibling);
+  }
+
   function injectTargetButtons() {
-    if (!IS_FACTIONS_PAGE && !IS_LIST_PAGE) return;
+    // Profile page: handled separately above
+    if (IS_PROFILE_PAGE) { injectProfilePageButton(); }
+
+    if (!IS_FACTIONS_PAGE && !IS_LIST_PAGE) {
+      // On non-list/faction pages, only inject into popup hover cards
+      injectPopupHoverCards();
+      return;
+    }
+
     document.querySelectorAll('a[href*="profiles.php?XID="]').forEach(profileA => {
       if(panel.contains(profileA))return;
       if(profileA.dataset.chainBtnInjected)return;
-      // On factions page require war list context; on list pages inject on all profile links
       if(IS_FACTIONS_PAGE && !isInsideWarList(profileA))return;
+      if(IS_LIST_PAGE && !isInsidePlayerList(profileA))return;
+      // Never inject into the mini popup card — that's handled by _injectIntoPopupCard
+      if(profileA.closest(".mini-profile-wrapper, .buttons-list, .buttons-wrap, [class*='profile-mini-']"))return;
       const m=(profileA.href||"").match(/XID=(\d+)/i);
       if(!m)return;
       const targetId=m[1];
@@ -2850,6 +3314,146 @@
       btn.onclick=e=>{e.preventDefault();e.stopPropagation();handleTargetClaim(btn,targetId,targetName,attackUrl);};
       profileA.parentNode.insertBefore(btn,profileA);
     });
+
+    // Also inject into any popup hover cards visible on these pages
+    injectPopupHoverCards();
+  }
+
+  // Inject into Torn's popup hover cards (appear on any page when tap-holding a name)
+  // Uses class*= to handle CSS module hashed suffixes on the class name.
+  function injectPopupHoverCards() {
+    // Collect candidate popup roots, then deduplicate to outermost only.
+    // This prevents injecting multiple buttons when nested children all match the selector.
+    const seen = new Set();
+    function _tryCard(el) {
+      if (!el || seen.has(el)) return;
+      // Walk UP to the outermost matching ancestor so we always pass the wrapper div
+      let root = el;
+      while (root.parentElement && root.parentElement !== document.body) {
+        const p = root.parentElement;
+        if (p.matches && (
+          p.classList.contains("mini-profile-wrapper") ||
+          [...p.classList].some(c => c.startsWith("profile-mini-_wrapper_"))
+        )) { root = p; } else { break; }
+      }
+      if (seen.has(root)) return;
+      seen.add(root);
+      _injectIntoPopupCard(root);
+    }
+
+    // Strategy 1: stable ID — #profile-mini-root is a direct <body> child outside
+    // #mainContainer so the main MutationObserver doesn't cover it.
+    const miniRoot = document.getElementById("profile-mini-root");
+    if (miniRoot) {
+      miniRoot.querySelectorAll(
+        ".mini-profile-wrapper, [class*=\"profile-mini-_wrapper_\"]"
+      ).forEach(_tryCard);
+    }
+
+    // Strategy 2: Broad document scan for other hover-card implementations
+    const popupSel = [
+      ".mini-profile-wrapper",
+      "[class*=\"profile-mini-_wrapper_\"]",
+      "[class*=\"profile-mini-_userProfileWrapper_\"]",
+      "[class*=\"userProfileWrapper\"]",
+      "[class*=\"profileMini_\"]",
+      "[class*=\"profile-mini_\"]",
+    ].join(",");
+    document.querySelectorAll(popupSel).forEach(_tryCard);
+  }
+
+  function _injectIntoPopupCard(popup) {
+    if (panel && panel.contains(popup)) return;
+
+    // Guard: not inside nav/header/settings
+    let node = popup.parentElement;
+    while (node && node !== document.body) {
+      try { if (node.matches && node.matches('nav,[class*="nav"],[class*="topBar"],[class*="settingsMenu"]')) return; } catch {/**/ }
+      node = node.parentElement;
+    }
+
+    // The real popup structure (from DOM inspection) is:
+    //   div.buttons-wrap > div.buttons-list > a.profile-button x12
+    // The last button is profile-button-viewDisplayCabinet (mini-button11-profile-XID).
+    // We append our button to div.buttons-list as item #13.
+    // Do NOT use dataset.chainPopupInjected guard — React re-renders wipe it.
+    // Instead check for an already-injected .chain-target-btn inside .buttons-list.
+    const buttonsList = popup.querySelector(".buttons-list");
+    if (!buttonsList) return;  // popup not fully rendered yet — observer will retry
+    if (buttonsList.querySelector(".chain-target-btn")) return;  // already injected
+
+    // Extract XID from the attack button href: id="mini-button0-profile-XID"
+    // or href="...user2ID=XID" or any profile link XID=
+    let targetId = null;
+    const attackA = buttonsList.querySelector('a.profile-button-attack[href*="user2ID="]');
+    if (attackA) {
+      const m = (attackA.href||"").match(/user2ID=(\d+)/i);
+      if (m) targetId = m[1];
+    }
+    if (!targetId) {
+      const idEl = buttonsList.querySelector('[id*="-profile-"]');
+      if (idEl) { const m = (idEl.id||"").match(/-profile-(\d+)$/); if (m) targetId = m[1]; }
+    }
+    if (!targetId) {
+      for (const a of popup.querySelectorAll("a[href]")) {
+        const m = (a.href||"").match(/XID=(\d+)/i) || (a.href||"").match(/user2ID=(\d+)/i);
+        if (m) { targetId = m[1]; break; }
+      }
+    }
+    if (!targetId) return;
+    if (ownId && targetId === ownId) return;
+
+    // Extract name from the "View profile of NAME" aria-label on the profile link
+    const nameA = popup.querySelector('a[aria-label*="View profile of"]');
+    let targetName = "";
+    if (nameA) {
+      const am = (nameA.getAttribute("aria-label")||"").match(/of (.+)$/i);
+      targetName = am ? am[1].trim() : "";
+    }
+    if (!targetName) targetName = "Player #" + targetId;
+
+    const attackUrl = `https://www.torn.com/loader.php?sid=attack&user2ID=${targetId}`;
+
+    const btn = document.createElement("a");
+    btn.className = "chain-target-btn";
+    // Match sibling cell size exactly by reading a real profile-button's computed dimensions
+    const siblingBtn = buttonsList.querySelector("a.profile-button");
+    if (siblingBtn) {
+      const cs = window.getComputedStyle(siblingBtn);
+      btn.style.cssText = `cursor:pointer;text-decoration:none;width:${cs.width};height:${cs.height};display:inline-flex;align-items:center;justify-content:center;`;
+    } else {
+      btn.style.cssText = "cursor:pointer;text-decoration:none;";
+    }
+    const queued = [...hitMap.values()].find(h => h.status==="pending" && h.targetId===targetId);
+    if (queued) {
+      btn.textContent = "\u2713"; btn.classList.add("claimed");
+      btn.title=`${targetName} queued as hit #${queued.hitNumber}`;
+    } else {
+      btn.textContent = "\uD83C\uDFAF";
+      btn.title=`Add ${targetName} to chain queue`;
+    }
+    btn.onclick = e => { e.preventDefault(); e.stopPropagation(); handleTargetClaim(btn, targetId, targetName, attackUrl); };
+
+    // Append as the 13th icon in the buttons-list grid — lands after the
+    // display case button at the end of row 2, above "View profile / New tab".
+    buttonsList.appendChild(btn);
+  }
+
+  // On list pages, inject on any profile link that isn't inside a chat or nav container.
+  function isInsidePlayerList(el) {
+    let node = el.parentElement;
+    while (node && node !== document.body) {
+      try {
+        if (node.matches && node.matches(
+          '[class*="chat"],[class*="Chat"],[id*="chat"],[id*="Chat"],' +
+          '[class*="faction-chat"],[class*="factionChat"],' +
+          'nav,[class*="nav"],[class*="header"],[class*="topBar"],[class*="top-bar"],' +
+          '[class*="settingsMenu"],[class*="settings-menu"],[class*="userMenu"],[class*="user-menu"]'
+        )) return false;
+      } catch {/**/ }
+      node = node.parentElement;
+    }
+    return true;
   }
 
   // Observe only the Torn content area for inject button triggers — not the whole body.
@@ -2862,11 +3466,33 @@
       || document.querySelector('[class*="mainContainer"]')
       || document.body;
     let injectQueued = false;
-    new MutationObserver(() => {
+    const trigger = () => {
       if (injectQueued) return;
       injectQueued = true;
       setTimeout(() => { injectQueued = false; injectTargetButtons(); }, 150);
-    }).observe(tornRoot, { childList: true, subtree: true });
+    };
+    new MutationObserver(trigger).observe(tornRoot, { childList: true, subtree: true });
+    // Watch direct children of <body> (zero subtree cost) so we catch
+    // #profile-mini-root being appended. Also observe #profile-mini-root itself
+    // with subtree so React's async render of the card content triggers injection.
+    if (tornRoot !== document.body) {
+      new MutationObserver(trigger).observe(document.body, { childList: true, subtree: false });
+    }
+    // Observe #profile-mini-root with subtree — catches React populating the card
+    const miniRootEl = document.getElementById("profile-mini-root");
+    if (miniRootEl) {
+      new MutationObserver(trigger).observe(miniRootEl, { childList: true, subtree: true });
+    } else {
+      // If not yet in DOM, watch body shallowly and attach once it appears
+      const bodyObs = new MutationObserver(() => {
+        const mr = document.getElementById("profile-mini-root");
+        if (mr) {
+          new MutationObserver(trigger).observe(mr, { childList: true, subtree: true });
+          bodyObs.disconnect();
+        }
+      });
+      bodyObs.observe(document.body, { childList: true, subtree: false });
+    }
   })();
   // No setInterval fallback needed — the MutationObserver covers all DOM changes.
 
@@ -2989,7 +3615,7 @@
                   setSyncDot("error");
                   let msg = r.responseText;
                   try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
-                  showBanner("chain-banner-debug", true, "❌ Lobby check-in failed "+r.status+": "+msg+" | url: "+lobbyUrl.replace(/auth=[^&]+/,"auth=***"));
+                  showBanner("chain-banner-debug", true, "❌ Lobby check-in failed "+r.status+": "+msg+" | url: "+lobbyBootstrapUrl.replace(/auth=[^&]+/,"auth=***"));
                   console.warn("[ChainCoord] Lobby check-in failed", r.status, r.responseText, lobbyUrl);
                 }
               },
