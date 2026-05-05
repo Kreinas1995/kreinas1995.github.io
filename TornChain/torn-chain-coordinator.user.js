@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.3.9
+// @version      4.4.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.3.9";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.4.0";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -1376,6 +1376,22 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Firebase member registration + heartbeat
   // ══════════════════════════════════════════════════════════════════════════
+  // Delete all lobby entries that share our tornId but are NOT our current fbUid.
+  // Requires lobby .read to be open to all authenticated users (see rules).
+  function fbCleanOwnLobbyEntries() {
+    if (!fbUid || !ownId || !fbConfigured()) return;
+    fbGet(P.lobbyAll(), data => {
+      if (!data || typeof data !== "object") return;
+      Object.entries(data).forEach(([uid, entry]) => {
+        if (!entry) return;
+        if (uid === fbUid) return;                    // keep current session
+        if (String(entry.tornId) !== String(ownId)) return;  // not ours
+        // Stale entry for our tornId — delete it
+        fbDelete(`${FIREBASE_DB_URL}/lobby/${uid}.json${auth()}`);
+      });
+    });
+  }
+
   function fbRegisterMember() {
     if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
     const lobbyUrl = P.lobbyMe();
@@ -2808,7 +2824,9 @@
                   GM_xmlhttpRequest({
                     method: "GET", url: lobbyReadUrl, timeout: 8000,
                     onload(rr) {
-                      // Lobby is confirmed committed — now safe to write member record
+                      // Lobby is confirmed committed — clean up our own stale entries
+                      // then register member and start listening.
+                      fbCleanOwnLobbyEntries();
                       fbRegisterMember();
                       setTimeout(()=>showBanner("chain-banner-debug",false), 3000);
                       fbCheckWhitelist(allowed => {
