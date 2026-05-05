@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.6.9
+// @version      4.7.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -43,7 +43,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.6.9";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.7.0";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -724,6 +724,17 @@
     .chain-admin-note-input { flex:1; font-size:10px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.15); border-radius:5px; color:#ccc; padding:2px 5px; outline:none; min-width:60px; }
     .chain-admin-publish-btn { font-size:10px; padding:2px 7px; border-radius:5px; cursor:pointer; border:1px solid rgba(68,255,136,.35); background:rgba(68,255,136,.1); color:#44ff88; }
     .chain-admin-publish-btn:hover { background:rgba(68,255,136,.25); }
+    .chain-admin-dismiss-btn { font-size:10px; padding:2px 7px; border-radius:5px; cursor:pointer; border:1px solid rgba(255,80,80,.35); background:rgba(255,60,60,.1); color:#ff8888; }
+    .chain-admin-dismiss-btn:hover { background:rgba(255,60,60,.25); }
+    .chain-admin-title-input { font-size:11px; font-weight:700; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.15); border-radius:5px; color:#ff9966; padding:2px 6px; outline:none; flex:1; min-width:0; }
+    .chain-admin-title-input:focus { border-color:rgba(255,150,80,.5) !important; }
+    .chain-admin-type-sel { font-size:10px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.15); border-radius:5px; color:#ccc; padding:2px 4px; cursor:pointer; outline:none; }
+    /* Type badge on public tracker */
+    .chain-tracker-type-bug     { font-size:9px; font-weight:700; border-radius:4px; padding:1px 5px; margin-right:4px; vertical-align:middle; background:rgba(255,60,60,.18); color:#ff8888; }
+    .chain-tracker-type-feature { font-size:9px; font-weight:700; border-radius:4px; padding:1px 5px; margin-right:4px; vertical-align:middle; background:rgba(100,160,255,.18); color:#88bbff; }
+    /* Tracker section headers */
+    .chain-tracker-section-hdr { font-size:10px; font-weight:700; color:#445; letter-spacing:.4px; text-transform:uppercase; padding:4px 2px 2px; margin-top:4px; border-top:1px solid rgba(255,255,255,.06); }
+    .chain-tracker-section-hdr:first-child { border-top:none; margin-top:0; }
   `);
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -799,7 +810,13 @@
       <!-- Bug report popover -->
       <div id="chain-bug-popover" class="chain-popover" style="position:absolute;top:42px;left:8px;right:8px;border:1px solid rgba(255,120,80,.35);">
         <div id="chain-bug-popover-title">🪲 Report a Bug</div>
-        <input id="chain-bug-title-input" type="text" placeholder="Short title (e.g. Timer not updating)" maxlength="100">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <select id="chain-bug-type-sel" style="font-size:11px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);border-radius:6px;color:#ccc;padding:4px 6px;cursor:pointer;outline:none;flex-shrink:0;">
+            <option value="bug">🪲 Bug</option>
+            <option value="feature">✨ Feature Request</option>
+          </select>
+          <input id="chain-bug-title-input" type="text" placeholder="Short title…" maxlength="100" style="flex:1;">
+        </div>
         <textarea id="chain-bug-desc-input" placeholder="Describe what happened, what you expected, and what page you were on…"></textarea>
         <button id="chain-bug-submit">Submit Report</button>
         <div id="chain-bug-report-status"></div>
@@ -1597,8 +1614,10 @@
     bugSubmitBtn.disabled = true;
     bugReportStatus.textContent = "Submitting…"; bugReportStatus.style.color = "#ffcc66";
     const bugId = `bug_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+    const bugTypeSel = document.getElementById("chain-bug-type-sel");
     const report = {
       id: bugId, title, description: desc,
+      type: (bugTypeSel ? bugTypeSel.value : "bug"),
       reporter: ownName || "Unknown", tornId: ownId || "",
       factionId: factionId || "", factionName: factionName || "",
       version: CURRENT_VERSION, ua: _ua.slice(0, 200),
@@ -1662,23 +1681,37 @@
           const data = r.status >= 200 && r.status < 300 ? JSON.parse(r.responseText) : null;
           trackerList.innerHTML = "";
           if (!data || !Object.keys(data).length) {
-            trackerList.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:6px">No tracked bugs yet.</div>`;
+            trackerList.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:6px">No tracked items yet.</div>`;
           } else {
-            // Sort by most recently updated
-            const entries = Object.values(data).sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
-            entries.forEach(entry => {
-              const div = document.createElement("div");
-              div.className = `chain-tracker-entry status-${entry.status||"new"}`;
-              const badgeClass = (entry.status||"new").replace("_","-");
-              div.innerHTML = `
-                <div class="chain-tracker-entry-title">
-                  ${escHtml(entry.title||"Untitled")}
-                  <span class="chain-tracker-badge ${entry.status||"new"}">${statusLabel(entry.status||"new")}</span>
-                </div>
-                ${entry.adminNote ? `<div class="chain-tracker-entry-note">${escHtml(entry.adminNote)}</div>` : ""}
-              `;
-              trackerList.appendChild(div);
-            });
+            const all = Object.values(data).sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
+            const bugs     = all.filter(e => (e.type||"bug") === "bug");
+            const features = all.filter(e => e.type === "feature");
+
+            function renderSection(label, items) {
+              if (!items.length) return;
+              const hdr = document.createElement("div");
+              hdr.className = "chain-tracker-section-hdr";
+              hdr.textContent = label;
+              trackerList.appendChild(hdr);
+              items.forEach(entry => {
+                const div = document.createElement("div");
+                div.className = `chain-tracker-entry status-${entry.status||"new"}`;
+                const typeBadge = entry.type === "feature"
+                  ? `<span class="chain-tracker-type-feature">Feature</span>`
+                  : `<span class="chain-tracker-type-bug">Bug</span>`;
+                div.innerHTML = `
+                  <div class="chain-tracker-entry-title">
+                    ${typeBadge}${escHtml(entry.title||"Untitled")}
+                    <span class="chain-tracker-badge ${(entry.status||"new").replace("_","-")}">${statusLabel(entry.status||"new")}</span>
+                  </div>
+                  ${entry.adminNote ? `<div class="chain-tracker-entry-note">${escHtml(entry.adminNote)}</div>` : ""}
+                `;
+                trackerList.appendChild(div);
+              });
+            }
+
+            renderSection("🪲 Bugs", bugs);
+            renderSection("✨ Feature Requests", features);
           }
         } catch { trackerList.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:6px">Failed to load tracker.</div>`; }
 
@@ -1766,26 +1799,39 @@
             adminInbox.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">No reports yet.</div>`;
             return;
           }
-          const reports = Object.values(data).sort((a, b) => (b.timestamp||0) - (a.timestamp||0));
+          const reports = Object.values(data)
+            .filter(r => r.status !== "dismissed")
+            .sort((a, b) => (b.timestamp||0) - (a.timestamp||0));
+          if (!reports.length) {
+            adminInbox.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">No reports yet.</div>`;
+            return;
+          }
           reports.forEach(report => {
             const div = document.createElement("div");
             div.className = "chain-admin-report";
-            const ts = report.timestamp ? new Date(report.timestamp).toISOString().slice(0,16).replace("T"," ") : "?";
+            div.dataset.reportId = report.id;
+            const ts = report.timestamp ? new Date(report.timestamp).toLocaleString([], {month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "?";
             div.innerHTML = `
               <div class="chain-admin-report-header">
-                <span class="chain-admin-report-title">${escHtml(report.title||"Untitled")}</span>
-                <span class="chain-admin-report-meta">${escHtml(report.reporter||"?")} v${escHtml(report.version||"?")} ${ts}</span>
+                <input class="chain-admin-title-input" type="text" value="${escHtml(report.title||"Untitled")}" maxlength="100">
                 <button class="chain-admin-copy-btn" data-copy-id="${escHtml(report.id)}">Copy</button>
+                <button class="chain-admin-dismiss-btn" data-dismiss-id="${escHtml(report.id)}">✕</button>
               </div>
+              <div class="chain-admin-report-meta" style="font-size:9px;color:#556;margin:2px 0 4px;">${escHtml(report.reporter||"?")} v${escHtml(report.version||"?")} ${ts}</div>
               <div class="chain-admin-report-desc">${escHtml(report.description||"")}</div>
               <div class="chain-admin-status-row">
+                <select class="chain-admin-type-sel" data-report-id="${escHtml(report.id)}">
+                  ${["bug","feature"].map(t =>
+                    `<option value="${t}"${(report.type||"bug")===t?" selected":""}>${t==="bug"?"🪲 Bug":"✨ Feature"}</option>`
+                  ).join("")}
+                </select>
                 <select class="chain-admin-status-sel" data-report-id="${escHtml(report.id)}">
                   ${["new","acknowledged","in_progress","fixed","wontfix"].map(s =>
                     `<option value="${s}"${(report.status||"new")===s?" selected":""}>${statusLabel(s)}</option>`
                   ).join("")}
                 </select>
                 <input class="chain-admin-note-input" type="text" placeholder="Admin note…" value="${escHtml(report.adminNote||"")}">
-                <button class="chain-admin-publish-btn" data-report-id="${escHtml(report.id)}" data-report-title="${escHtml(report.title||"")}">Publish</button>
+                <button class="chain-admin-publish-btn" data-report-id="${escHtml(report.id)}">Publish</button>
               </div>
             `;
             adminInbox.appendChild(div);
@@ -1798,28 +1844,46 @@
               const id = btn.dataset.copyId;
               const r = reports.find(x => x.id === id);
               if (!r) return;
-              const txt = `**Bug Report**\nTitle: ${r.title}\nReporter: ${r.reporter} (${r.tornId}) v${r.version}\nFaction: ${r.factionName} (${r.factionId})\nTime: ${new Date(r.timestamp).toISOString()}\nUA: ${r.ua||""}\n\nDescription:\n${r.description}`;
+              const card = btn.closest(".chain-admin-report");
+              const currentTitle = card ? card.querySelector(".chain-admin-title-input").value : r.title;
+              const txt = `**${r.type==="feature"?"Feature Request":"Bug Report"}**\nTitle: ${currentTitle}\nReporter: ${r.reporter} (${r.tornId}) v${r.version}\nFaction: ${r.factionName} (${r.factionId})\nTime: ${new Date(r.timestamp).toISOString()}\nUA: ${r.ua||""}\n\nDescription:\n${r.description}`;
               try { navigator.clipboard.writeText(txt).then(() => { btn.textContent="✓"; setTimeout(()=>btn.textContent="Copy",1500); }); } catch { btn.textContent="✓"; }
             });
           });
 
-          // Wire publish buttons
+          // Wire dismiss buttons — sets status:dismissed in Firebase, removes card from UI
+          adminInbox.querySelectorAll(".chain-admin-dismiss-btn").forEach(btn => {
+            btn.addEventListener("click", e => {
+              e.stopPropagation();
+              const reportId = btn.dataset.dismissId;
+              const orig = reports.find(x => x.id === reportId);
+              if (!orig) return;
+              fbPut(P.bugReport(reportId), { ...orig, status: "dismissed" }, () => {
+                const card = btn.closest(".chain-admin-report");
+                if (card) card.remove();
+              });
+            });
+          });
+
+          // Wire publish buttons — reads editable title and type from card
           adminInbox.querySelectorAll(".chain-admin-publish-btn").forEach(btn => {
             btn.addEventListener("click", e => {
               e.stopPropagation();
               const reportId = btn.dataset.reportId;
-              const title    = btn.dataset.reportTitle;
-              const row      = btn.closest(".chain-admin-status-row");
-              const status   = row.querySelector(".chain-admin-status-sel").value;
-              const note     = row.querySelector(".chain-admin-note-input").value.trim();
-              const entry = { title, status, adminNote: note, updatedAt: Date.now() };
+              const row  = btn.closest(".chain-admin-status-row");
+              const card = btn.closest(".chain-admin-report");
+              const title  = card ? card.querySelector(".chain-admin-title-input").value.trim() : "";
+              const type   = row.querySelector(".chain-admin-type-sel").value;
+              const status = row.querySelector(".chain-admin-status-sel").value;
+              const note   = row.querySelector(".chain-admin-note-input").value.trim();
+              const entry  = { title: title||"Untitled", type, status, adminNote: note, updatedAt: Date.now() };
               fbPut(P.bugTrackerEntry(reportId), entry, () => {
                 btn.textContent = "✓ Published";
                 setTimeout(() => btn.textContent = "Publish", 2000);
               });
-              // Also update status on the raw report
+              // Also update raw report with any edits
               const orig = reports.find(x => x.id === reportId);
-              if (orig) fbPut(P.bugReport(reportId), { ...orig, status, adminNote: note });
+              if (orig) fbPut(P.bugReport(reportId), { ...orig, title: entry.title, type, status, adminNote: note });
             });
           });
         },
