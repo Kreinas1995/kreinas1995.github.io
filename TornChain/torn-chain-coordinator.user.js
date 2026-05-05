@@ -51,7 +51,7 @@
   const HIT_INTERVAL         = 5 * 60 * 1000;
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
-  const TIMER_FUDGE_SEC      = 0.5;
+  const TIMER_FUDGE_SEC      = 1;
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
@@ -79,7 +79,7 @@
   }
   let panelW        = GM_getValue(SK_PANEL_W, 380);
   // Enforce minimum width in case a narrower value was saved previously
-  if (panelW < 360) { panelW = 380; GM_setValue(SK_PANEL_W, panelW); }
+  if (panelW < 320) { panelW = 360; GM_setValue(SK_PANEL_W, panelW); }
   let panelH        = GM_getValue(SK_PANEL_H, null);
   let viewMode      = GM_getValue(SK_VIEW_MODE, 1);
 
@@ -897,7 +897,7 @@
   //  Corner resize
   // ══════════════════════════════════════════════════════════════════════════
   (function makeResizable() {
-    const MIN_W=360,MAX_W=700,MIN_H=120,MAX_H=900;
+    const MIN_W=320,MAX_W=700,MIN_H=120,MAX_H=900;
     let resizing=false,sx,sy,sw,sh;
     function start(cx,cy){resizing=true;sx=cx;sy=cy;sw=panel.offsetWidth;sh=panel.offsetHeight;document.body.style.cursor="se-resize";}
     function move(cx,cy){if(!resizing)return;panel.style.width=Math.min(MAX_W,Math.max(MIN_W,sw+cx-sx))+"px";panel.style.height=Math.min(MAX_H,Math.max(MIN_H,sh+cy-sy))+"px";}
