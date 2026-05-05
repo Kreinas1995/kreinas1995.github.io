@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.6.0
+// @version      4.6.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.6.0";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.6.1";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -51,7 +51,7 @@
   const HIT_INTERVAL         = 5 * 60 * 1000;
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
-  const TIMER_FUDGE_SEC      = 1;
+  const TIMER_FUDGE_SEC      = 0.5;
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
@@ -202,8 +202,10 @@
       display:inline-flex !important; align-items:center !important; justify-content:center !important;
       vertical-align:top !important; flex-shrink:0 !important;
     }
-    .buttons-list .chain-target-btn, .buttons-wrap .chain-target-btn,
-    .buttons-list a.chain-target-btn, .buttons-wrap a.chain-target-btn {
+    .mini-profile-wrapper .buttons-list .chain-target-btn,
+    .mini-profile-wrapper .buttons-wrap .chain-target-btn,
+    [class*="profile-mini-"] .buttons-list .chain-target-btn,
+    [class*="profile-mini-"] .buttons-wrap .chain-target-btn {
       width:36px !important; max-width:36px !important; min-width:unset !important;
       height:36px !important; max-height:36px !important;
       padding:0 !important; margin:unset !important; font-size:18px !important;
@@ -235,17 +237,12 @@
     }
     #chain-panel.view-mini #chain-panel-header { padding:6px 10px !important; border-bottom:none !important; }
     #chain-panel.view-mini #chain-panel-title,
-    #chain-panel.view-mini #chain-clear-btn,
-    #chain-panel.view-mini #chain-manage-btn,
+    #chain-panel.view-mini #chain-api-cluster,
     #chain-panel.view-mini #chain-presence-btn,
-    #chain-panel.view-mini #chain-api-btn,
-    #chain-panel.view-mini #chain-update-btn,
-    #chain-panel.view-mini #chain-whitelist-btn,
-    #chain-panel.view-mini #chain-version-badge,
+    #chain-panel.view-mini #chain-gear-btn,
     #chain-panel.view-mini #chain-timer-bar,
     #chain-panel.view-mini #chain-warming-msg,
     #chain-panel.view-mini #chain-cooling-msg,
-    #chain-panel.view-mini #chain-warming-msg,
     #chain-panel.view-mini #chain-panel-body,
     #chain-panel.view-mini #chain-resize-handle { display:none !important; }
     #chain-panel.view-icon #chain-whitelist-btn { display:none !important; }
@@ -320,8 +317,8 @@
     /* ── Header buttons ── */
     .chain-hbtn {
       background:rgba(255,255,255,.1) !important; border:1px solid rgba(255,255,255,.15) !important;
-      color:#ccc !important; border-radius:6px !important; padding:2px 7px !important;
-      font-size:11px !important; cursor:pointer !important; line-height:1.4 !important;
+      color:#ccc !important; border-radius:6px !important; padding:4px 10px !important;
+      font-size:13px !important; cursor:pointer !important; line-height:1.4 !important;
       white-space:nowrap !important; flex-shrink:0 !important;
     }
     .chain-hbtn:hover        { background:rgba(255,255,255,.2) !important; }
@@ -354,19 +351,43 @@
     }
     #chain-update-btn.has-update:hover { background:rgba(68,255,136,.32) !important; }
 
-    /* ── Version badge (full view only) ── */
+    /* ── API cluster (pill stack: [API][↑] / version) ── */
+    #chain-api-cluster {
+      display:flex !important; flex-direction:column !important; align-items:flex-start !important;
+      gap:2px !important; flex-shrink:0 !important;
+    }
+    #chain-api-cluster-row {
+      display:flex !important; align-items:center !important; gap:3px !important;
+    }
+
+    /* ── Version badge (tucked under API+update pills) ── */
     #chain-version-badge {
-      font-size:9px !important; font-weight:700 !important; color:#334 !important;
-      letter-spacing:.3px !important; white-space:nowrap !important; flex-shrink:0 !important;
-      font-family:monospace !important; line-height:1 !important; padding:2px 0 !important;
+      font-size:8px !important; font-weight:700 !important; color:#334 !important;
+      letter-spacing:.3px !important; white-space:nowrap !important;
+      font-family:monospace !important; line-height:1 !important; padding:0 1px !important;
       transition:color .2s !important;
     }
     #chain-version-badge.newest  { color:#44ff88 !important; }
     #chain-version-badge.behind  { color:#ffaa44 !important; }
 
+    /* ── Gear dropdown menu ── */
+    #chain-gear-menu {
+      display:none; position:absolute; top:42px; right:28px; z-index:1000002;
+      background:rgba(20,22,30,.98); border:1px solid rgba(255,255,255,.12);
+      border-radius:8px; padding:4px; box-shadow:0 8px 24px rgba(0,0,0,.65);
+      flex-direction:column; gap:2px; min-width:160px;
+    }
+    #chain-gear-menu.open { display:flex !important; }
+    .chain-gear-menu-item {
+      padding:7px 10px !important; font-size:12px !important; color:#ccc !important;
+      cursor:pointer !important; border-radius:5px !important; white-space:nowrap !important;
+    }
+    .chain-gear-menu-item:hover { background:rgba(255,255,255,.1) !important; color:#fff !important; }
+
     /* ── Sync dot ── */
-    #chain-sync-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:#334; transition:background .3s; }
+    #chain-sync-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; background:#334; transition:background .3s; }
     #chain-sync-dot.live    { background:#44ff88; }
+    #chain-sync-dot { margin-left:auto !important; }
     #chain-sync-dot.syncing { background:#ffcc66; }
     #chain-sync-dot.error   { background:#ff4444; }
 
@@ -710,10 +731,14 @@
 
   panel.innerHTML = `
     <div id="chain-panel-header">
-      <button id="chain-api-btn" title="Set Torn API key">API</button>
-      <a id="chain-update-btn" href="https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js" target="_blank" title="You are on the latest version">↑</a>
-      <span id="chain-version-badge" title="Running version">v${CURRENT_VERSION}</span>
-      <span id="chain-panel-title">⛓ Chain Board</span>
+      <div id="chain-api-cluster">
+        <div id="chain-api-cluster-row">
+          <button id="chain-api-btn" title="Set Torn API key">API</button>
+          <a id="chain-update-btn" href="https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js" target="_blank" title="You are on the latest version">↑</a>
+        </div>
+        <span id="chain-version-badge" title="Running version">v${CURRENT_VERSION}</span>
+      </div>
+      <span id="chain-panel-title">⛓ Chain</span>
       <span id="chain-pill-content">
         <span id="chain-pill-icon">⛓</span>
         <span id="chain-pill-count" style="font-size:11px;font-weight:700;min-width:18px;text-align:center"></span>
@@ -724,14 +749,25 @@
       </span>
       <span id="chain-sync-dot" title="Sync status"></span>
       <button id="chain-presence-btn" class="chain-hbtn" title="Who's online">👥<span id="chain-online-count" style="margin-left:3px;font-size:10px;color:#44ff88;font-weight:700"></span></button>
+      <button id="chain-gear-btn" class="chain-hbtn" title="Settings">⚙️</button>
       <button id="chain-view-btn" class="chain-hbtn" title="Cycle view">▦</button>
-      <button id="chain-manage-btn" class="chain-hbtn leader" style="display:none" title="Manage clear permissions">⚙</button>
-      <button id="chain-whitelist-btn" class="chain-hbtn" style="display:none" title="Manage faction whitelist">🔒</button>
-      <button id="chain-bug-btn" class="chain-hbtn" title="Bug Report / Tracker">🐛</button>
-      <button id="chain-clear-btn" class="chain-hbtn danger" style="display:none" title="Clear chain list">✕</button>
 
-      <!-- Bug dropdown menu -->
-      <div id="chain-bug-menu">
+      <!-- Hidden legacy btns kept for JS compat — triggered via gear menu -->
+      <button id="chain-manage-btn" style="display:none!important"></button>
+      <button id="chain-whitelist-btn" style="display:none!important"></button>
+      <button id="chain-bug-btn" style="display:none!important"></button>
+      <button id="chain-clear-btn" style="display:none!important"></button>
+
+      <!-- Gear dropdown menu -->
+      <div id="chain-gear-menu">
+        <div class="chain-gear-menu-item" id="chain-gmenu-bug">🪲 Bug Report / Tracker</div>
+        <div class="chain-gear-menu-item" id="chain-gmenu-whitelist" style="display:none">🔒 Whitelist</div>
+        <div class="chain-gear-menu-item" id="chain-gmenu-clear" style="display:none">❌ Wipe Tracker</div>
+        <div class="chain-gear-menu-item" id="chain-gmenu-manage" style="display:none">⚙ Permissions</div>
+      </div>
+
+      <!-- Bug dropdown menu (kept for compat) -->
+      <div id="chain-bug-menu" style="display:none">
         <div class="chain-bug-menu-item" id="chain-bug-report-item">🪲 Report a Bug</div>
         <div class="chain-bug-menu-item" id="chain-bug-tracker-item">📋 View Bug Tracker</div>
       </div>
@@ -975,6 +1011,7 @@
      document.getElementById("chain-bug-menu"),
      document.getElementById("chain-bug-popover"),
      document.getElementById("chain-tracker-popover"),
+     document.getElementById("chain-gear-menu"),
     ].forEach(p => p && p.classList.remove("open"));
   }
 
@@ -1122,7 +1159,43 @@
     canClear = isLeaderOrCoLeader || !!permissions[ownId];
     clearBtn.style.display = canClear ? "" : "none";
     manageBtn.style.display = isLeaderOrCoLeader ? "" : "none";
+    const gClear     = document.getElementById("chain-gmenu-clear");
+    const gManage    = document.getElementById("chain-gmenu-manage");
+    const gWhitelist = document.getElementById("chain-gmenu-whitelist");
+    if (gClear)      gClear.style.display     = canClear ? "" : "none";
+    if (gManage)     gManage.style.display     = isLeaderOrCoLeader ? "" : "none";
+    if (gWhitelist)  gWhitelist.style.display  = isOwner ? "" : "none";
   }
+
+  // ── Gear menu button ────────────────────────────────────────────────────────────────────────────
+  (function wireGearMenu() {
+    const gearBtn  = document.getElementById("chain-gear-btn");
+    const gearMenu = document.getElementById("chain-gear-menu");
+    if (!gearBtn || !gearMenu) return;
+    gearBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      if (gearMenu.classList.contains("open")) { gearMenu.classList.remove("open"); return; }
+      closeAllPopovers();
+      gearMenu.classList.add("open");
+    });
+    document.addEventListener("click", () => gearMenu.classList.remove("open"));
+    document.getElementById("chain-gmenu-bug").addEventListener("click", e => {
+      e.stopPropagation(); gearMenu.classList.remove("open");
+      document.getElementById("chain-bug-btn").click();
+    });
+    document.getElementById("chain-gmenu-whitelist").addEventListener("click", e => {
+      e.stopPropagation(); gearMenu.classList.remove("open");
+      whitelistBtn.click();
+    });
+    document.getElementById("chain-gmenu-clear").addEventListener("click", e => {
+      e.stopPropagation(); gearMenu.classList.remove("open");
+      clearBtn.click();
+    });
+    document.getElementById("chain-gmenu-manage").addEventListener("click", e => {
+      e.stopPropagation(); gearMenu.classList.remove("open");
+      manageBtn.click();
+    });
+  })();
 
   clearBtn.onclick = () => {
     if (!canClear || !factionId) return;
