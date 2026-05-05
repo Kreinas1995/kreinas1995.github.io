@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.6.1
+// @version      4.6.9
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -40,8 +40,10 @@
   // ╚══════════════════════════════════════════════════════════════════════════╝
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
-  const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.6.1";    // must be near top — used in panel HTML template literal
+  // OWNER_TORN_ID has been removed from client code — owner identity is verified
+  // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
+  // anyone from editing the script to impersonate the owner.
+  const CURRENT_VERSION  = "4.6.9";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -51,15 +53,17 @@
   const HIT_INTERVAL         = 5 * 60 * 1000;
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
-  const TIMER_FUDGE_SEC      = 0.5;
+  const TIMER_FUDGE_SEC      = 1;
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
   const SK_PANEL_W        = "chain_panel_w";
   const SK_PANEL_H        = "chain_panel_h";
   const SK_VIEW_MODE      = "chain_view_mode";
-  const SK_POS_X          = "chain_pos_x";
+  const SK_POS_RIGHT       = "chain_pos_right";   // distance from right viewport edge (px)
   const SK_POS_Y          = "chain_pos_y";
+  // Legacy key — read once to migrate, then ignored
+  const SK_POS_X          = "chain_pos_x";
   // FIX #2: persist chain session so reload doesn't lose history
   const SK_SESSION_ID     = "chain_session_id";
   const SK_SESSION_START  = "chain_session_start";
@@ -302,15 +306,16 @@
 
     /* ── Header ── */
     #chain-panel-header {
-      display:flex !important; align-items:center !important; gap:5px !important;
-      padding:8px 10px !important; background:rgba(255,255,255,.055) !important;
+      display:flex !important; align-items:center !important; gap:4px !important;
+      padding:6px 8px !important; background:rgba(255,255,255,.055) !important;
       border-bottom:1px solid rgba(255,255,255,.08) !important; flex-shrink:0 !important;
       cursor:grab !important; position:relative !important; border-radius:12px 12px 0 0 !important;
-      overflow:visible !important;
+      overflow:visible !important; box-sizing:border-box !important; width:100% !important;
     }
     #chain-panel-header:active { cursor:grabbing !important; }
     #chain-panel-title {
-      font-weight:700 !important; font-size:13px !important; flex:1 !important;
+      font-weight:700 !important; font-size:13px !important;
+      flex:0 0 auto !important; min-width:0 !important; max-width:160px !important; margin-left:6px !important;
       white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important;
     }
 
@@ -386,8 +391,12 @@
 
     /* ── Sync dot ── */
     #chain-sync-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; background:#334; transition:background .3s; }
+    #chain-header-right {
+      display:flex !important; align-items:center !important; gap:4px !important;
+      margin-left:auto !important; flex-shrink:0 !important; flex-grow:0 !important;
+      min-width:max-content !important;
+    }
     #chain-sync-dot.live    { background:#44ff88; }
-    #chain-sync-dot { margin-left:auto !important; }
     #chain-sync-dot.syncing { background:#ffcc66; }
     #chain-sync-dot.error   { background:#ff4444; }
 
@@ -722,10 +731,23 @@
   // ══════════════════════════════════════════════════════════════════════════
   const panel = document.createElement("div");
   panel.id = "chain-panel";
-  const savedX = GM_getValue(SK_POS_X, null), savedY = GM_getValue(SK_POS_Y, null);
-  if (savedX !== null && savedY !== null) {
-    panel.style.left = savedX+"px"; panel.style.top = savedY+"px"; panel.style.right = "auto";
-  } else { panel.style.right = "12px"; panel.style.top = "60px"; }
+  const savedY = GM_getValue(SK_POS_Y, null);
+  // Primary anchor is LEFT. SK_POS_RIGHT is only read to migrate users who had a
+  // right-based position saved from 4.6.3; after migration it is ignored.
+  let savedLeft = GM_getValue(SK_POS_X, null);
+  if (savedLeft === null) {
+    const legacyRight = GM_getValue(SK_POS_RIGHT, null);
+    if (legacyRight !== null) {
+      // Migrate right → left (best-effort; uses current panelW)
+      savedLeft = Math.max(0, window.innerWidth - legacyRight - panelW);
+      GM_setValue(SK_POS_X, savedLeft);
+    }
+  }
+  // Left-anchored at rest. Only icon mode (view 1) switches to right-anchor so the
+  // panel collapses toward the right edge; applyViewMode handles that transition.
+  panel.style.right = "auto";
+  panel.style.left  = (savedLeft !== null ? savedLeft : Math.max(0, window.innerWidth - panelW - 12)) + "px";
+  panel.style.top   = (savedY    !== null ? savedY    : 60)  + "px";
   panel.style.width = panelW+"px";
   if (panelH) panel.style.height = panelH+"px";
 
@@ -747,16 +769,18 @@
         <span id="chain-pill-next" style="font-size:11px;font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0e0e0">—</span>
         <span id="chain-pill-badge">0</span>
       </span>
-      <span id="chain-sync-dot" title="Sync status"></span>
-      <button id="chain-presence-btn" class="chain-hbtn" title="Who's online">👥<span id="chain-online-count" style="margin-left:3px;font-size:10px;color:#44ff88;font-weight:700"></span></button>
-      <button id="chain-gear-btn" class="chain-hbtn" title="Settings">⚙️</button>
-      <button id="chain-view-btn" class="chain-hbtn" title="Cycle view">▦</button>
+      <div id="chain-header-right">
+        <span id="chain-sync-dot" title="Sync status"></span>
+        <button id="chain-presence-btn" class="chain-hbtn" title="Who's online" style="display:inline-flex!important;align-items:center!important;gap:3px!important;font-size:16px!important;padding:4px 8px!important;">👥<span id="chain-online-count" style="font-size:13px;color:#44ff88;font-weight:700;min-width:14px;text-align:center;line-height:1;"></span></button>
+        <button id="chain-gear-btn" class="chain-hbtn" title="Settings">⚙️</button>
+        <button id="chain-view-btn" class="chain-hbtn" title="Cycle view">▦</button>
+      </div>
 
       <!-- Hidden legacy btns kept for JS compat — triggered via gear menu -->
-      <button id="chain-manage-btn" style="display:none!important"></button>
-      <button id="chain-whitelist-btn" style="display:none!important"></button>
-      <button id="chain-bug-btn" style="display:none!important"></button>
-      <button id="chain-clear-btn" style="display:none!important"></button>
+      <button id="chain-manage-btn" style="display:none!important;pointer-events:none!important"></button>
+      <button id="chain-whitelist-btn" style="display:none!important;pointer-events:none!important"></button>
+      <button id="chain-bug-btn" style="display:none!important;pointer-events:none!important"></button>
+      <button id="chain-clear-btn" style="display:none!important;pointer-events:none!important"></button>
 
       <!-- Gear dropdown menu -->
       <div id="chain-gear-menu">
@@ -926,18 +950,34 @@
   //  Cycling: full → icon → mini → full
   //  Button icon always shows what the NEXT state looks like.
   // ══════════════════════════════════════════════════════════════════════════
-  // Remap any persisted value that was saved under the old ordering (1=mini,2=icon)
-  // to the new ordering (1=icon,2=mini) so existing users don't land on the wrong mode.
-  if (viewMode === 1) viewMode = 2;   // old mini → new mini (slot changed)
-  else if (viewMode === 2) viewMode = 1; // old icon → new icon (slot changed)
+  // NOTE: The 1↔2 remap block that previously appeared here was a one-time migration
+  // from an old view-mode ordering. It was removed in 4.6.4 because it ran on every
+  // page load, causing icon↔mini to flip on each navigation. The new ordering
+  // (0=full, 1=icon, 2=mini) has been stable since 4.6.x — no migration needed.
+
+  // Helper: convert current left-anchored position → right-anchor (for icon mode).
+  // Helper: convert current right-anchored position → left-anchor (leaving icon mode).
+  function toRightAnchor() {
+    const r = panel.getBoundingClientRect();
+    panel.style.left  = "auto";
+    panel.style.right = Math.max(0, window.innerWidth - r.right) + "px";
+  }
+  function toLeftAnchor() {
+    const r = panel.getBoundingClientRect();
+    panel.style.right = "auto";
+    panel.style.left  = Math.max(0, r.left) + "px";
+    GM_setValue(SK_POS_X, Math.max(0, r.left));
+  }
 
   function applyViewMode() {
     panel.style.overflow = "hidden";
+    const wasIcon = panel.classList.contains("view-icon");
     panel.classList.remove("view-full","view-mini","view-icon");
 
     if (viewMode !== 0) closeAllPopovers();   // whitelist & others only make sense in full view
     if (viewMode === 0) {
-      // Large — next is Icon (1): show single dot
+      // Large — restore explicit size; left-anchored
+      if (wasIcon) toLeftAnchor();
       panel.classList.add("view-full");
       panel.style.width  = panelW+"px";
       panel.style.height = panelH ? panelH+"px" : "";
@@ -946,7 +986,9 @@
       viewBtn.title = "Switch to button view";
       if (outsideBar) outsideBar.style.display = "";
     } else if (viewMode === 1) {
-      // Button (icon) — next is Mini (2): show dash (no dots)
+      // Icon (button) — switch to right-anchor so the panel collapses toward
+      // the right edge; the 44×44px circle stays in place.
+      if (!wasIcon) toRightAnchor();
       panel.classList.add("view-icon");
       panel.style.width  = "";
       panel.style.height = "";
@@ -955,7 +997,8 @@
       viewBtn.title = "Switch to mini view";
       if (outsideBar) outsideBar.style.display = "none";
     } else {
-      // Mini pill — next is Large (0): show grid of dots
+      // Mini pill — left-anchored
+      if (wasIcon) toLeftAnchor();
       panel.classList.add("view-mini");
       panel.style.width  = "";
       panel.style.height = "";
@@ -1029,6 +1072,7 @@
 
     function startDrag(cx,cy) {
       dragging=true; didDrag=false; sx=cx; sy=cy;
+      // Snapshot current pixel position; switch to left so transforms work during drag
       const r=panel.getBoundingClientRect(); ol=r.left; ot=r.top;
       panel.style.right="auto"; panel.style.left=ol+"px"; panel.style.top=ot+"px";
     }
@@ -1044,8 +1088,11 @@
       if(!dragging) return;
       dragging=false;
       if(didDrag) {
-        GM_setValue(SK_POS_X,parseInt(panel.style.left));
-        GM_setValue(SK_POS_Y,parseInt(panel.style.top));
+        // Stay left-anchored after drag — save left pos directly.
+        // Icon mode is the only exception: applyViewMode switches to right-anchor
+        // when entering mode 1 so the panel collapses toward the right edge.
+        GM_setValue(SK_POS_X, parseInt(panel.style.left));
+        GM_setValue(SK_POS_Y, parseInt(panel.style.top));
         panel.dataset.justDragged = "1";
         setTimeout(()=>{ delete panel.dataset.justDragged; }, 50);
       }
@@ -1087,9 +1134,24 @@
   (function makeResizable() {
     const MIN_W=360,MAX_W=700,MIN_H=120,MAX_H=900;
     let resizing=false,sx,sy,sw,sh;
-    function start(cx,cy){resizing=true;sx=cx;sy=cy;sw=panel.offsetWidth;sh=panel.offsetHeight;document.body.style.cursor="se-resize";}
-    function move(cx,cy){if(!resizing)return;panel.style.width=Math.min(MAX_W,Math.max(MIN_W,sw+cx-sx))+"px";panel.style.height=Math.min(MAX_H,Math.max(MIN_H,sh+cy-sy))+"px";}
-    function end(){if(!resizing)return;resizing=false;document.body.style.cursor="";panelW=panel.offsetWidth;panelH=panel.offsetHeight;GM_setValue(SK_PANEL_W,panelW);GM_setValue(SK_PANEL_H,panelH);}
+    function start(cx,cy){
+      resizing=true; sx=cx; sy=cy; sw=panel.offsetWidth; sh=panel.offsetHeight;
+      document.body.style.cursor="se-resize";
+      // Panel is left-anchored, so growing width expands rightward from the left edge.
+      // The resize handle is bottom-right, so dragging right/down naturally grows the panel
+      // in the same direction the user is moving. No anchor switching needed.
+    }
+    function move(cx,cy){
+      if(!resizing)return;
+      panel.style.width =Math.min(MAX_W,Math.max(MIN_W,sw+cx-sx))+"px";
+      panel.style.height=Math.min(MAX_H,Math.max(MIN_H,sh+cy-sy))+"px";
+    }
+    function end(){
+      if(!resizing)return; resizing=false; document.body.style.cursor="";
+      panelW=panel.offsetWidth; panelH=panel.offsetHeight;
+      GM_setValue(SK_PANEL_W,panelW); GM_setValue(SK_PANEL_H,panelH);
+      GM_setValue(SK_POS_X, parseInt(panel.style.left)||0);
+    }
     resizeHandle.addEventListener("mousedown",e=>{e.preventDefault();e.stopPropagation();start(e.clientX,e.clientY);});
     document.addEventListener("mousemove",e=>move(e.clientX,e.clientY));
     document.addEventListener("mouseup",end);
@@ -1157,8 +1219,9 @@
 
   function updateClearBtn() {
     canClear = isLeaderOrCoLeader || !!permissions[ownId];
-    clearBtn.style.display = canClear ? "" : "none";
-    manageBtn.style.display = isLeaderOrCoLeader ? "" : "none";
+    // Never touch .style.display on the hidden proxy buttons — they must stay
+    // display:none / pointer-events:none at all times to avoid invisible tap targets.
+    // Only the gear-menu items are shown/hidden to reflect permissions.
     const gClear     = document.getElementById("chain-gmenu-clear");
     const gManage    = document.getElementById("chain-gmenu-manage");
     const gWhitelist = document.getElementById("chain-gmenu-whitelist");
@@ -1456,9 +1519,10 @@
   }
 
   // Check if this client's faction is on the whitelist.
-  // Owner always passes. Everyone else must be present in /whitelist/{factionId}.
+  // No client-side bypass — Firebase rules are the sole authority.
+  // The owner's faction (50825) is in the whitelist, so this returns true for them
+  // the same as any other whitelisted faction. No special client-side case needed.
   function fbCheckWhitelist(cb) {
-    if (isOwner) { cb(true); return; }
     fbGet(P.whitelistEntry(factionId), data => {
       cb(data === true);
     });
@@ -1588,6 +1652,9 @@
 
     // Load public tracker entries (no auth needed — public read)
     const publicUrl = `${FIREBASE_DB_URL}/bugTracker.json`;
+    // Admin inbox: only shown if isOwner was confirmed by the boot probe (fbProbeOwner).
+    // loadAdminInbox handles its own ownerProbeResult guard — safe to call always.
+    if (ownerProbeResult === true) loadAdminInbox();
     GM_xmlhttpRequest({
       method: "GET", url: publicUrl, timeout: 10000,
       onload(r) {
@@ -1615,27 +1682,86 @@
           }
         } catch { trackerList.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:6px">Failed to load tracker.</div>`; }
 
-        // Owner: also load submitted reports
-        if (isOwner) loadAdminInbox();
+        // Owner: loadAdminInbox was already kicked off above in parallel.
       },
       onerror()  { trackerList.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:6px">Network error.</div>`; },
       ontimeout(){ trackerList.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:6px">Timed out.</div>`; },
     });
   }
 
+  // Cached result of the owner probe — avoids re-probing on every tracker open.
+  // null = not yet probed, true = confirmed owner, false = confirmed non-owner.
+  let ownerProbeResult = null;
+
+  // fbProbeOwner: called once at boot after lobby check-in succeeds.
+  // Silently reads /bugs (limit 1) to determine owner status from Firebase rules.
+  // Sets isOwner and refreshes the gear menu — no UI shown on failure.
+  function fbProbeOwner() {
+    if (!fbToken || !fbUid) return;
+    // Probe owner status by attempting a write to /bugTracker — only the owner can write.
+    // We write a sentinel key then immediately delete it. A 200 confirms owner access;
+    // a 401/403 means not the owner. This works with the current rules without any
+    // rules change — /bugTracker write requires tornId === '2348580' server-side.
+    const sentinelKey = `_ownerProbe_${fbUid}`;
+    const sentinelUrl = `${FIREBASE_DB_URL}/bugTracker/${sentinelKey}.json?auth=${fbToken}`;
+    GM_xmlhttpRequest({
+      method: "PUT", url: sentinelUrl,
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify(1),
+      timeout: 10000,
+      onload(r) {
+        if (r.status >= 200 && r.status < 300) {
+          // Confirmed owner — clean up sentinel immediately
+          GM_xmlhttpRequest({ method: "DELETE", url: sentinelUrl, timeout: 5000,
+            onload(){}, onerror(){}, ontimeout(){} });
+          ownerProbeResult = true;
+          isOwner = true;
+          updateClearBtn();
+          setInterval(fbCleanOwnLobbyEntries, 2 * 60 * 1000);
+        } else {
+          ownerProbeResult = false;
+        }
+      },
+      onerror()  { /* leave null — transient, tracker can retry */ },
+      ontimeout(){ /* leave null */ },
+    });
+  }
+
   function loadAdminInbox() {
-    if (!isOwner || !adminSection || !adminInbox) return;
-    adminSection.style.display = "";
+    // Firebase rules are the sole authority for owner status.
+    // Once we've probed and got 401, skip silently on future opens.
+    if (ownerProbeResult === false) return;
+    if (!adminSection || !adminInbox) return;
+    // Show a placeholder while we probe — hidden until we confirm access
     adminInbox.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">Loading reports…</div>`;
 
     function doLoad(token) {
+      // NOTE: /bugs root read requires ".read" at the /bugs level in Firebase rules.
+      // If this returns 401, update rules to add: "bugs": { ".read": "<owner check>" }
       const url = `${FIREBASE_DB_URL}/bugs.json${token ? "?auth="+token : ""}`;
       GM_xmlhttpRequest({
         method: "GET", url, timeout: 12000,
         onload(r) {
           adminInbox.innerHTML = "";
+          if (r.status === 401 || r.status === 403) {
+            // Not the owner — cache result and hide section silently
+            ownerProbeResult = false;
+            if (adminSection) adminSection.style.display = "none";
+            return;
+          }
+          // Confirmed owner — cache result, show section, set flag
+          ownerProbeResult = true;
+          isOwner = true;
+          if (adminSection) adminSection.style.display = "";
+          updateClearBtn();   // refresh gear menu to show whitelist option
+          if (r.status < 200 || r.status >= 300) {
+            let errMsg = r.responseText;
+            try { errMsg = JSON.parse(r.responseText).error || errMsg; } catch {/**/ }
+            adminInbox.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:4px">❌ Firebase ${r.status}: ${errMsg}</div>`;
+            return;
+          }
           let data = null;
-          try { data = r.status >= 200 && r.status < 300 ? JSON.parse(r.responseText) : null; } catch {/**/ }
+          try { data = JSON.parse(r.responseText); } catch {/**/ }
           if (!data || !Object.keys(data).length) {
             adminInbox.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">No reports yet.</div>`;
             return;
@@ -1702,24 +1828,51 @@
       });
     }
 
-    if (fbToken) {
-      doLoad(fbToken);
-    } else {
-      adminInbox.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">Authenticating…</div>`;
-      fbSignInAnon((token, uid) => {
-        if (!token) { adminInbox.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:4px">Auth failed.</div>`; return; }
-        fbToken = token; fbUid = uid;
-        // Write lobby entry so Firebase rules can verify tornId === OWNER_TORN_ID
+    // The Firebase rule for /bugs checks lobby/{uid}/tornId — so we must ensure
+    // the lobby entry is fresh AND has a populated tornId before reading.
+    // ownId is only set after fetchOwnProfile completes; if it's empty we poll briefly.
+    function ensureLobbyThenLoad(token, uid) {
+      function writeLobbyAndLoad() {
+        if (!ownId) {
+          // fetchOwnProfile hasn't returned yet — retry in 500ms (max 10s)
+          ensureLobbyThenLoad._retries = (ensureLobbyThenLoad._retries || 0) + 1;
+          if (ensureLobbyThenLoad._retries < 20) {
+            setTimeout(() => writeLobbyAndLoad(), 500);
+          } else {
+            adminInbox.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:4px">❌ Profile not loaded — open API popover and save key.</div>`;
+          }
+          return;
+        }
+        ensureLobbyThenLoad._retries = 0;
         const lobbyUrl = `${FIREBASE_DB_URL}/lobby/${uid}.json?auth=${token}`;
         GM_xmlhttpRequest({
           method: "PUT", url: lobbyUrl,
           headers: { "Content-Type": "application/json" },
           data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId||"", lastSeen: Date.now() }),
           timeout: 8000,
-          onload() { doLoad(token); },
-          onerror()  { doLoad(token); },  // try anyway
+          onload(r) {
+            if (r.status >= 200 && r.status < 300) {
+              doLoad(token);
+            } else {
+              // Lobby write failed — try reading anyway in case lobby is still valid from boot
+              doLoad(token);
+            }
+          },
+          onerror()  { doLoad(token); },
           ontimeout(){ doLoad(token); },
         });
+      }
+      writeLobbyAndLoad();
+    }
+
+    if (fbToken && fbUid) {
+      ensureLobbyThenLoad(fbToken, fbUid);
+    } else {
+      adminInbox.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:4px">Authenticating…</div>`;
+      fbSignInAnon((token, uid) => {
+        if (!token) { adminInbox.innerHTML = `<div style="font-size:10px;color:#ff8888;text-align:center;padding:4px">Auth failed.</div>`; return; }
+        fbToken = token; fbUid = uid;
+        ensureLobbyThenLoad(token, uid);
       });
     }
   }
@@ -3622,8 +3775,8 @@
           ownId       = String(data.player_id||"");
           factionId   = data.faction?.faction_id ? String(data.faction.faction_id) : null;
           factionName = data.faction?.faction_name||"";
-          isOwner     = (ownId === OWNER_TORN_ID);
-          if (whitelistBtn) whitelistBtn.style.display = isOwner ? "" : "none";
+          // isOwner is determined by a Firebase probe read after auth — not client-side.
+          // whitelistBtn is a hidden proxy; gear menu visibility is handled in updateClearBtn()
           updateApiBtn();
           showBanner("chain-banner-status",false);
 
@@ -3643,8 +3796,12 @@
             fbUid   = uid;
 
             if (!token || !uid) {
-              showBanner("chain-banner-status", true, "⚠ Firebase auth failed — anonymous sign-in returned no token.");
-              showBanner("chain-banner-debug", true, "❌ Auth: token was null/undefined — check Firebase console anonymous auth is enabled and API key is correct.");
+              // FIX E: Clear the generic "Connecting…" banner so it doesn't hang
+              // forever when Firebase auth can't complete (e.g. on TornPDA where
+              // googleapis.com may be unreachable from the WebView sandbox).
+              showBanner("chain-banner-status", false);
+              const pdaNote = isTornPDA ? " (TornPDA: Firebase auth may be blocked — check @connect in script header)" : "";
+              showBanner("chain-banner-debug", true, "⚠ Firebase auth failed — anonymous sign-in returned no token." + pdaNote);
               return;
             }
 
@@ -3668,6 +3825,7 @@
                     onload(rr) {
                       fbCleanOwnLobbyEntries();
                       fbRegisterMember();
+                      fbProbeOwner();   // silent boot-time owner check — sets isOwner + gear menu
                       setTimeout(()=>showBanner("chain-banner-debug",false), 3000);
                       fbCheckWhitelist(allowed => {
                         if (!allowed) {
@@ -3697,9 +3855,7 @@
             });
 
             setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
-            // Owner runs periodic lobby cleanup to keep rules evaluation fast.
-            // A bloated lobby causes slow rules checks on every faction read/write.
-            if (isOwner) setInterval(fbCleanOwnLobbyEntries, 2 * 60 * 1000);  // every 2 min
+            // Owner lobby cleanup interval is started inside fbProbeOwner on success.
           });
         } catch { showBanner("chain-banner-status",true,"Failed to parse API response."); }
       },
