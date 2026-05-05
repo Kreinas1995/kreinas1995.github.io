@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.4.7
+// @version      4.4.8
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.4.7";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.4.8";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -1448,7 +1448,7 @@
     fbGet(P.lobbyAll(), data => {
       if (!data || typeof data !== "object") return;
       const now = Date.now();
-      const STALE_MS = PRESENCE_TIMEOUT * 4;
+      const STALE_MS = PRESENCE_TIMEOUT * 2;  // 3 min — dead sessions swept quickly
       Object.entries(data).forEach(([key, entry]) => {
         if (!entry) return;
         if (key === fbUid) return;   // keep current session
@@ -2958,6 +2958,9 @@
             });
 
             setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
+            // Owner runs periodic lobby cleanup to keep rules evaluation fast.
+            // A bloated lobby causes slow rules checks on every faction read/write.
+            if (isOwner) setInterval(fbCleanOwnLobbyEntries, 2 * 60 * 1000);  // every 2 min
           });
         } catch { showBanner("chain-banner-status",true,"Failed to parse API response."); }
       },
