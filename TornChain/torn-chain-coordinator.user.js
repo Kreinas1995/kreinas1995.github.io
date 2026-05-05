@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.4.4
+// @version      4.4.7
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.4.4";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.4.7";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -156,11 +156,10 @@
     member:      uid => `${fBase()}/members/${uid}.json${auth()}`,
     memberById:  id  => `${fBase()}/members/torn_${id}.json${auth()}`,
     memberMe:    ()  => ownId ? `${fBase()}/members/torn_${ownId}.json${auth()}` : null,
-    // Lobby bootstrap: initial write uses fbUid (auth.uid === $uid always passes)
+    // Lobby: keyed by fbUid — auth.uid === $uid is the only reliable identity check in rules
     lobbyBootstrap:  () => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}.json${auth()}` : null,
-    // Canonical lobby entry: keyed by torn_{tornId} — stable across page loads, no dedup needed
-    lobbyMe:         () => ownId ? `${FIREBASE_DB_URL}/lobby/torn_${ownId}.json${auth()}` : null,
-    lobbyMeField:    f  => ownId ? `${FIREBASE_DB_URL}/lobby/torn_${ownId}/${f}.json${auth()}` : null,
+    lobbyMe:         () => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}.json${auth()}` : null,
+    lobbyMeField:    f  => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}/${f}.json${auth()}` : null,
     lobbyAll:        () => `${FIREBASE_DB_URL}/lobby.json${auth()}`,
     whitelist:       () => `${FIREBASE_DB_URL}/whitelist.json${auth()}`,
     whitelistEntry:  fid => `${FIREBASE_DB_URL}/whitelist/${fid}.json${auth()}`,
@@ -1442,24 +1441,24 @@
   // Lobby cleanup — runs once on login:
   // 1. Delete any old fbUid-keyed entries for our tornId (left from pre-4.4.3 versions)
   // 2. Owner only: delete globally stale entries older than PRESENCE_TIMEOUT * 4
+  // Delete lobby entries that share our tornId but are NOT our current fbUid session.
+  // Also owner-sweeps globally stale entries. Runs once on login.
   function fbCleanOwnLobbyEntries() {
-    if (!ownId || !fbConfigured()) return;
+    if (!fbUid || !ownId || !fbConfigured()) return;
     fbGet(P.lobbyAll(), data => {
       if (!data || typeof data !== "object") return;
       const now = Date.now();
       const STALE_MS = PRESENCE_TIMEOUT * 4;
       Object.entries(data).forEach(([key, entry]) => {
         if (!entry) return;
-        // Skip the canonical torn_ entry for our own tornId — keep it
-        if (key === `torn_${ownId}`) return;
+        if (key === fbUid) return;   // keep current session
         const isMineByTornId = String(entry.tornId) === String(ownId);
         const isStale        = (now - (entry.lastSeen || 0)) > STALE_MS;
-        const isTornKey      = key.startsWith("torn_");
-        if (isMineByTornId && !isTornKey) {
-          // Old fbUid-style entry for our tornId — delete it
+        if (isMineByTornId) {
+          // Old session entry for our tornId — delete regardless of age
           fbDelete(`${FIREBASE_DB_URL}/lobby/${key}.json${auth()}`);
         } else if (isOwner && isStale) {
-          // Owner sweeps globally stale entries
+          // Owner sweeps anyone's globally stale entries
           fbDelete(`${FIREBASE_DB_URL}/lobby/${key}.json${auth()}`);
         }
       });
@@ -2910,9 +2909,10 @@
               return;
             }
 
-            // Phase 1: write to /lobby/{fbUid} — auth.uid === $uid always passes.
-            // This bootstraps auth so rules can verify our identity for subsequent writes.
-            const lobbyBootstrapUrl = P.lobbyBootstrap();
+            // Write to /lobby/{fbUid} — auth.uid === $uid always passes, no chicken-and-egg.
+            // fbUid is the only key Firebase rules can reliably look up via auth.uid.
+            // Old fbUid entries from previous sessions are cleaned up by fbCleanOwnLobbyEntries.
+            const lobbyBootstrapUrl = P.lobbyMe();
             showBanner("chain-banner-debug", true, "⏳ Lobby check-in… uid="+fbUid+" fid="+factionId);
             GM_xmlhttpRequest({
               method:"PUT", url: lobbyBootstrapUrl,
@@ -2921,48 +2921,29 @@
               timeout:10000,
               onload(r) {
                 if (r.status>=200 && r.status<300) {
-                  showBanner("chain-banner-debug", true, "✓ Lobby bootstrap OK. Promoting to torn_ key…");
+                  showBanner("chain-banner-debug", true, "✓ Lobby check-in OK. fid="+factionId+" uid="+fbUid+" Verifying…");
                   setSyncDot("live");
-                  // Phase 2: write canonical torn_{tornId} entry — rule checks fbUid bootstrap above.
-                  // Then delete the fbUid entry so lobby stays clean (one entry per player).
-                  const tornLobbyUrl = P.lobbyMe();
+                  // Read back to confirm committed in rules engine before proceeding
                   GM_xmlhttpRequest({
-                    method:"PUT", url: tornLobbyUrl,
-                    headers:{"Content-Type":"application/json"},
-                    data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() }),
-                    timeout:10000,
-                    onload(r2) {
-                      if (r2.status>=200 && r2.status<300) {
-                        // Canonical entry written — delete the bootstrap fbUid entry
-                        fbDelete(lobbyBootstrapUrl);
-                      }
-                      // Whether torn_ write succeeded or not, readback canonical entry to
-                      // confirm it's committed before proceeding.
-                      const lobbyReadUrl = P.lobbyMe();
-                      GM_xmlhttpRequest({
-                        method: "GET", url: lobbyReadUrl, timeout: 8000,
-                        onload(rr) {
-                          fbCleanOwnLobbyEntries();
-                          fbRegisterMember();
-                          setTimeout(()=>showBanner("chain-banner-debug",false), 3000);
-                          fbCheckWhitelist(allowed => {
-                            if (!allowed) {
-                              showBanner("chain-banner-locked", true);
-                              setSyncDot("error");
-                              return;
-                            }
-                            showBanner("chain-banner-locked", false);
-                            fbStartMainListener();
-                            pollFactionChain();
-                            setInterval(pollFactionChain, CHAIN_POLL_MS);
-                          });
-                        },
-                        onerror()  { fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
-                        ontimeout(){ fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    method: "GET", url: lobbyBootstrapUrl, timeout: 8000,
+                    onload(rr) {
+                      fbCleanOwnLobbyEntries();
+                      fbRegisterMember();
+                      setTimeout(()=>showBanner("chain-banner-debug",false), 3000);
+                      fbCheckWhitelist(allowed => {
+                        if (!allowed) {
+                          showBanner("chain-banner-locked", true);
+                          setSyncDot("error");
+                          return;
+                        }
+                        showBanner("chain-banner-locked", false);
+                        fbStartMainListener();
+                        pollFactionChain();
+                        setInterval(pollFactionChain, CHAIN_POLL_MS);
                       });
                     },
-                    onerror()  { showBanner("chain-banner-debug", true, "❌ Lobby torn_ write network error"); },
-                    ontimeout(){ showBanner("chain-banner-debug", true, "❌ Lobby torn_ write timed out"); },
+                    onerror()  { fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    ontimeout(){ fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
                   });
                 } else {
                   setSyncDot("error");
