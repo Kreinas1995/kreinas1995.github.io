@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.7.0
+// @version      4.7.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -43,7 +43,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.7.0";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.7.1";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -1683,6 +1683,8 @@
           if (!data || !Object.keys(data).length) {
             trackerList.innerHTML = `<div style="font-size:10px;color:#445;text-align:center;padding:6px">No tracked items yet.</div>`;
           } else {
+            // Attach the Firebase key to each entry so the delete button has it reliably
+            Object.keys(data).forEach(k => { if (data[k] && typeof data[k]==='object') data[k]._fbKey = k; });
             const all = Object.values(data).sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
             const bugs     = all.filter(e => (e.type||"bug") === "bug");
             const features = all.filter(e => e.type === "feature");
@@ -1699,14 +1701,43 @@
                 const typeBadge = entry.type === "feature"
                   ? `<span class="chain-tracker-type-feature">Feature</span>`
                   : `<span class="chain-tracker-type-bug">Bug</span>`;
+                // Owner gets a delete button — DELETEs the /bugTracker entry entirely
+                const deleteBtn = isOwner
+                  ? `<button class="chain-tracker-delete-btn" data-entry-id="${escHtml(entry._fbKey||entry.id||"")}" style="float:right;font-size:9px;padding:1px 5px;border-radius:4px;cursor:pointer;border:1px solid rgba(255,80,80,.35);background:rgba(255,60,60,.1);color:#ff8888;margin-left:4px;">✕</button>`
+                  : "";
                 div.innerHTML = `
                   <div class="chain-tracker-entry-title">
-                    ${typeBadge}${escHtml(entry.title||"Untitled")}
+                    ${deleteBtn}${typeBadge}${escHtml(entry.title||"Untitled")}
                     <span class="chain-tracker-badge ${(entry.status||"new").replace("_","-")}">${statusLabel(entry.status||"new")}</span>
                   </div>
                   ${entry.adminNote ? `<div class="chain-tracker-entry-note">${escHtml(entry.adminNote)}</div>` : ""}
                 `;
                 trackerList.appendChild(div);
+              });
+              // Wire delete buttons
+              trackerList.querySelectorAll(".chain-tracker-delete-btn").forEach(btn => {
+                btn.addEventListener("click", e => {
+                  e.stopPropagation();
+                  const entryId = btn.dataset.entryId;
+                  if (!entryId || !fbToken) return;
+                  const url = `${FIREBASE_DB_URL}/bugTracker/${entryId}.json?auth=${fbToken}`;
+                  GM_xmlhttpRequest({
+                    method: "DELETE", url, timeout: 8000,
+                    onload(r) {
+                      if (r.status >= 200 && r.status < 300) {
+                        const card = btn.closest(".chain-tracker-entry");
+                        if (card) card.remove();
+                        // Remove empty section header if no siblings left
+                        const list = trackerList;
+                        list.querySelectorAll(".chain-tracker-section-hdr").forEach(hdr => {
+                          let next = hdr.nextElementSibling;
+                          if (!next || next.classList.contains("chain-tracker-section-hdr")) hdr.remove();
+                        });
+                      }
+                    },
+                    onerror(){}, ontimeout(){},
+                  });
+                });
               });
             }
 
