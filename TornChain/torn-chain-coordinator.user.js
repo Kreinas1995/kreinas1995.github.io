@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.3.2
+// @version      4.3.5
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,6 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
+  const CURRENT_VERSION  = "4.3.5";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -121,6 +122,8 @@
   let chainCooldownReadAt = null;   // performance.now() when cooldown was last read
   let apiTimerSecs        = null;   // chain timeout from last API poll (fallback timer)
   let apiTimerReadAt      = null;   // performance.now() when that poll arrived
+  let networkLatestVersion = null;  // highest version seen across all online clients
+  let clientVersionMap     = new Map(); // fbUid → version string for all active clients
 
   // Session is restored from Firebase on first poll — do not restore from
   // GM storage as stale chainStartTime causes the scraper to accept hits
@@ -157,6 +160,9 @@
     lobbyAll:     () => `${FIREBASE_DB_URL}/lobby.json${auth()}`,
     whitelist:       () => `${FIREBASE_DB_URL}/whitelist.json${auth()}`,
     whitelistEntry:  fid => `${FIREBASE_DB_URL}/whitelist/${fid}.json${auth()}`,
+    // Global client version registry — any authenticated user can write their own entry
+    clientVersion:   uid => `${FIREBASE_DB_URL}/meta/clientVersions/${uid}.json${auth()}`,
+    clientVersions:  ()  => `${FIREBASE_DB_URL}/meta/clientVersions.json${auth()}`,
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -206,6 +212,7 @@
     #chain-panel.view-mini #chain-api-btn,
     #chain-panel.view-mini #chain-update-btn,
     #chain-panel.view-mini #chain-whitelist-btn,
+    #chain-panel.view-mini #chain-version-badge,
     #chain-panel.view-mini #chain-timer-bar,
     #chain-panel.view-mini #chain-warming-msg,
     #chain-panel.view-mini #chain-cooling-msg,
@@ -213,6 +220,7 @@
     #chain-panel.view-mini #chain-panel-body,
     #chain-panel.view-mini #chain-resize-handle { display:none !important; }
     #chain-panel.view-icon #chain-whitelist-btn { display:none !important; }
+    #chain-panel.view-icon #chain-version-badge { display:none !important; }
     #chain-pill-content { display:none; align-items:center; gap:6px; white-space:nowrap; }
     #chain-panel.view-mini #chain-pill-content { display:flex !important; }
     #chain-pill-icon  { font-size:16px; line-height:1; }
@@ -305,12 +313,27 @@
     #chain-update-btn {
       display:inline-flex !important; align-items:center !important; justify-content:center !important;
       width:18px !important; height:18px !important; border-radius:5px !important;
-      background:rgba(68,255,136,.15) !important; border:1px solid rgba(68,255,136,.4) !important;
-      color:#44ff88 !important; font-size:13px !important; font-weight:700 !important;
+      background:rgba(255,255,255,.06) !important; border:1px solid rgba(255,255,255,.12) !important;
+      color:#445 !important; font-size:13px !important; font-weight:700 !important;
       text-decoration:none !important; cursor:pointer !important; flex-shrink:0 !important;
-      line-height:1 !important; transition:background .12s !important;
+      line-height:1 !important; transition:background .2s, border-color .2s, color .2s !important;
     }
-    #chain-update-btn:hover { background:rgba(68,255,136,.32) !important; }
+    #chain-update-btn:hover { background:rgba(255,255,255,.14) !important; color:#888 !important; }
+    #chain-update-btn.has-update {
+      background:rgba(68,255,136,.15) !important; border-color:rgba(68,255,136,.4) !important;
+      color:#44ff88 !important;
+    }
+    #chain-update-btn.has-update:hover { background:rgba(68,255,136,.32) !important; }
+
+    /* ── Version badge (full view only) ── */
+    #chain-version-badge {
+      font-size:9px !important; font-weight:700 !important; color:#334 !important;
+      letter-spacing:.3px !important; white-space:nowrap !important; flex-shrink:0 !important;
+      font-family:monospace !important; line-height:1 !important; padding:2px 0 !important;
+      transition:color .2s !important;
+    }
+    #chain-version-badge.newest  { color:#44ff88 !important; }
+    #chain-version-badge.behind  { color:#ffaa44 !important; }
 
     /* ── Sync dot ── */
     #chain-sync-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:#334; transition:background .3s; }
@@ -405,12 +428,13 @@
     #chain-whitelist-close:hover { background:rgba(255,255,255,.18); }
 
     /* ── Presence popover ── */
-    #chain-presence-popover { left:50%; transform:translateX(-50%); width:200px; border:1px solid rgba(100,200,255,.3); }
+    #chain-presence-popover { left:50%; transform:translateX(-50%); width:220px; border:1px solid rgba(100,200,255,.3); }
     #chain-presence-title   { font-size:11px; font-weight:700; color:#88ccff; }
     #chain-presence-list    { display:flex; flex-direction:column; gap:4px; max-height:180px; overflow-y:auto; }
     .chain-presence-row     { display:flex; align-items:center; gap:7px; font-size:11px; color:#ccc; padding:2px 0; }
     .chain-presence-dot     { width:6px; height:6px; border-radius:50%; background:#44ff88; flex-shrink:0; }
     .chain-presence-name    { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .chain-presence-ver     { font-size:9px; font-weight:700; font-family:monospace; flex-shrink:0; opacity:.9; }
 
     /* ── Panel body + banners ── */
     #chain-panel-body { display:flex !important; flex-direction:column !important; flex:1 !important; overflow:hidden !important; border-radius:0 0 12px 12px; }
@@ -549,7 +573,8 @@
   panel.innerHTML = `
     <div id="chain-panel-header">
       <button id="chain-api-btn" title="Set Torn API key">API</button>
-      <a id="chain-update-btn" href="https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js" target="_blank" title="Reinstall / update to latest version">↑</a>
+      <a id="chain-update-btn" href="https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js" target="_blank" title="You are on the latest version">↑</a>
+      <span id="chain-version-badge" title="Running version">v${CURRENT_VERSION}</span>
       <span id="chain-panel-title">⛓ Chain Board</span>
       <span id="chain-pill-content">
         <span id="chain-pill-icon">⛓</span>
@@ -900,19 +925,20 @@
   function openManagePopover() {
     closeAllPopovers();
     manageList.innerHTML = "";
-    Object.entries(factionMembers).forEach(([uid, name]) => {
-      const checked = !!permissions[uid];
-      const row = document.createElement("label");
-      row.className = "chain-manage-row";
-      row.innerHTML = `<input type="checkbox" data-uid="${uid}" ${checked?"checked":""}> ${escHtml(name)}`;
-      row.querySelector("input").addEventListener("change", ev => {
-        const id = ev.target.dataset.uid;
-        if (ev.target.checked) permissions[id] = true; else delete permissions[id];
-        fbPut(P.perm(id), ev.target.checked ? "true" : null);
-        updateClearBtn();
+    sortMeFirst(Object.entries(factionMembers), ([, name]) => name)
+      .forEach(([uid, name]) => {
+        const checked = !!permissions[uid];
+        const row = document.createElement("label");
+        row.className = "chain-manage-row";
+        row.innerHTML = `<input type="checkbox" data-uid="${uid}" ${checked?"checked":""}> ${escHtml(name)}`;
+        row.querySelector("input").addEventListener("change", ev => {
+          const id = ev.target.dataset.uid;
+          if (ev.target.checked) permissions[id] = true; else delete permissions[id];
+          fbPut(P.perm(id), ev.target.checked ? "true" : null);
+          updateClearBtn();
+        });
+        manageList.appendChild(row);
       });
-      manageList.appendChild(row);
-    });
     managePopover.classList.add("open");
   }
   manageBtn.addEventListener("click", e => { e.stopPropagation(); managePopover.classList.contains("open") ? closeAllPopovers() : openManagePopover(); });
@@ -972,6 +998,17 @@
     presencePopover.classList.add("open");
   });
 
+  // ── Shared sort: own name first, then A→Z ─────────────────────────────────
+  function sortMeFirst(arr, getName) {
+    return arr.sort((a, b) => {
+      const na = getName(a), nb = getName(b);
+      const aMe = na === ownName, bMe = nb === ownName;
+      if (aMe && !bMe) return -1;
+      if (!aMe && bMe) return  1;
+      return na.localeCompare(nb);
+    });
+  }
+
   function updateOnlineCount() {
     const now = Date.now();
     const seen = new Set();
@@ -983,19 +1020,45 @@
     if (badge) badge.textContent = count > 0 ? count : "";
   }
 
+  // ── Version colour for presence list ─────────────────────────────────────
+  // v(major).(feature).(bugfix)
+  // green  = identical to ours
+  // yellow = same major+feature, different bugfix
+  // orange = same major, different feature
+  // red    = different major version
+  function versionBadgeHtml(ver) {
+    if (!ver) return "";
+    const parse = v => v.split(".").map(Number);
+    const [ma, fe, bf]   = parse(CURRENT_VERSION);
+    const [ma2, fe2, bf2] = parse(ver);
+    let color, title;
+    if (ma2 === ma && fe2 === fe && bf2 === bf) {
+      color = "#44ff88"; title = "Same version";
+    } else if (ma2 === ma && fe2 === fe) {
+      color = "#ffee44"; title = "Different bugfix";
+    } else if (ma2 === ma) {
+      color = "#ff9933"; title = "Different feature version";
+    } else {
+      color = "#ff4444"; title = "Different major version";
+    }
+    return `<span class="chain-presence-ver" style="color:${color}" title="${title}">v${escHtml(ver)}</span>`;
+  }
+
   function renderPresence() {
     const now = Date.now();
     presenceList.innerHTML = "";
     // Deduplicate by name (same player may have multiple entries from old sessions)
     const seen = new Set();
-    const online = [...presenceMap.entries()]
-      .filter(([, m]) => (now - (m.lastSeen||0)) < PRESENCE_TIMEOUT)
-      .filter(([, m]) => {
-        if (seen.has(m.name)) return false;
-        seen.add(m.name);
-        return true;
-      })
-      .sort((a,b) => a[1].name.localeCompare(b[1].name));
+    const online = sortMeFirst(
+      [...presenceMap.entries()]
+        .filter(([, m]) => (now - (m.lastSeen||0)) < PRESENCE_TIMEOUT)
+        .filter(([, m]) => {
+          if (seen.has(m.name)) return false;
+          seen.add(m.name);
+          return true;
+        }),
+      ([, m]) => m.name || ""
+    );
 
     updateOnlineCount();
 
@@ -1007,7 +1070,8 @@
       const row = document.createElement("div");
       row.className = "chain-presence-row";
       const isMe = (m.tornId && m.tornId === ownId) || m.name === ownName;
-      row.innerHTML = `<span class="chain-presence-dot"></span><span class="chain-presence-name">${escHtml(m.name)}${isMe?" (you)":""}</span>`;
+      const ver  = clientVersionMap.get(uid) || null;
+      row.innerHTML = `<span class="chain-presence-dot"></span><span class="chain-presence-name">${escHtml(m.name)}${isMe?" (you)":""}</span>${versionBadgeHtml(ver)}`;
       presenceList.appendChild(row);
     });
   }
@@ -1321,6 +1385,8 @@
     // faction members via the new rules and is the authoritative presence source
     // for the Online Now list (reading /lobby directly is blocked by new rules).
     fbPut(P.member(fbUid), { name: ownName, tornId: ownId, lastSeen: Date.now() });
+    // Publish our running version so all clients can detect who has the newest build
+    fbPut(P.clientVersion(fbUid), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
   }
 
   function fbHeartbeat() {
@@ -1343,6 +1409,55 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
+  //  Network version tracking
+  //  /meta/clientVersions/{fbUid} = { version, name, lastSeen }
+  //  Polled every CHAIN_POLL_MS alongside the faction poll.
+  // ══════════════════════════════════════════════════════════════════════════
+  function fbPollClientVersions() {
+    if (!fbConfigured() || !fbUid) return;
+    fbGet(P.clientVersions(), data => {
+      if (!data || typeof data !== "object") return;
+      const now = Date.now();
+      // Only consider entries seen within 2× presence timeout (recently active clients)
+      const ACTIVE_WINDOW = PRESENCE_TIMEOUT * 2;
+      let latest = CURRENT_VERSION;
+      clientVersionMap.clear();
+      Object.entries(data).forEach(([uid, entry]) => {
+        if (!entry || !entry.version) return;
+        if (entry.lastSeen && (now - entry.lastSeen) > ACTIVE_WINDOW) return;
+        clientVersionMap.set(uid, entry.version);
+        if (isNewerVersion(entry.version, latest)) latest = entry.version;
+      });
+      networkLatestVersion = latest;
+      updateVersionUI();
+    });
+  }
+
+  function updateVersionUI() {
+    const badge  = document.getElementById("chain-version-badge");
+    const upBtn  = document.getElementById("chain-update-btn");
+    if (!badge || !upBtn) return;
+
+    const behindNetwork = networkLatestVersion && isNewerVersion(networkLatestVersion, CURRENT_VERSION);
+
+    if (behindNetwork) {
+      // Someone online has a newer build — green arrow, amber version
+      badge.textContent = "v" + CURRENT_VERSION;
+      badge.className   = "behind";
+      badge.title       = "v" + networkLatestVersion + " is available — click ↑ to update";
+      upBtn.classList.add("has-update");
+      upBtn.title = "Update available: v" + CURRENT_VERSION + " → v" + networkLatestVersion;
+    } else {
+      // We are on the newest version seen across active clients — grey arrow
+      badge.textContent = "v" + CURRENT_VERSION;
+      badge.className   = "newest";
+      badge.title       = "You are on the latest version";
+      upBtn.classList.remove("has-update");
+      upBtn.title = "You are on the latest version";
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   //  Firebase sync — polling via GM_xmlhttpRequest
   //  EventSource (SSE) is blocked by Torn's Content Security Policy.
   //  We poll the full faction node every 3s instead. GM_xmlhttpRequest
@@ -1359,10 +1474,13 @@
 
     // Immediate first fetch
     fbPollOnce();
+    fbPollClientVersions();
 
     // Then every 3 seconds
     // Poll every 3s — halves network + parse load vs 1.5s with no noticeable UX difference
     ssePollInterval = setInterval(fbPollOnce, 3000);
+    // Version poll is low-priority — run every CHAIN_POLL_MS (5s), offset by 1s
+    setTimeout(() => setInterval(fbPollClientVersions, CHAIN_POLL_MS), 1000);
   }
 
   let pollInFlight = false;
@@ -2739,7 +2857,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "4.3.2";
+  // CURRENT_VERSION is declared at the top of the IIFE (needed for panel HTML template).
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
@@ -2788,6 +2906,7 @@
   renderPanel();
   fetchOwnProfile();
   injectTargetButtons();
+  updateVersionUI();   // set initial badge state before Firebase connects
   // Check for updates once, 8 seconds after boot (non-blocking)
   setTimeout(checkForUpdate, 8000);
 
