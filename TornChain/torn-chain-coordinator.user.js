@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.3.5
+// @version      4.3.6
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.3.5";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.3.6";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -1070,7 +1070,9 @@
       const row = document.createElement("div");
       row.className = "chain-presence-row";
       const isMe = (m.tornId && m.tornId === ownId) || m.name === ownName;
-      const ver  = clientVersionMap.get(uid) || null;
+      // Version comes from the member record (written at registration) — always
+      // in sync with presenceMap so no uid key mismatch possible.
+      const ver = m.version || clientVersionMap.get(uid) || null;
       row.innerHTML = `<span class="chain-presence-dot"></span><span class="chain-presence-name">${escHtml(m.name)}${isMe?" (you)":""}</span>${versionBadgeHtml(ver)}`;
       presenceList.appendChild(row);
     });
@@ -1375,17 +1377,13 @@
   // ══════════════════════════════════════════════════════════════════════════
   function fbRegisterMember() {
     if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
-    // Write to /lobby/{fbUid} — this path uses auth.uid === $uid so it ALWAYS
-    // succeeds on first login without any pre-existing member record.
-    // The lobby record includes factionId so the faction board can filter by faction.
     const lobbyUrl = P.lobbyMe();
     if (!lobbyUrl) return;
     fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() });
-    // Also write to /factions/{fid}/members/{fbUid} — this is readable by all
-    // faction members via the new rules and is the authoritative presence source
-    // for the Online Now list (reading /lobby directly is blocked by new rules).
-    fbPut(P.member(fbUid), { name: ownName, tornId: ownId, lastSeen: Date.now() });
-    // Publish our running version so all clients can detect who has the newest build
+    // Member record is the authoritative presence source — include version so
+    // renderPresence can read it directly without a separate /meta poll.
+    fbPut(P.member(fbUid), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: CURRENT_VERSION });
+    // Also publish to /meta/clientVersions for the network-wide version check
     fbPut(P.clientVersion(fbUid), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
   }
 
@@ -1394,9 +1392,11 @@
     // Heartbeat goes to lobby — same rule (auth.uid === $uid), always permitted.
     const url = P.lobbyMeField("lastSeen");
     if (url) fbPut(url, Date.now());
-    // Also update /factions/{fid}/members/{fbUid}/lastSeen so the main poll
-    // picks up presence under the new rules (reading /lobby is blocked faction-side).
-    fbPut(`${fBase()}/members/${fbUid}/lastSeen.json${auth()}`, Date.now());
+    // Refresh full member record so lastSeen and version stay current in every poll snapshot.
+    // Writing the scalar field alone risks a stale lastSeen if the node was never written.
+    fbPut(P.member(fbUid), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: CURRENT_VERSION });
+    // Also refresh the /meta version entry
+    fbPut(P.clientVersion(fbUid), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
   }
 
   // Presence is served by /factions/{fid}/members which is written on register/heartbeat
