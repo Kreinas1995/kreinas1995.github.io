@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.3.6
+// @version      4.3.9
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,12 +41,12 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.3.6";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.3.9";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
   const PRESENCE_HEARTBEAT   = 15000;
-  const PRESENCE_TIMEOUT     = 35000;
+  const PRESENCE_TIMEOUT     = 90000;   // 90s — 6× heartbeat interval, tolerates dropped beats
   const HIT_DELAY_MS         = 4 * 60 * 1000;
   const HIT_INTERVAL         = 5 * 60 * 1000;
   const CHAIN_CONFIRM_HITS   = 10;
@@ -154,14 +154,15 @@
     members:     () => `${fBase()}/members.json${auth()}`,
     member:      uid => `${fBase()}/members/${uid}.json${auth()}`,
     memberById:  id  => `${fBase()}/members/torn_${id}.json${auth()}`,
+    memberMe:    ()  => ownId ? `${fBase()}/members/torn_${ownId}.json${auth()}` : null,
     // Lobby: keyed by fbUid — auth.uid === $uid always passes, no chicken-and-egg
     lobbyMe:      () => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}.json${auth()}` : null,
     lobbyMeField: f  => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}/${f}.json${auth()}` : null,
     lobbyAll:     () => `${FIREBASE_DB_URL}/lobby.json${auth()}`,
     whitelist:       () => `${FIREBASE_DB_URL}/whitelist.json${auth()}`,
     whitelistEntry:  fid => `${FIREBASE_DB_URL}/whitelist/${fid}.json${auth()}`,
-    // Global client version registry — any authenticated user can write their own entry
-    clientVersion:   uid => `${FIREBASE_DB_URL}/meta/clientVersions/${uid}.json${auth()}`,
+    // Global client version registry — keyed by torn_{tornId} for dedup across page loads
+    clientVersion:   key => `${FIREBASE_DB_URL}/meta/clientVersions/${key}.json${auth()}`,
     clientVersions:  ()  => `${FIREBASE_DB_URL}/meta/clientVersions.json${auth()}`,
   };
 
@@ -1380,23 +1381,23 @@
     const lobbyUrl = P.lobbyMe();
     if (!lobbyUrl) return;
     fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() });
-    // Member record is the authoritative presence source — include version so
-    // renderPresence can read it directly without a separate /meta poll.
-    fbPut(P.member(fbUid), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: CURRENT_VERSION });
-    // Also publish to /meta/clientVersions for the network-wide version check
-    fbPut(P.clientVersion(fbUid), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
+    // Member record keyed by torn_{tornId} — stable across page loads, no dedup needed.
+    fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: CURRENT_VERSION });
+    // Also publish to /meta/clientVersions keyed by torn_{tornId} for same reason
+    fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
   }
 
   function fbHeartbeat() {
     if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
-    // Heartbeat goes to lobby — same rule (auth.uid === $uid), always permitted.
-    const url = P.lobbyMeField("lastSeen");
-    if (url) fbPut(url, Date.now());
-    // Refresh full member record so lastSeen and version stay current in every poll snapshot.
-    // Writing the scalar field alone risks a stale lastSeen if the node was never written.
-    fbPut(P.member(fbUid), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: CURRENT_VERSION });
-    // Also refresh the /meta version entry
-    fbPut(P.clientVersion(fbUid), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
+    const now = Date.now();
+    // Always refresh lobby first — the /factions member write is authorized by
+    // the rules engine reading lobby.factionId. Keeping it fresh prevents the
+    // race where an expired lobby causes the member write to silently 403.
+    const lobbyUrl = P.lobbyMe();
+    if (lobbyUrl) fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: now });
+    // Member and version records keyed by torn_{tornId} — overwrites in place, no accumulation.
+    fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: now, version: CURRENT_VERSION });
+    fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: now });
   }
 
   // Presence is served by /factions/{fid}/members which is written on register/heartbeat
@@ -2799,16 +2800,16 @@
                 if (r.status>=200 && r.status<300) {
                   showBanner("chain-banner-debug", true, "✓ Lobby check-in OK. fid="+factionId+" uid="+fbUid+" Verifying…");
                   setSyncDot("live");
-                  fbRegisterMember();
-                  // Read back our own lobby entry before starting the main listener.
-                  // This acts as a propagation barrier — Firebase rules on /factions
-                  // read lobby.factionId, and the rules engine may not see the lobby
-                  // write yet if we poll immediately after the PUT returns 200.
-                  // A successful GET of our own lobby entry guarantees it's committed.
+                  // Read back our own lobby entry before writing the member record or
+                  // starting the main listener. Firebase rules on /factions read
+                  // lobby.factionId — the rules engine may not see the lobby write yet
+                  // even after the PUT returns 200. A successful GET guarantees it's committed.
                   const lobbyReadUrl = P.lobbyMe();
                   GM_xmlhttpRequest({
                     method: "GET", url: lobbyReadUrl, timeout: 8000,
                     onload(rr) {
+                      // Lobby is confirmed committed — now safe to write member record
+                      fbRegisterMember();
                       setTimeout(()=>showBanner("chain-banner-debug",false), 3000);
                       fbCheckWhitelist(allowed => {
                         if (!allowed) {
@@ -2822,8 +2823,8 @@
                         setInterval(pollFactionChain, CHAIN_POLL_MS);
                       });
                     },
-                    onerror()  { /* proceed anyway */ fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
-                    ontimeout(){ /* proceed anyway */ fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    onerror()  { fbRegisterMember(); /* proceed anyway */ fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    ontimeout(){ fbRegisterMember(); /* proceed anyway */ fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
                   });
                 } else {
                   setSyncDot("error");
