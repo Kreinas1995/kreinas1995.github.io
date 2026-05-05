@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.4.0
+// @version      4.4.2
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.4.0";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.4.2";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -124,6 +124,7 @@
   let apiTimerReadAt      = null;   // performance.now() when that poll arrived
   let networkLatestVersion = null;  // highest version seen across all online clients
   let clientVersionMap     = new Map(); // fbUid → version string for all active clients
+  let heartbeatFailCount   = 0;     // consecutive heartbeat lobby failures → triggers re-auth
 
   // Session is restored from Firebase on first poll — do not restore from
   // GM storage as stale chainStartTime causes the scraper to accept hits
@@ -433,9 +434,22 @@
     #chain-presence-title   { font-size:11px; font-weight:700; color:#88ccff; }
     #chain-presence-list    { display:flex; flex-direction:column; gap:4px; max-height:180px; overflow-y:auto; }
     .chain-presence-row     { display:flex; align-items:center; gap:7px; font-size:11px; color:#ccc; padding:2px 0; }
-    .chain-presence-dot     { width:6px; height:6px; border-radius:50%; background:#44ff88; flex-shrink:0; }
+    .chain-presence-dot        { width:6px; height:6px; border-radius:50%; background:#44ff88; flex-shrink:0; }
+    .chain-presence-dot.offline{ background:#445 !important; }
     .chain-presence-name    { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .chain-presence-ver     { font-size:9px; font-weight:700; font-family:monospace; flex-shrink:0; opacity:.9; }
+    #chain-offline-toggle   {
+      display:flex; align-items:center; gap:5px; cursor:pointer;
+      font-size:10px; font-weight:700; color:#445; padding:4px 0 2px;
+      border-top:1px solid rgba(255,255,255,.06); margin-top:4px;
+      user-select:none; letter-spacing:.3px;
+    }
+    #chain-offline-toggle:hover { color:#667; }
+    #chain-offline-toggle .chain-offline-arrow { font-size:8px; transition:transform .15s; }
+    #chain-offline-toggle.open .chain-offline-arrow { transform:rotate(90deg); }
+    #chain-offline-list { display:none; flex-direction:column; gap:3px; margin-top:2px; }
+    #chain-offline-list.open { display:flex; }
+    .chain-presence-row.offline { opacity:.55; }
 
     /* ── Panel body + banners ── */
     #chain-panel-body { display:flex !important; flex-direction:column !important; flex:1 !important; overflow:hidden !important; border-radius:0 0 12px 12px; }
@@ -629,6 +643,11 @@
       <div id="chain-presence-popover" class="chain-popover">
         <div id="chain-presence-title">👥 Online Now</div>
         <div id="chain-presence-list"></div>
+        <div id="chain-offline-toggle" title="Members with the extension who are offline">
+          <span class="chain-offline-arrow">▶</span>
+          <span id="chain-offline-label">OFFLINE (0)</span>
+        </div>
+        <div id="chain-offline-list"></div>
       </div>
     </div>
 
@@ -999,6 +1018,16 @@
     presencePopover.classList.add("open");
   });
 
+  // Offline section toggle
+  document.addEventListener("click", e => {
+    const toggle = e.target.closest("#chain-offline-toggle");
+    if (!toggle) return;
+    e.stopPropagation();
+    const list = document.getElementById("chain-offline-list");
+    const isOpen = toggle.classList.toggle("open");
+    if (list) list.classList.toggle("open", isOpen);
+  });
+
   // ── Shared sort: own name first, then A→Z ─────────────────────────────────
   function sortMeFirst(arr, getName) {
     return arr.sort((a, b) => {
@@ -1048,35 +1077,67 @@
   function renderPresence() {
     const now = Date.now();
     presenceList.innerHTML = "";
-    // Deduplicate by name (same player may have multiple entries from old sessions)
-    const seen = new Set();
-    const online = sortMeFirst(
-      [...presenceMap.entries()]
-        .filter(([, m]) => (now - (m.lastSeen||0)) < PRESENCE_TIMEOUT)
-        .filter(([, m]) => {
-          if (seen.has(m.name)) return false;
-          seen.add(m.name);
-          return true;
-        }),
+    const offlineList   = document.getElementById("chain-offline-list");
+    const offlineToggle = document.getElementById("chain-offline-toggle");
+    const offlineLabel  = document.getElementById("chain-offline-label");
+    if (offlineList) offlineList.innerHTML = "";
+
+    // Deduplicate by name across all entries
+    const seenNames = new Set();
+    const allEntries = [...presenceMap.entries()].filter(([, m]) => {
+      if (!m || !m.name) return false;
+      if (seenNames.has(m.name)) return false;
+      seenNames.add(m.name);
+      return true;
+    });
+
+    const online  = sortMeFirst(
+      allEntries.filter(([, m]) => (now - (m.lastSeen||0)) < PRESENCE_TIMEOUT),
       ([, m]) => m.name || ""
     );
+    const offline = sortMeFirst(
+      allEntries.filter(([, m]) => (now - (m.lastSeen||0)) >= PRESENCE_TIMEOUT && m.version),
+      ([, m]) => m.name || ""
+    );
+
+    // Recompute networkLatestVersion from presenceMap — always in sync with main poll,
+    // no separate fetch delay. Covers both online and recently-offline members.
+    let latest = CURRENT_VERSION;
+    allEntries.forEach(([, m]) => {
+      if (m.version && isNewerVersion(m.version, latest)) latest = m.version;
+    });
+    if (latest !== networkLatestVersion) {
+      networkLatestVersion = latest;
+      updateVersionUI();
+    }
 
     updateOnlineCount();
 
     if (!online.length) {
       presenceList.innerHTML = `<div style="font-size:11px;color:#445;text-align:center;padding:4px">No one else online</div>`;
-      return;
+    } else {
+      online.forEach(([uid, m]) => {
+        const row = document.createElement("div");
+        row.className = "chain-presence-row";
+        const isMe = (m.tornId && m.tornId === ownId) || m.name === ownName;
+        const ver  = m.version || clientVersionMap.get(uid) || null;
+        row.innerHTML = `<span class="chain-presence-dot"></span><span class="chain-presence-name">${escHtml(m.name)}${isMe?" (you)":""}</span>${versionBadgeHtml(ver)}`;
+        presenceList.appendChild(row);
+      });
     }
-    online.forEach(([uid, m]) => {
-      const row = document.createElement("div");
-      row.className = "chain-presence-row";
-      const isMe = (m.tornId && m.tornId === ownId) || m.name === ownName;
-      // Version comes from the member record (written at registration) — always
-      // in sync with presenceMap so no uid key mismatch possible.
-      const ver = m.version || clientVersionMap.get(uid) || null;
-      row.innerHTML = `<span class="chain-presence-dot"></span><span class="chain-presence-name">${escHtml(m.name)}${isMe?" (you)":""}</span>${versionBadgeHtml(ver)}`;
-      presenceList.appendChild(row);
-    });
+
+    // Offline section
+    if (offlineList && offlineToggle && offlineLabel) {
+      offlineLabel.textContent = `OFFLINE (${offline.length})`;
+      offlineToggle.style.display = offline.length ? "" : "none";
+      offline.forEach(([uid, m]) => {
+        const row = document.createElement("div");
+        row.className = "chain-presence-row offline";
+        const ver = m.version || clientVersionMap.get(uid) || null;
+        row.innerHTML = `<span class="chain-presence-dot offline"></span><span class="chain-presence-name">${escHtml(m.name)}</span>${versionBadgeHtml(ver)}`;
+        offlineList.appendChild(row);
+      });
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1406,14 +1467,49 @@
   function fbHeartbeat() {
     if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
     const now = Date.now();
-    // Always refresh lobby first — the /factions member write is authorized by
-    // the rules engine reading lobby.factionId. Keeping it fresh prevents the
-    // race where an expired lobby causes the member write to silently 403.
     const lobbyUrl = P.lobbyMe();
-    if (lobbyUrl) fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: now });
-    // Member and version records keyed by torn_{tornId} — overwrites in place, no accumulation.
-    fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: now, version: CURRENT_VERSION });
-    fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: now });
+    if (!lobbyUrl) return;
+
+    // Write lobby first — member write is authorized by rules reading lobby.factionId.
+    // Chain: only write member/version after lobby confirms success.
+    GM_xmlhttpRequest({
+      method: "PUT", url: lobbyUrl,
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: now }),
+      timeout: 8000,
+      onload(r) {
+        if (r.status >= 200 && r.status < 300) {
+          heartbeatFailCount = 0;
+          // Lobby confirmed — safe to write member and version records
+          fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: CURRENT_VERSION });
+          fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
+        } else {
+          heartbeatFailCount++;
+          console.warn("[ChainCoord] Heartbeat lobby write failed", r.status, "consecutive:", heartbeatFailCount);
+          if (heartbeatFailCount >= 3) {
+            // 3 consecutive failures — token may have expired or lobby got evicted.
+            // Re-run full sign-in to get a fresh token and re-establish lobby.
+            heartbeatFailCount = 0;
+            console.warn("[ChainCoord] Heartbeat: re-authenticating after repeated failures");
+            fbSignInAnon((token, uid) => {
+              if (token && uid) {
+                fbToken = token;
+                fbUid   = uid;
+                fbRegisterMember();
+              }
+            });
+          }
+        }
+      },
+      onerror()  {
+        heartbeatFailCount++;
+        console.warn("[ChainCoord] Heartbeat lobby network error, consecutive:", heartbeatFailCount);
+      },
+      ontimeout() {
+        heartbeatFailCount++;
+        console.warn("[ChainCoord] Heartbeat lobby timed out, consecutive:", heartbeatFailCount);
+      },
+    });
   }
 
   // Presence is served by /factions/{fid}/members which is written on register/heartbeat
