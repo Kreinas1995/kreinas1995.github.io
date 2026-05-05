@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.5.2
+// @version      4.5.3
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.5.2";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.5.3";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -69,21 +69,20 @@
   // ─── App state ────────────────────────────────────────────────────────────
   // Read API key: localStorage first (survives TM UUID changes on reinstall /
   // paste-install), fall back to GM storage (works with proper TM auto-updates).
-  // Write to both so whichever path works next time.
+  // TornPDA blocks localStorage — detected early so we skip it on PDA.
+  const _ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+  const isTornPDA = _ua.includes("TornPDA") || _ua.includes("torn_pda") ||
+    _ua.includes("Dart") || document.documentElement.dataset.tornpda === "true";
+
   let tornApiKey = "";
-  try { tornApiKey = (localStorage.getItem("tcc_api_key") || "").trim(); } catch { /**/ }
+  if (!isTornPDA) {
+    try { tornApiKey = (localStorage.getItem("tcc_api_key") || "").trim(); } catch { /**/ }
+  }
   if (!tornApiKey) tornApiKey = (GM_getValue(SK_API_KEY, "") || "").trim();
   if (tornApiKey) {
-    try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ }
+    if (!isTornPDA) { try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ } }
     GM_setValue(SK_API_KEY, tornApiKey);
   }
-  // ─── Environment detection ────────────────────────────────────────────────
-  // TornPDA uses a custom WebView — DOM scraping freezes on faction page.
-  // Detect via userAgent; TornPDA injects "TornPDA" into the UA string.
-  const isTornPDA = typeof navigator !== "undefined" &&
-    typeof navigator.userAgent === "string" &&
-    navigator.userAgent.includes("TornPDA");
-
   let panelW        = GM_getValue(SK_PANEL_W, 380);
   // Enforce minimum width in case a narrower value was saved previously
   if (panelW < 320) { panelW = 380; GM_setValue(SK_PANEL_W, panelW); }
@@ -933,11 +932,11 @@
     const val = apiInput.value.trim();
     if (!val) { apiStatus.textContent="Please enter a key."; apiStatus.style.color="#ff8888"; return; }
     tornApiKey = val; GM_setValue(SK_API_KEY, tornApiKey);
-    try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ }
+    if (!isTornPDA) { try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ } }
     apiStatus.textContent="Saved — connecting…"; apiStatus.style.color="#ffcc66";
     updateApiBtn(); setTimeout(closeAllPopovers, 700); fetchOwnProfile();
   };
-  apiClear.onclick = () => { tornApiKey=""; GM_setValue(SK_API_KEY,""); try{localStorage.removeItem("tcc_api_key");}catch{/**/ } apiInput.value=""; apiStatus.textContent="Key cleared."; apiStatus.style.color="#ff8888"; updateApiBtn(); showBanner("chain-banner-nokey",true); };
+  apiClear.onclick = () => { tornApiKey=""; GM_setValue(SK_API_KEY,""); if(!isTornPDA){try{localStorage.removeItem("tcc_api_key");}catch{/**/ }} apiInput.value=""; apiStatus.textContent="Key cleared."; apiStatus.style.color="#ff8888"; updateApiBtn(); showBanner("chain-banner-nokey",true); };
   apiCancel.onclick = closeAllPopovers;
   apiInput.addEventListener("keydown", e => { if(e.key==="Enter") apiSave.click(); });
   function updateApiBtn() {
@@ -1485,8 +1484,13 @@
     if (!lobbyUrl) return;
     fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() });
     // Member record keyed by torn_{tornId} — stable across page loads, no dedup needed.
-    fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: CURRENT_VERSION });
-    // Also publish to /meta/clientVersions keyed by torn_{tornId} for same reason
+    // Only overwrite version if ours is newer or equal — prevents an older device's
+    // heartbeat from clobbering a newer version written by another device.
+    fbGet(P.memberMe(), existing => {
+      const storedVer = existing && existing.version ? existing.version : null;
+      const shouldWriteVer = !storedVer || !isNewerVersion(storedVer, CURRENT_VERSION);
+      fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: shouldWriteVer ? CURRENT_VERSION : storedVer });
+    });
     fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
   }
 
@@ -1506,8 +1510,13 @@
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
           heartbeatFailCount = 0;
-          // Lobby confirmed — safe to write member and version records
-          fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: CURRENT_VERSION });
+          // Only write our version if it's >= what's stored — prevents an older
+          // device from clobbering the newest version written by another device.
+          fbGet(P.memberMe(), existing => {
+            const storedVer = existing && existing.version ? existing.version : null;
+            const shouldWriteVer = !storedVer || !isNewerVersion(storedVer, CURRENT_VERSION);
+            fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: shouldWriteVer ? CURRENT_VERSION : storedVer });
+          });
           fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
         } else {
           heartbeatFailCount++;
@@ -2748,8 +2757,10 @@
   }
 
   // Page detection
-  const IS_FACTIONS_PAGE = /factions\.php/.test(window.location.pathname);
-  const IS_ANY_TORN_PAGE = /torn\.com/.test(window.location.hostname);
+  const IS_FACTIONS_PAGE   = /factions\.php/.test(window.location.pathname);
+  const IS_LIST_PAGE       = /page\.php/.test(window.location.pathname) &&
+                             /sid=list/.test(window.location.search);
+  const IS_ANY_TORN_PAGE   = /torn\.com/.test(window.location.hostname);
 
   function isInsideWarList(el) {
     const WAR_SELS='[class*="rankedWar"],[class*="ranked-war"],[class*="warFilter"],[class*="war-filter"],[class*="memberList"],[class*="member-list"],[class*="factionMembers"],[class*="members-list"],[class*="membersTable"]';
@@ -2816,11 +2827,12 @@
   }
 
   function injectTargetButtons() {
-    if (!IS_FACTIONS_PAGE) return;
+    if (!IS_FACTIONS_PAGE && !IS_LIST_PAGE) return;
     document.querySelectorAll('a[href*="profiles.php?XID="]').forEach(profileA => {
       if(panel.contains(profileA))return;
       if(profileA.dataset.chainBtnInjected)return;
-      if(!isInsideWarList(profileA))return;
+      // On factions page require war list context; on list pages inject on all profile links
+      if(IS_FACTIONS_PAGE && !isInsideWarList(profileA))return;
       const m=(profileA.href||"").match(/XID=(\d+)/i);
       if(!m)return;
       const targetId=m[1];
