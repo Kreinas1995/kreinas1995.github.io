@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.2.9
+// @version      4.3.2
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -119,6 +119,8 @@
   let sessionMinHitNum = null;
   let chainCooldownSecs   = null;   // seconds remaining on cooldown (from API)
   let chainCooldownReadAt = null;   // performance.now() when cooldown was last read
+  let apiTimerSecs        = null;   // chain timeout from last API poll (fallback timer)
+  let apiTimerReadAt      = null;   // performance.now() when that poll arrived
 
   // Session is restored from Firebase on first poll — do not restore from
   // GM storage as stale chainStartTime causes the scraper to accept hits
@@ -203,12 +205,14 @@
     #chain-panel.view-mini #chain-presence-btn,
     #chain-panel.view-mini #chain-api-btn,
     #chain-panel.view-mini #chain-update-btn,
+    #chain-panel.view-mini #chain-whitelist-btn,
     #chain-panel.view-mini #chain-timer-bar,
     #chain-panel.view-mini #chain-warming-msg,
     #chain-panel.view-mini #chain-cooling-msg,
     #chain-panel.view-mini #chain-warming-msg,
     #chain-panel.view-mini #chain-panel-body,
     #chain-panel.view-mini #chain-resize-handle { display:none !important; }
+    #chain-panel.view-icon #chain-whitelist-btn { display:none !important; }
     #chain-pill-content { display:none; align-items:center; gap:6px; white-space:nowrap; }
     #chain-panel.view-mini #chain-pill-content { display:flex !important; }
     #chain-pill-icon  { font-size:16px; line-height:1; }
@@ -549,6 +553,7 @@
       <span id="chain-panel-title">⛓ Chain Board</span>
       <span id="chain-pill-content">
         <span id="chain-pill-icon">⛓</span>
+        <span id="chain-pill-count" style="font-size:11px;font-weight:700;min-width:18px;text-align:center"></span>
         <span id="chain-pill-timer" class="ct-none">—</span>
         <span id="chain-pill-sep" style="color:#334;font-size:10px">→</span>
         <span id="chain-pill-next" style="font-size:11px;font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0e0e0">—</span>
@@ -698,6 +703,7 @@
     panel.style.overflow = "hidden";
     panel.classList.remove("view-full","view-mini","view-icon");
 
+    if (viewMode !== 0) closeAllPopovers();   // whitelist & others only make sense in full view
     if (viewMode === 0) {
       // Large — next is Icon (1): show single dot
       panel.classList.add("view-full");
@@ -1115,9 +1121,26 @@
     return"waiting";
   }
 
+  // chainTimerMs() — used for UI display. DOM observer ONLY.
+  // Never uses the API timer — it's too imprecise for display (1-30s off
+  // depending on network latency and poll phase).
   function chainTimerMs() {
-    if (liveChainSecs === null || lastTimerReadAt === null) return 0;
-    return Math.max(0, (liveChainSecs - (performance.now() - lastTimerReadAt) / 1000)) * 1000;
+    if (liveChainSecs !== null && lastTimerReadAt !== null) {
+      return Math.max(0, (liveChainSecs - (performance.now() - lastTimerReadAt) / 1000)) * 1000;
+    }
+    return 0;
+  }
+
+  // chainTimerMsForScheduling() — used for hit window calculations only.
+  // Falls back to API timer when DOM observer unavailable (acceptable ±5s precision).
+  function chainTimerMsForScheduling() {
+    if (liveChainSecs !== null && lastTimerReadAt !== null) {
+      return Math.max(0, (liveChainSecs - (performance.now() - lastTimerReadAt) / 1000)) * 1000;
+    }
+    if (apiTimerSecs !== null && apiTimerReadAt !== null && liveChainCount !== null) {
+      return Math.max(0, (apiTimerSecs - (performance.now() - apiTimerReadAt) / 1000)) * 1000;
+    }
+    return 0;
   }
 
   // pendingCountdownMs(pos): ms until hit at queue position pos should be attacked.
@@ -1125,7 +1148,7 @@
   // pos=1 → attack HIT_DELAY after pos=0 lands
   // pos=N → attack N*HIT_DELAY after pos=0 lands
   function pendingCountdownMs(pos) {
-    return chainTimerMs() + pos * HIT_DELAY_MS;
+    return chainTimerMsForScheduling() + pos * HIT_DELAY_MS;
   }
 
   function getPendingHits() {
@@ -1609,6 +1632,8 @@
     chainHit1Time     = null;
     sessionMinHitNum  = null;
     scrapedHitIds.clear();
+    apiTimerSecs      = null;
+    apiTimerReadAt    = null;
     hitMap.clear();
     fbClearHits();
     fbDelete(P.session());
@@ -1685,6 +1710,11 @@
     } else {
       liveChainSecs   = Math.max(0, rawSecs - TIMER_FUDGE_SEC);
       lastTimerReadAt = performance.now();
+      // Keep the API fallback timer calibrated to the DOM reading.
+      // If we later lose the observer (navigation) the fallback will start
+      // from the last known-good DOM value rather than a stale API value.
+      apiTimerSecs   = liveChainSecs;
+      apiTimerReadAt = lastTimerReadAt;
     }
     updateChainTimerUI();
   }
@@ -1770,6 +1800,16 @@
       chainCooldownReadAt = null;
     }
 
+    // ── API timer capture — used as fallback when DOM observer unavailable ──
+    if (newTimeout > 0) {
+      apiTimerSecs   = newTimeout;
+      apiTimerReadAt = performance.now();
+    } else if (newTimeout === 0 && newCount === 0) {
+      // Chain ended — clear API timer too
+      apiTimerSecs   = null;
+      apiTimerReadAt = null;
+    }
+
     if (newTimeout === 0 && chainSessionId) {
       if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
       onChainEnd(); return;
@@ -1820,14 +1860,19 @@
   // ══════════════════════════════════════════════════════════════════════════
   function updateChainTimerUI() {
     const count = liveChainCount;
-    if (liveChainSecs===null || lastTimerReadAt===null) {
+    const pillCount = document.getElementById("chain-pill-count");
+    // UI display uses DOM observer only — API timer is too imprecise (1–30s off)
+    const hasDomTimer = liveChainSecs !== null && lastTimerReadAt !== null;
+
+    if (!hasDomTimer) {
       chainTimerVal.textContent="—"; chainTimerVal.className="ct-none";
       chainCountBadge.className="none"; warmingMsg.style.display="none";
       pillTimer.textContent="—"; pillTimer.className="ct-none";
+      if (pillCount) pillCount.textContent = "";
     } else {
-      const elapsed = (performance.now()-lastTimerReadAt)/1000;
-      const disp    = Math.max(0, Math.round(liveChainSecs-elapsed));
-      const txt     = `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`;
+      const ms   = chainTimerMs();
+      const disp = Math.max(0, Math.round(ms / 1000));
+      const txt  = `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`;
       chainTimerVal.textContent = txt; pillTimer.textContent = txt;
       const cls = disp<=30?"ct-danger":disp<=90?"ct-warn":"ct-ok";
       chainTimerVal.className=cls; pillTimer.className=cls;
@@ -1836,8 +1881,14 @@
       chainCountBadge.textContent=count;
       chainCountBadge.className = chainConfirmed?"running":"warming";
       warmingMsg.style.display  = chainConfirmed?"none":"";
+      // Update pill count
+      if (pillCount) {
+        pillCount.textContent = count;
+        pillCount.style.color = chainConfirmed ? "#44ff88" : "#ffaa44";
+      }
     } else {
       chainCountBadge.className="none"; warmingMsg.style.display="none";
+      if (pillCount) pillCount.textContent = "";
     }
 
     // ── Cooldown banner ────────────────────────────────────────────────────
@@ -2688,7 +2739,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
-  const CURRENT_VERSION = "4.2.9";
+  const CURRENT_VERSION = "4.3.2";
   const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
