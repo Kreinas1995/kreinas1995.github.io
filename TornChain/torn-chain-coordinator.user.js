@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.5.0
+// @version      4.5.2
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.5.0";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.5.2";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -77,11 +77,18 @@
     try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ }
     GM_setValue(SK_API_KEY, tornApiKey);
   }
+  // ─── Environment detection ────────────────────────────────────────────────
+  // TornPDA uses a custom WebView — DOM scraping freezes on faction page.
+  // Detect via userAgent; TornPDA injects "TornPDA" into the UA string.
+  const isTornPDA = typeof navigator !== "undefined" &&
+    typeof navigator.userAgent === "string" &&
+    navigator.userAgent.includes("TornPDA");
+
   let panelW        = GM_getValue(SK_PANEL_W, 380);
   // Enforce minimum width in case a narrower value was saved previously
-  if (panelW < 320) { panelW = 360; GM_setValue(SK_PANEL_W, panelW); }
+  if (panelW < 320) { panelW = 380; GM_setValue(SK_PANEL_W, panelW); }
   let panelH        = GM_getValue(SK_PANEL_H, null);
-  let viewMode      = GM_getValue(SK_VIEW_MODE, 1);
+  let viewMode      = isTornPDA ? 0 : GM_getValue(SK_VIEW_MODE, 1);
 
   let ownName       = "Me";
   let ownId         = null;
@@ -897,7 +904,7 @@
   //  Corner resize
   // ══════════════════════════════════════════════════════════════════════════
   (function makeResizable() {
-    const MIN_W=320,MAX_W=700,MIN_H=120,MAX_H=900;
+    const MIN_W=360,MAX_W=700,MIN_H=120,MAX_H=900;
     let resizing=false,sx,sy,sw,sh;
     function start(cx,cy){resizing=true;sx=cx;sy=cy;sw=panel.offsetWidth;sh=panel.offsetHeight;document.body.style.cursor="se-resize";}
     function move(cx,cy){if(!resizing)return;panel.style.width=Math.min(MAX_W,Math.max(MIN_W,sw+cx-sx))+"px";panel.style.height=Math.min(MAX_H,Math.max(MIN_H,sh+cy-sy))+"px";}
@@ -2016,18 +2023,21 @@
   // Observe the Torn content area (not body) for chain timer element appearance.
   // The retry loop (startTimerRetryLoop) handles the case where the element isn't
   // present yet — the observer here is just a fast-path trigger when it appears.
-  (function setupTimerObserver() {
-    const tornRoot = document.getElementById("mainContainer")
-      || document.getElementById("torn-app")
-      || document.querySelector('[class*="mainContainer"]')
-      || document.body;
-    new MutationObserver(() => { if (!chainTimerObserver) startChainTimerObserver(); })
-      .observe(tornRoot, { childList: true, subtree: true });
-  })();
+  // Skip on TornPDA — WebView DOM layout differs and causes freezes on faction page.
+  if (!isTornPDA) {
+    (function setupTimerObserver() {
+      const tornRoot = document.getElementById("mainContainer")
+        || document.getElementById("torn-app")
+        || document.querySelector('[class*="mainContainer"]')
+        || document.body;
+      new MutationObserver(() => { if (!chainTimerObserver) startChainTimerObserver(); })
+        .observe(tornRoot, { childList: true, subtree: true });
+    })();
 
-  // FIX #2: also start the retry loop immediately on boot so we don't
-  // miss the timer when the chain section is opened later
-  startTimerRetryLoop();
+    // FIX #2: also start the retry loop immediately on boot so we don't
+    // miss the timer when the chain section is opened later
+    startTimerRetryLoop();
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Chain API poll — count + session detection
@@ -2595,7 +2605,7 @@
     updateChainTimerUI();
     // Scrape whenever a chain session is active — including warmup (hits 1-9).
     // chainConfirmed only becomes true at hit 10, so we must not gate on it here.
-    if (chainStartTime) scrapeRecentAttacks();
+    if (chainStartTime && !isTornPDA) scrapeRecentAttacks();
 
     // Patch timer cells — pre-hoist shared values outside the loop
     const sortedPending = [...hitMap.values()]
@@ -3046,7 +3056,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   renderPanel();
   fetchOwnProfile();
-  injectTargetButtons();
+  if (!isTornPDA) injectTargetButtons();
   updateVersionUI();   // set initial badge state before Firebase connects
   // Check for updates once, 8 seconds after boot (non-blocking)
   setTimeout(checkForUpdate, 8000);
