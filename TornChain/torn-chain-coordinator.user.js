@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.4.8
+// @version      4.4.9
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.4.8";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.4.9";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -1075,6 +1075,18 @@
     return `<span class="chain-presence-ver" style="color:${color}" title="${title}">v${escHtml(ver)}</span>`;
   }
 
+  // Recompute networkLatestVersion from presenceMap — called on every poll and popover open.
+  function recomputeNetworkLatestVersion() {
+    let latest = CURRENT_VERSION;
+    presenceMap.forEach(m => {
+      if (m.version && isNewerVersion(m.version, latest)) latest = m.version;
+    });
+    if (latest !== networkLatestVersion) {
+      networkLatestVersion = latest;
+      updateVersionUI();
+    }
+  }
+
   function renderPresence() {
     const now = Date.now();
     presenceList.innerHTML = "";
@@ -1103,14 +1115,7 @@
 
     // Recompute networkLatestVersion from presenceMap — always in sync with main poll,
     // no separate fetch delay. Covers both online and recently-offline members.
-    let latest = CURRENT_VERSION;
-    allEntries.forEach(([, m]) => {
-      if (m.version && isNewerVersion(m.version, latest)) latest = m.version;
-    });
-    if (latest !== networkLatestVersion) {
-      networkLatestVersion = latest;
-      updateVersionUI();
-    }
+    recomputeNetworkLatestVersion();
 
     updateOnlineCount();
 
@@ -1566,15 +1571,23 @@
     const behindNetwork = networkLatestVersion && isNewerVersion(networkLatestVersion, CURRENT_VERSION);
 
     if (behindNetwork) {
-      // Someone online has a newer build — green arrow, amber version
+      // Use same colour logic as member list: yellow=bugfix, orange=feature, red=major
+      const parse = v => v.split(".").map(Number);
+      const [ma,  fe ]       = parse(CURRENT_VERSION);
+      const [ma2, fe2, bf2]  = parse(networkLatestVersion);
+      let color;
+      if (ma2 !== ma)             color = "#ff4444";   // different major — red
+      else if (fe2 !== fe)        color = "#ff9933";   // different feature — orange
+      else                        color = "#ffee44";   // different bugfix — yellow
       badge.textContent = "v" + CURRENT_VERSION;
+      badge.style.color = color;
       badge.className   = "behind";
       badge.title       = "v" + networkLatestVersion + " is available — click ↑ to update";
       upBtn.classList.add("has-update");
       upBtn.title = "Update available: v" + CURRENT_VERSION + " → v" + networkLatestVersion;
     } else {
-      // We are on the newest version seen across active clients — grey arrow
       badge.textContent = "v" + CURRENT_VERSION;
+      badge.style.color = "";   // let CSS class handle it
       badge.className   = "newest";
       badge.title       = "You are on the latest version";
       upBtn.classList.remove("has-update");
@@ -1742,6 +1755,7 @@
       if (data && typeof data === "object") {
         Object.entries(data).forEach(([uid, m]) => { if(m) presenceMap.set(uid, m); });
       }
+      recomputeNetworkLatestVersion();
       updateOnlineCount();
       return;
     }
@@ -1751,6 +1765,7 @@
       const uid = memberMatch[1];
       if (data === null) presenceMap.delete(uid);
       else presenceMap.set(uid, data);
+      recomputeNetworkLatestVersion();
       updateOnlineCount();
       return;
     }
@@ -1802,6 +1817,7 @@
         }
         // Also populate presence from lobby (lobby is the authoritative presence source)
         fbSyncLobbyPresence();
+        recomputeNetworkLatestVersion();
         updateOnlineCount();
         reNumberPending();
         updateClearBtn();
