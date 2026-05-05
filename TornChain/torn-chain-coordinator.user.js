@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.4.9
+// @version      4.5.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -41,7 +41,7 @@
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
   const OWNER_TORN_ID    = "2348580";   // only this player can manage the whitelist
-  const CURRENT_VERSION  = "4.4.9";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.5.0";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -77,7 +77,9 @@
     try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ }
     GM_setValue(SK_API_KEY, tornApiKey);
   }
-  let panelW        = GM_getValue(SK_PANEL_W, 360);
+  let panelW        = GM_getValue(SK_PANEL_W, 380);
+  // Enforce minimum width in case a narrower value was saved previously
+  if (panelW < 360) { panelW = 380; GM_setValue(SK_PANEL_W, panelW); }
   let panelH        = GM_getValue(SK_PANEL_H, null);
   let viewMode      = GM_getValue(SK_VIEW_MODE, 1);
 
@@ -895,7 +897,7 @@
   //  Corner resize
   // ══════════════════════════════════════════════════════════════════════════
   (function makeResizable() {
-    const MIN_W=280,MAX_W=700,MIN_H=120,MAX_H=900;
+    const MIN_W=360,MAX_W=700,MIN_H=120,MAX_H=900;
     let resizing=false,sx,sy,sw,sh;
     function start(cx,cy){resizing=true;sx=cx;sy=cy;sw=panel.offsetWidth;sh=panel.offsetHeight;document.body.style.cursor="se-resize";}
     function move(cx,cy){if(!resizing)return;panel.style.width=Math.min(MAX_W,Math.max(MIN_W,sw+cx-sx))+"px";panel.style.height=Math.min(MAX_H,Math.max(MIN_H,sh+cy-sy))+"px";}
