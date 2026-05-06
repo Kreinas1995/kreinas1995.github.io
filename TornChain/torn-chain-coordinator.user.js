@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.8.13
+// @version      4.8.15
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -43,7 +43,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.8.13";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.8.15";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -270,6 +270,7 @@
     #chain-pill-timer.ct-warn   { color:#ffcc66; }
     #chain-pill-timer.ct-danger { color:#ff5555; }
     #chain-pill-timer.ct-none   { color:#556; }
+    #chain-pill-timer.ct-cool   { color:#7ecfff; font-size:11px; font-weight:600; letter-spacing:.2px; }
     #chain-pill-badge {
       background:#ff5555; color:#fff; font-size:9px; font-weight:700;
       border-radius:8px; padding:1px 5px; min-width:14px; text-align:center;
@@ -808,8 +809,8 @@
       <span id="chain-panel-title">⛓ Chain</span>
       <span id="chain-pill-content">
         <span id="chain-pill-icon">⛓</span>
-        <span id="chain-pill-count" style="font-size:11px;font-weight:700;min-width:18px;text-align:center"></span>
         <span id="chain-pill-timer" class="ct-none">—</span>
+        <span id="chain-pill-count" style="font-size:11px;font-weight:700;min-width:18px;text-align:center"></span>
         <span id="chain-pill-sep" style="color:#334;font-size:10px">→</span>
         <span id="chain-pill-next" style="font-size:11px;font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0e0e0">—</span>
         <span id="chain-pill-badge">0</span>
@@ -833,6 +834,8 @@
         <div class="chain-gear-menu-item" id="chain-gmenu-whitelist" style="display:none">🔒 Whitelist</div>
         <div class="chain-gear-menu-item" id="chain-gmenu-clear" style="display:none">❌ Wipe Tracker</div>
         <div class="chain-gear-menu-item" id="chain-gmenu-manage" style="display:none">⚙ Permissions</div>
+        <div style="height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
+        <div class="chain-gear-menu-item" id="chain-gmenu-settings">⚙️ Settings</div>
       </div>
 
       <!-- Bug dropdown menu (kept for compat) -->
@@ -913,6 +916,16 @@
         </div>
         <div id="chain-offline-list"></div>
       </div>
+
+      <!-- Settings popover -->
+      <div id="chain-settings-popover" class="chain-popover" style="left:8px;right:8px;border:1px solid rgba(120,160,255,.3);">
+        <div id="chain-settings-title" style="font-size:12px;font-weight:700;color:#88bbff;">⚙️ Settings</div>
+        <div id="chain-settings-body" style="display:flex;flex-direction:column;gap:10px;margin-top:2px;">
+          <!-- placeholder — settings rows will be added here in future updates -->
+          <div style="font-size:11px;color:#556;text-align:center;padding:8px 0;">No settings yet — more coming soon.</div>
+        </div>
+        <button id="chain-settings-close" style="padding:4px 0;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#888;">Close</button>
+      </div>
     </div>
 
     <div id="chain-timer-bar">
@@ -951,7 +964,7 @@
       </div>
     </div>
     <div id="chain-outside-bar" style="display:flex;align-items:center;padding:5px 8px;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0;gap:6px;">
-      <button id="chain-outside-btn" style="flex:1;padding:5px 0;border-radius:7px;font-size:11px;cursor:pointer;border:1px solid rgba(100,180,255,.35);background:rgba(80,140,255,.12);color:#88bbff;font-weight:600;letter-spacing:.2px;">＋ Outside Hit</button>
+      <button id="chain-outside-btn" style="flex:1;padding:4px 0;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid rgba(100,180,255,.28);background:rgba(80,140,255,.09);color:#7ab8e8;font-weight:600;letter-spacing:.3px;display:flex;align-items:center;justify-content:center;gap:5px;">🎯 <span style="opacity:.85">Non-War</span></button>
     </div>
     <div id="chain-icon-btn" title="Tap to expand">⛓<span id="chain-icon-badge"></span></div>
     <div id="chain-resize-handle"></div>`;
@@ -1150,6 +1163,7 @@
      document.getElementById("chain-bug-popover"),
      document.getElementById("chain-tracker-popover"),
      document.getElementById("chain-gear-menu"),
+     document.getElementById("chain-settings-popover"),
     ].forEach(p => p && p.classList.remove("open"));
   }
 
@@ -1400,7 +1414,16 @@
       e.stopPropagation(); gearMenu.classList.remove("open");
       manageBtn.click();
     });
+    document.getElementById("chain-gmenu-settings").addEventListener("click", e => {
+      e.stopPropagation(); gearMenu.classList.remove("open");
+      const sp = document.getElementById("chain-settings-popover");
+      if (sp) { closeAllPopovers(); sp.classList.add("open"); }
+    });
   })();
+
+  // ── Settings popover close ───────────────────────────────────────────────
+  const settingsClose = document.getElementById("chain-settings-close");
+  if (settingsClose) settingsClose.onclick = closeAllPopovers;
 
   clearBtn.onclick = () => {
     if (!canClear || !factionId) return;
@@ -1424,7 +1447,7 @@
       id:           `hit_${now2}_${Math.random().toString(36).slice(2)}`,
       hitNumber:    0,
       targetId:     null,
-      targetName:   "Outside Hit",
+      targetName:   "Unspecified",
       claimedBy:    ownName,
       claimedAt:    now2,
       scheduledAt,
@@ -3345,10 +3368,18 @@
     // UI display uses DOM observer only — API timer is too imprecise (1–30s off)
     const hasDomTimer = liveChainSecs !== null && lastTimerReadAt !== null;
 
+    // Determine if cooldown is active before deciding pill state
+    const isCoolingDown = chainCooldownSecs !== null && chainCooldownReadAt !== null &&
+      Math.max(0, Math.round(chainCooldownSecs - (performance.now() - chainCooldownReadAt) / 1000)) > 0;
+
     if (!hasDomTimer) {
       chainTimerVal.textContent="—"; chainTimerVal.className="ct-none";
       chainCountBadge.className="none"; warmingMsg.style.display="none";
-      pillTimer.textContent="—"; pillTimer.className="ct-none";
+      if (isCoolingDown) {
+        pillTimer.textContent="Cooling down"; pillTimer.className="ct-cool";
+      } else {
+        pillTimer.textContent="No Chain"; pillTimer.className="ct-none";
+      }
       if (pillCount) pillCount.textContent = "";
     } else {
       const ms   = chainTimerMs();
@@ -3359,12 +3390,12 @@
       chainTimerVal.className=cls; pillTimer.className=cls;
     }
     if (count!==null) {
-      chainCountBadge.textContent=count;
+      chainCountBadge.textContent="#"+count;
       chainCountBadge.className = chainConfirmed?"running":"warming";
       warmingMsg.style.display  = chainConfirmed?"none":"";
       // Update pill count
       if (pillCount) {
-        pillCount.textContent = count;
+        pillCount.textContent = "#"+count;
         pillCount.style.color = chainConfirmed ? "#44ff88" : "#ffaa44";
       }
     } else {
@@ -3637,8 +3668,16 @@
       ? `<span class="chain-hit-hosp-sub" data-hosp-id="${hit.id}">out in ${formatTime(hit.hospReleaseAt - now)}</span>`
       : "";
     const attackDisabled = isDone || !hit.attackUrl || hit.attackUrl === "#";
-    const outBadge = (hit.outside || !hit.targetId) && !isDone
-      ? '<span style="font-size:9px;color:#88bbff;margin-right:2px">OUT</span>' : "";
+    const isOutside = (hit.outside || !hit.targetId) && !isDone;
+    const isWarTarget = !hit.outside && hit.targetId && !isDone &&
+      inRankedWar && warOpponentFactionIds.size > 0 &&
+      hit.targetFactionId && hit.targetFactionId !== "0" &&
+      warOpponentFactionIds.has(String(hit.targetFactionId));
+    const outBadge = isWarTarget
+      ? '<span style="font-size:9px;font-weight:700;color:#ff6666;background:rgba(255,60,60,.15);border:1px solid rgba(255,80,80,.35);border-radius:3px;padding:0 3px;margin-right:3px;line-height:14px;display:inline-block">War</span>'
+      : isOutside
+        ? '<span style="font-size:9px;font-weight:700;color:#88bbff;background:rgba(80,140,255,.13);border:1px solid rgba(100,180,255,.3);border-radius:3px;padding:0 3px;margin-right:3px;line-height:14px;display:inline-block">Out</span>'
+        : "";
     const claimerPrefix = isDone ? "✓ " : "";
     const canReorder = isLeaderOrCoLeader && !isDone;
     const hitNum = hit.chainHitNum || hit.hitNumber;
@@ -3932,6 +3971,7 @@
       hitNumber:     0,   // placeholder — reNumberPending assigns the real number below
       targetId,
       targetName:    apiData.name||targetName,
+      targetFactionId: String(apiData?.faction?.faction_id || "0"),
       claimedBy:     ownName,
       claimedAt:     now,
       scheduledAt:   insertSlot,
