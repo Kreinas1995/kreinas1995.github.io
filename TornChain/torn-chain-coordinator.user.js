@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.8.8
+// @version      4.8.12
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -43,7 +43,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.8.8";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.8.12";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -53,7 +53,7 @@
   const HIT_INTERVAL         = 5 * 60 * 1000;
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
-  const TIMER_FUDGE_SEC      = 0.5;
+  const TIMER_FUDGE_SEC      = 1;
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
@@ -788,7 +788,7 @@
       const legacyRight = GM_getValue(SK_POS_RIGHT, null);
       bx = legacyRight !== null ? Math.max(0, window.innerWidth - legacyRight - panelW) : Math.max(0, window.innerWidth - panelW - 12);
     }
-    if (by === null) by = 60;
+    if (by === null) by = 120;
     panel.style.right = "auto";
     panel.style.left  = bx + "px";
     panel.style.top   = by + "px";
@@ -3143,22 +3143,49 @@
   // The retry loop (startTimerRetryLoop) handles the case where the element isn't
   // present yet — the observer here is just a fast-path trigger when it appears.
   // Skip on TornPDA — WebView DOM layout differs and causes freezes on faction page.
+  // FIX: The original observer was immortal with subtree:true, firing hundreds of
+  // times during Torn's ~10s attack-log DOM replacement and freezing the event loop.
+  // Now it disconnects itself once both observers are live, and a 5s interval
+  // re-arms it only if an observer dies (element leaves DOM).
   if (!isTornPDA) {
     (function setupTimerObserver() {
       const tornRoot = document.getElementById("mainContainer")
         || document.getElementById("torn-app")
         || document.querySelector('[class*="mainContainer"]')
         || document.body;
-      new MutationObserver(() => {
-        if (!chainTimerObserver) startChainTimerObserver();
-        if (!chainCountObserver) startChainCountObserver();
-      }).observe(tornRoot, { childList: true, subtree: true });
+
+      let watcherObs = null;
+
+      function startWatcher() {
+        if (watcherObs) return;
+        watcherObs = new MutationObserver(() => {
+          const timerDead = !chainTimerObserver;
+          const countDead = !chainCountObserver;
+          if (timerDead) startChainTimerObserver();
+          if (countDead) startChainCountObserver();
+          // Both observers are live — disconnect until one dies.
+          if (!timerDead && !countDead) {
+            watcherObs.disconnect();
+            watcherObs = null;
+          }
+        });
+        watcherObs.observe(tornRoot, { childList: true, subtree: true });
+      }
+
+      // Boot: try to attach both immediately; only start DOM watcher if either is missing.
+      startChainTimerObserver();
+      startChainCountObserver();
+      if (!chainTimerObserver || !chainCountObserver) startWatcher();
+
+      // Re-arm watcher at 5s cadence if either observer has died (element left DOM).
+      // Runs far less often than every mutation — negligible overhead.
+      setInterval(() => {
+        if (!chainCountObserver || !chainTimerObserver) startWatcher();
+      }, 5000);
     })();
 
     // Start retry loop for timer immediately on boot
     startTimerRetryLoop();
-    // Start count observer immediately — bar-value is always in DOM
-    startChainCountObserver();
     // Trigger chain bar tooltip render so bar-timeleft enters the DOM without user tap
     scheduleTooltipTrigger();
   }
@@ -3940,57 +3967,13 @@
   let topBarBadge = null;
 
   function injectTopBarBadge() {
-    if (topBarBadge) return;  // already injected
-
-    // Find Torn's chain link in the top bar — it's an <a> with href containing "chain"
-    // or the chain icon area in the sidebar stats
-    const chainLink = document.querySelector(
-      'a[href*="factions.php"]:not(#chain-panel *), [class*="chainIcon"]:not(#chain-panel *)'
-    );
-    const statsBar = document.querySelector('[class*="topStats"], [class*="top-stats"], [class*="statusIcons"]');
-    const insertAfter = chainLink || statsBar;
-    if (!insertAfter) return;
-
-    topBarBadge = document.createElement("span");
-    topBarBadge.id = "chain-topbar-badge";
-    topBarBadge.style.cssText = [
-      "display:inline-flex", "align-items:center", "gap:3px",
-      "margin-left:6px", "padding:2px 6px", "border-radius:10px",
-      "background:rgba(16,18,24,.85)", "border:1px solid rgba(255,255,255,.15)",
-      "font-size:11px", "font-family:monospace", "font-weight:700",
-      "color:#44ff88", "cursor:default", "vertical-align:middle",
-      "line-height:1.4", "white-space:nowrap"
-    ].join(";");
-    topBarBadge.title = "Chain Coordinator — click to open panel";
-    topBarBadge.onclick = () => {
-      viewMode = 0;
-      GM_setValue(SK_VIEW_MODE, viewMode);
-      applyViewMode();
-    };
-    insertAfter.parentNode.insertBefore(topBarBadge, insertAfter.nextSibling);
+    // Disabled: badge injected into Torn's nav bar overlaps the FACTION tab
+    // links and accidentally triggers full-panel expansion on tap.
+    // The panel's own icon / mini modes already display the timer.
   }
 
   function updateTopBarBadge() {
-    if (!topBarBadge) { injectTopBarBadge(); return; }
-
-    if (liveChainSecs === null || lastTimerReadAt === null) {
-      topBarBadge.style.display = "none";
-      return;
-    }
-
-    const elapsed = (performance.now() - lastTimerReadAt) / 1000;
-    const disp    = Math.max(0, Math.round(liveChainSecs - elapsed));
-    const mm      = Math.floor(disp / 60);
-    const ss      = String(disp % 60).padStart(2, "0");
-    const count   = liveChainCount || 0;
-    const danger  = disp <= 30;
-    const warn    = disp <= 90;
-
-    topBarBadge.style.display = "";
-    topBarBadge.style.color   = danger ? "#ff5555" : warn ? "#ffcc66" : "#44ff88";
-    topBarBadge.style.borderColor = danger ? "rgba(255,85,85,.4)" : warn ? "rgba(255,200,0,.3)" : "rgba(68,255,136,.3)";
-    topBarBadge.textContent   = `⛓ ${mm}:${ss}  #${count}`;
-    topBarBadge.title         = `Chain ${count} hits — ${mm}:${ss} remaining. Click to open panel.`;
+    // Disabled: see injectTopBarBadge above.
   }
 
   // ── Profile page: inject directly using XID from URL ─────────────────────
