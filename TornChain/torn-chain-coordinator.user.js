@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.8.0
+// @version      4.8.6
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -43,7 +43,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.8.0";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.8.6";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -53,7 +53,7 @@
   const HIT_INTERVAL         = 5 * 60 * 1000;
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
-  const TIMER_FUDGE_SEC      = 1;
+  const TIMER_FUDGE_SEC      = 0.5;
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
@@ -814,7 +814,7 @@
       </span>
       <div id="chain-header-right">
         <span id="chain-sync-dot" title="Sync status"></span>
-        <button id="chain-presence-btn" class="chain-hbtn" title="Who's online" style="display:inline-flex!important;align-items:center!important;gap:3px!important;font-size:16px!important;padding:4px 8px!important;">👥<span id="chain-online-count" style="font-size:13px;color:#44ff88;font-weight:700;min-width:14px;text-align:center;line-height:1;"></span></button>
+        <button id="chain-presence-btn" class="chain-hbtn" title="Who's online" style="display:inline-flex!important;align-items:center!important;gap:3px!important;font-size:13px!important;padding:4px 10px!important;">👥<span id="chain-online-count" style="font-size:13px;color:#44ff88;font-weight:700;min-width:14px;text-align:center;line-height:1;"></span></button>
         <button id="chain-gear-btn" class="chain-hbtn" title="Settings">⚙️</button>
         <button id="chain-view-btn" class="chain-hbtn" title="Cycle view">▦</button>
       </div>
@@ -2200,12 +2200,54 @@
     return 0;
   }
 
-  // pendingCountdownMs(pos): ms until hit at queue position pos should be attacked.
-  // pos=0 → attack when chain timer expires (= chain timer remaining)
-  // pos=1 → attack HIT_DELAY after pos=0 lands
-  // pos=N → attack N*HIT_DELAY after pos=0 lands
+  // pendingCountdownMs(pos): ms until the pending hit at sorted queue position
+  // pos should be attacked.
+  //
+  // Previously this was computed as chainTimerMsForScheduling() + pos*HIT_DELAY,
+  // which caused the queue timers to update in ~5-6s steps whenever the DOM
+  // observer was unavailable and the fallback fell through to the Firebase-polled
+  // apiTimerSecs value.
+  //
+  // Now we use each hit's scheduledAt (an absolute wall-clock ms timestamp
+  // stored in Firebase) as the primary source.  syncPendingScheduledAt() is
+  // called each UI tick and re-anchors pos-0's scheduledAt to the accurate DOM
+  // timer, keeping all subsequent positions in sync without any polling lag.
   function pendingCountdownMs(pos) {
-    return chainTimerMsForScheduling() + pos * HIT_DELAY_MS;
+    const pending = [...hitMap.values()]
+      .filter(h => h.status !== "done")
+      .sort((a, b) => a.scheduledAt - b.scheduledAt);
+    const hit = pending[pos];
+    if (!hit) return 0;
+    return Math.max(0, hit.scheduledAt - Date.now());
+  }
+
+  // syncPendingScheduledAt(): called once per UI tick when the DOM timer is live.
+  // Re-anchors the first pending hit's scheduledAt to the current DOM timer
+  // reading so that pendingCountdownMs() stays accurate regardless of the
+  // Firebase polling cadence.  Subsequent hits keep their relative spacing.
+  function syncPendingScheduledAt() {
+    if (liveChainSecs === null || lastTimerReadAt === null) return;
+    const pending = [...hitMap.values()]
+      .filter(h => h.status !== "done")
+      .sort((a, b) => a.scheduledAt - b.scheduledAt);
+    if (!pending.length) return;
+
+    // Where the chain timer will expire, as an absolute wall-clock instant.
+    const chainExpiresAt = Date.now() + chainTimerMsForScheduling();
+
+    // pos-0 should fire at chain expiry (or hospRelease, whichever is later).
+    const firstHit = pending[0];
+    const newFirst = Math.max(chainExpiresAt, firstHit.hospReleaseAt || 0);
+
+    // Only adjust when drift exceeds 1s — avoids constant churn on each tick.
+    if (Math.abs(newFirst - firstHit.scheduledAt) < 1000) return;
+
+    const delta = newFirst - firstHit.scheduledAt;
+    // Shift all pending hits by the same delta to preserve relative spacing.
+    pending.forEach(h => { h.scheduledAt += delta; });
+    // No Firebase write — this is a local display-only re-anchor.  The
+    // authoritative scheduledAt (from scheduleAndWrite / moveToSlot) persists
+    // in Firebase unchanged and drives scheduling decisions.
   }
 
   function getPendingHits() {
@@ -2634,8 +2676,16 @@
       if (data === null) {
         hitMap.clear();  // deliberate clear from Firebase
       } else if (data && typeof data === "object") {
+        // Merge: keep any local pending hits that Firebase doesn't know about yet.
+        // These are hits written by fbWriteHit whose PUT hasn't been committed before
+        // this poll fired — a race that wipes the queue if we blind-clear here.
+        const localPendingNotInFb = [...hitMap.entries()].filter(
+          ([id, h]) => h.status !== "done" && !(id in data)
+        );
         hitMap.clear();
         Object.entries(data).forEach(([id, h]) => { if(h) hitMap.set(id, h); });
+        // Re-inject local-only pending hits so they survive until Firebase confirms
+        for (const [id, h] of localPendingNotInFb) hitMap.set(id, h);
       }
       // If data is undefined or any other falsy — leave hitMap alone
       reNumberPending();
@@ -2750,8 +2800,14 @@
         // it means Firebase returned a partial/transient snapshot, not a deliberate clear.
         if ("hits" in data) {
           if (data.hits && typeof data.hits === "object") {
+            // Merge: preserve local pending hits not yet committed to Firebase.
+            // A poll can arrive before our fbPut response, wiping hits we just wrote.
+            const localPendingNotInFb = [...hitMap.entries()].filter(
+              ([id, h]) => h.status !== "done" && !(id in data.hits)
+            );
             hitMap.clear();
             Object.entries(data.hits).forEach(([id,h]) => { if(h) hitMap.set(id,h); });
+            for (const [id, h] of localPendingNotInFb) hitMap.set(id, h);
           } else if (data.hits === null) {
             hitMap.clear();  // deliberate clear
           }
@@ -2847,6 +2903,7 @@
     scrapedHitIds.clear();
     apiTimerSecs      = null;
     apiTimerReadAt    = null;
+    if (chainCountObserver) { chainCountObserver.disconnect(); chainCountObserver = null; }
     hitMap.clear();
     fbClearHits();
     fbDelete(P.session());
@@ -2896,8 +2953,117 @@
       : parseInt(m[1])*60+parseInt(m[2]);
   }
 
+  // ── Top-bar chain count observer (all pages) ─────────────────────────────
+  // bar-value inside chain-bar always shows "N / 10" or "N / 50" etc.
+  // We watch it with a MutationObserver so count increments are caught
+  // instantly from the DOM on every page, not just after the next API poll.
+
+  function parseChainCountText(txt) {
+    // Matches "1 / 10", "25 / 50", etc. Returns current hit count or null.
+    const m = (txt || "").match(/(\d+)\s*\/\s*\d+/);
+    return m ? parseInt(m[1]) : null;
+  }
+
+  function findChainCountEl() {
+    // chain-bar is the <a> wrapper; bar-value is the text node inside it.
+    const bar = document.querySelector('[class*="chain-bar"]');
+    if (!bar) return null;
+    const val = bar.querySelector('[class*="bar-value"]');
+    if (val && parseChainCountText(val.textContent) !== null) return val;
+    return null;
+  }
+
+  let chainCountObserver = null;
+
+  function onDomChainCountUpdate(newCount) {
+    if (newCount === null || newCount === liveChainCount) return;
+    const prev = liveChainCount;
+    liveChainCount = newCount > 0 ? newCount : null;
+    persistSession();
+    if (liveChainCount !== null && liveChainCount >= CHAIN_CONFIRM_HITS) chainConfirmed = true;
+    if (prev !== null && liveChainCount !== null && liveChainCount > prev) {
+      reNumberPending();
+      scheduleRender();
+    }
+    updateChainTimerUI();
+  }
+
+  function startChainCountObserver() {
+    if (chainCountObserver) return;  // already watching
+    const el = findChainCountEl();
+    if (!el) return;
+    onDomChainCountUpdate(parseChainCountText(el.textContent));
+    chainCountObserver = new MutationObserver(() => {
+      const count = parseChainCountText(el.textContent);
+      if (count === null) {
+        chainCountObserver.disconnect(); chainCountObserver = null;
+      } else {
+        onDomChainCountUpdate(count);
+      }
+    });
+    chainCountObserver.observe(el, { characterData: true, childList: true, subtree: true });
+  }
+
+  // ── Chain bar timer element bootstrap ────────────────────────────────────
+  // Desktop Torn uses React keepMounted — bar-timeleft is always in the DOM,
+  // only its opacity is toggled on hover, so we can attach directly with no
+  // visual side-effect.
+  //
+  // Mobile Torn (Firefox / Chrome) conditionally renders the tooltip only on
+  // tap/hover — the element is genuinely absent until an interaction occurs.
+  // For those cases we dispatch a synthetic pointerenter to force the render,
+  // but suppress the visual flash by briefly setting the tooltip container to
+  // visibility:hidden for the duration of the attach-and-dismiss cycle.
+  function scheduleTooltipTrigger() {
+    let attempts = 0;
+    const tryAttach = () => {
+      if (chainTimerObserver) return;           // observer already running — done
+      if (startChainTimerObserver()) return;    // element in DOM — attached cleanly
+
+      // Element not in DOM yet. Try to force-render it via synthetic hover,
+      // suppressing any visual flash with a temporary visibility override.
+      const chainBar = document.querySelector('[class*="chain-bar"]');
+      if (chainBar) {
+        // Hide the tooltip layer before triggering hover so nothing is visible.
+        // We target the floating-ui portal/tooltip container if present, otherwise
+        // fall back to a style on the bar itself (less ideal but still works).
+        const portal = document.querySelector('[class*="tooltip"],[class*="floating"],[data-floating-ui-portal]')
+          || document.querySelector('[class*="chain-bar"] ~ *');
+        if (portal) portal.style.setProperty('visibility', 'hidden', 'important');
+
+        chainBar.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, cancelable: true }));
+        chainBar.dispatchEvent(new MouseEvent('mouseenter',    { bubbles: true, cancelable: true }));
+
+        let polls = 0;
+        const findAndAttach = setInterval(() => {
+          polls++;
+          if (startChainTimerObserver()) {
+            // Observer attached — dismiss and restore visibility.
+            clearInterval(findAndAttach);
+            if (portal) portal.style.removeProperty('visibility');
+            chainBar.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true, cancelable: true }));
+            chainBar.dispatchEvent(new MouseEvent('mouseleave',    { bubbles: true, cancelable: true }));
+          } else if (polls >= 20) {
+            // 1s elapsed, element never appeared — give up this attempt.
+            clearInterval(findAndAttach);
+            if (portal) portal.style.removeProperty('visibility');
+            chainBar.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true, cancelable: true }));
+            chainBar.dispatchEvent(new MouseEvent('mouseleave',    { bubbles: true, cancelable: true }));
+          }
+        }, 50);
+      }
+
+      if (++attempts < 5) setTimeout(tryAttach, 500);
+    };
+    tryAttach();
+  }
+
   function findChainTimerEl() {
     const sels = [
+      // Top-bar tooltip timer — present on ALL Torn pages (mobile and desktop).
+      // The tooltip div is always in the DOM; only its opacity is toggled on hover.
+      // class suffix is CSS-module-hashed so we match on the stable prefix only.
+      '[class*="bar-timeleft"]',
       '[class*="chainTimer"] [class*="counter"]',
       '[class*="chain-timer"]',
       '[class*="chainInfo"] [class*="timer"]',
@@ -2975,13 +3141,18 @@
         || document.getElementById("torn-app")
         || document.querySelector('[class*="mainContainer"]')
         || document.body;
-      new MutationObserver(() => { if (!chainTimerObserver) startChainTimerObserver(); })
-        .observe(tornRoot, { childList: true, subtree: true });
+      new MutationObserver(() => {
+        if (!chainTimerObserver) startChainTimerObserver();
+        if (!chainCountObserver) startChainCountObserver();
+      }).observe(tornRoot, { childList: true, subtree: true });
     })();
 
-    // FIX #2: also start the retry loop immediately on boot so we don't
-    // miss the timer when the chain section is opened later
+    // Start retry loop for timer immediately on boot
     startTimerRetryLoop();
+    // Start count observer immediately — bar-value is always in DOM
+    startChainCountObserver();
+    // Trigger chain bar tooltip render so bar-timeleft enters the DOM without user tap
+    scheduleTooltipTrigger();
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -3131,6 +3302,7 @@
   let _scraperContainer = null;   // cached container element
   let _scraperRows      = [];     // cached row list
   let _scraperRowCount  = 0;      // last known row count — re-scan only when it changes
+  let _lastScrapeAt     = 0;      // timestamp of last scrapeRecentAttacks call (throttle)
 
   function scrapeRecentAttacks() {
     if (!chainStartTime) return;
@@ -3162,8 +3334,11 @@
     const rawCandidates = [];
     for (const row of rows) {
       const chainNumEl = (() => {
-        for (const el of row.querySelectorAll("*")) {
-          if (/^#\d+$/.test((el.textContent||"").trim()) && el.children.length===0) return el;
+        // TreeWalker visits only text nodes — avoids querySelectorAll("*") element flood
+        const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (/^#\d+$/.test(node.textContent.trim())) return node.parentElement;
         }
         return null;
       })();
@@ -3572,7 +3747,16 @@
 
     // Scrape whenever a chain session is active — including warmup (hits 1-9).
     // chainConfirmed only becomes true at hit 10, so we must not gate on it here.
-    if (chainStartTime && !isTornPDA) scrapeRecentAttacks();
+    // Throttled to every 2s: hits are deduplicated via scrapedHitIds so no data
+    // is lost, and halving the scrape rate cuts the per-tick DOM walk cost in half.
+    if (chainStartTime && !isTornPDA && (now - _lastScrapeAt) >= 2000) {
+      _lastScrapeAt = now;
+      scrapeRecentAttacks();
+    }
+
+    // Re-anchor pending hit scheduledAt values to the live DOM timer so that
+    // pendingCountdownMs() ticks smoothly at 1s rather than in Firebase poll steps.
+    syncPendingScheduledAt();
 
     // Patch timer cells — only when panel is fully visible (view-full).
     // In icon/mini mode the rows are display:none so writes are wasted work.
