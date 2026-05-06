@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.7.9
+// @version      4.8.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -43,7 +43,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.7.9";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.8.0";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5000;
@@ -98,7 +98,7 @@
   }
   let panelW        = GM_getValue(SK_PANEL_W, 380);
   // Enforce minimum width in case a narrower value was saved previously
-  if (panelW < 320) { panelW = 380; GM_setValue(SK_PANEL_W, panelW); }
+  if (panelW < 360) { panelW = 380; GM_setValue(SK_PANEL_W, panelW); }
   let panelH        = GM_getValue(SK_PANEL_H, null);
   let viewMode      = isTornPDA ? 0 : GM_getValue(SK_VIEW_MODE, 1);
 
@@ -219,8 +219,8 @@
     .mini-profile-wrapper .buttons-wrap .chain-target-btn,
     [class*="profile-mini-"] .buttons-list .chain-target-btn,
     [class*="profile-mini-"] .buttons-wrap .chain-target-btn {
-      width:36px !important; max-width:36px !important; min-width:unset !important;
-      height:36px !important; max-height:36px !important;
+      width:35px !important; max-width:35px !important; min-width:unset !important;
+      height:35px !important; max-height:35px !important;
       padding:0 !important; margin:unset !important; font-size:18px !important;
       display:inline-flex !important; align-items:center !important; justify-content:center !important;
       align-self:center !important; flex-shrink:0 !important;
@@ -498,7 +498,7 @@
     /* ── Presence popover ── */
     #chain-presence-popover { left:50%; transform:translateX(-50%); width:220px; border:1px solid rgba(100,200,255,.3); }
     #chain-presence-title   { font-size:11px; font-weight:700; color:#88ccff; }
-    #chain-presence-list    { display:flex; flex-direction:column; gap:4px; max-height:180px; overflow-y:auto; }
+    #chain-presence-list    { display:flex; flex-direction:column; gap:4px; max-height:150px; overflow-y:auto; }
     .chain-presence-row     { display:flex; align-items:center; gap:7px; font-size:11px; color:#ccc; padding:2px 0; }
     .chain-presence-dot        { width:6px; height:6px; border-radius:50%; background:#44ff88; flex-shrink:0; }
     .chain-presence-dot.offline{ background:#445 !important; }
@@ -1235,7 +1235,7 @@
   //  Corner resize
   // ══════════════════════════════════════════════════════════════════════════
   (function makeResizable() {
-    const MIN_W=280, MAX_W=Math.min(700,window.innerWidth-4), MIN_H=120, MAX_H=Math.min(900,window.innerHeight-60);
+    const MIN_W=360, MAX_W=Math.min(700,window.innerWidth-4), MIN_H=120, MAX_H=Math.min(900,window.innerHeight-60);
     let resizing=false,sx,sy,sw,sh;
     function start(cx,cy){
       resizing=true; sx=cx; sy=cy; sw=panel.offsetWidth; sh=panel.offsetHeight;
@@ -2640,7 +2640,7 @@
       // If data is undefined or any other falsy — leave hitMap alone
       reNumberPending();
       setSyncDot("live");
-      renderPanel();
+      scheduleRender();
       return;
     }
 
@@ -2651,7 +2651,7 @@
       else { hitMap.set(id, data); }
       reNumberPending();
       setSyncDot("live");
-      renderPanel();
+      scheduleRender();
       return;
     }
 
@@ -2670,14 +2670,14 @@
         obj[parts[parts.length - 1]] = data;
         reNumberPending();
         setSyncDot("live");
-        renderPanel();
+        scheduleRender();
       } else if (data !== null) {
         // Hit doesn't exist locally yet — fetch the full hit node
         fbGet(P.hit(id), hit => {
           if (hit) {
             hitMap.set(id, hit);
             reNumberPending();
-            renderPanel();
+            scheduleRender();
           }
         });
       }
@@ -2776,7 +2776,7 @@
         reNumberPending();
         updateClearBtn();
         setSyncDot("live");
-        renderPanel();
+        scheduleRender();
       } else {
         showBanner("chain-banner-debug", true, "⚠ SSE root: data was null/empty — rules may be blocking read");
         setTimeout(()=>showBanner("chain-banner-debug",false), 8000);
@@ -2792,7 +2792,7 @@
     fbPut(P.hit(hit.id), hit);
     hitMap.set(hit.id, hit);
     reNumberPending();
-    renderPanel();
+    scheduleRender();
   }
 
   // FIX #1: kept for targeted single-field writes (hitNumber sync), but
@@ -2802,7 +2802,7 @@
     if (hitMap.has(hitId)) {
       hitMap.get(hitId)[field] = value;
       reNumberPending();
-      renderPanel();
+      scheduleRender();
     }
   }
 
@@ -2813,13 +2813,13 @@
     fbPut(P.hit(hitId), hit);
     hitMap.set(hitId, hit);
     reNumberPending();
-    renderPanel();
+    scheduleRender();
   }
 
   function fbClearHits() {
     fbDelete(P.hits());
     hitMap.clear();
-    renderPanel();
+    scheduleRender();
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2851,7 +2851,7 @@
     fbClearHits();
     fbDelete(P.session());
     persistSession();
-    renderPanel();
+    scheduleRender();
     updateChainTimerUI();
   }
 
@@ -2864,7 +2864,7 @@
         // The poll will reconcile hits on the next cycle.
         // Only wipe if the /hits node also comes back null (handled in applyPatch).
         persistSession();
-        renderPanel();
+        scheduleRender();
       }
     } else if (data.id && data.id !== chainSessionId) {
       // Only accept a remote session if its startTime is recent (within 2 hours).
@@ -3038,7 +3038,7 @@
 
     if (liveChainCount !== null && lastKnownCount !== null && liveChainCount > lastKnownCount) {
       reNumberPending();
-      renderPanel();
+      scheduleRender();
     }
     lastKnownCount = liveChainCount;
 
@@ -3329,6 +3329,16 @@
   //     Timer/status cells are patched in the 1s tick.
   // ══════════════════════════════════════════════════════════════════════════
 
+  // RAF-debounced render scheduler — collapses multiple synchronous renderPanel()
+  // calls (e.g. from a Firebase root poll that touches hits + session + members)
+  // into a single paint frame, eliminating redundant querySelector work.
+  let _renderScheduled = false;
+  function scheduleRender() {
+    if (_renderScheduled) return;
+    _renderScheduled = true;
+    requestAnimationFrame(() => { _renderScheduled = false; renderPanel(); });
+  }
+
   // Track last rendered hit ID list to avoid unnecessary full re-renders
   let lastRenderedIds = "";
 
@@ -3389,7 +3399,7 @@
         fbDelete(P.hit(hitId));
         hitMap.delete(hitId);
         reNumberPending();
-        renderPanel();
+        scheduleRender();
       });
     });
   }
@@ -3407,12 +3417,12 @@
 
       function commit() {
         const target = parseInt(input.value);
-        if (isNaN(target) || target < 1) { renderPanel(); return; }
+        if (isNaN(target) || target < 1) { scheduleRender(); return; }
         moveToSlot(hitId, target);
       }
       input.addEventListener("keydown", e => {
         if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-        if (e.key === "Escape") { renderPanel(); }
+        if (e.key === "Escape") { scheduleRender(); }
       });
       input.addEventListener("blur", commit);
     });
@@ -3429,7 +3439,7 @@
 
     // Clamp target to valid range (1-based slot → 0-based index)
     const toIdx = Math.max(0, Math.min(pending.length - 1, targetSlot - 1));
-    if (fromIdx === toIdx) { renderPanel(); return; }
+    if (fromIdx === toIdx) { scheduleRender(); return; }
 
     // Splice the hit out and reinsert at the target position
     const [moved] = pending.splice(fromIdx, 1);
@@ -3445,7 +3455,7 @@
     });
 
     reNumberPending();
-    renderPanel();
+    scheduleRender();
   }
 
   function renderPanel() {
@@ -3545,53 +3555,73 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  1-second tick
   // ══════════════════════════════════════════════════════════════════════════
+  let _lastTickSecs = null;  // deduplicate updateChainTimerUI calls in tick
   setInterval(() => {
     const now = Date.now();
-    updateChainTimerUI();
+
+    // Only call updateChainTimerUI from the tick when the displayed second has
+    // actually changed — the MutationObserver already calls it on every DOM timer
+    // mutation, so this avoids a redundant style-recalc on the same frame.
+    const tickSecs = liveChainSecs !== null && lastTimerReadAt !== null
+      ? Math.floor(Math.max(0, liveChainSecs - (performance.now() - lastTimerReadAt) / 1000))
+      : null;
+    if (tickSecs !== _lastTickSecs) {
+      _lastTickSecs = tickSecs;
+      updateChainTimerUI();
+    }
+
     // Scrape whenever a chain session is active — including warmup (hits 1-9).
     // chainConfirmed only becomes true at hit 10, so we must not gate on it here.
     if (chainStartTime && !isTornPDA) scrapeRecentAttacks();
 
-    // Patch timer cells — pre-hoist shared values outside the loop
-    const sortedPending = [...hitMap.values()]
-      .filter(h => h.status === "pending")
-      .sort((a, b) => a.hitNumber - b.hitNumber);
-    const currentHitNum = liveChainCount !== null ? liveChainCount + 1 : getHighestDoneHitNum() + 1;
-    document.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
-      const pos = parseInt(cell.dataset.pos);
-      if (pos < 0) return;
-      const hit  = sortedPending[pos] || null;
-      const hosp = hit ? isHospStillIn(hit) : false;
-      const rem  = pendingCountdownMs(pos);
-      cell.textContent = rem <= 0 ? "NOW" : formatTime(rem);
-      cell.className   = `chain-hit-timer ${hitTimerClass(rem)}`;
-      const row = cell.closest(".chain-hit-row");
-      if (row) {
-        const newRc = hitRowClass(rem, hosp, hit?.untracked || false);
-        const hitNum = hit ? (hit.chainHitNum || hit.hitNumber) : 0;
-        const isBonus = BONUS_HITS.has(hitNum);
-        const isNow   = hitNum === currentHitNum;
-        row.className = `chain-hit-row ${newRc}${isBonus?" bonus":""}${isNow?" sticky-now":""}`;
-      }
-    });
-    // Update hosp sub-timers in pinned section too
-    document.querySelectorAll("#chain-panel-inner [data-hosp-id]").forEach(hc => {
-      const hit = hitMap.get(hc.dataset.hospId);
-      if (!hit) { hc.remove(); return; }
-      if (!isHospStillIn(hit)) { hc.textContent = ""; hc.removeAttribute("data-hosp-id"); }
-      else hc.textContent = `out in ${formatTime(hit.hospReleaseAt - Date.now())}`;
-    });
+    // Patch timer cells — only when panel is fully visible (view-full).
+    // In icon/mini mode the rows are display:none so writes are wasted work.
+    if (viewMode === 0) {
+      // Pre-hoist shared values outside the loop
+      const sortedPending = [...hitMap.values()]
+        .filter(h => h.status === "pending")
+        .sort((a, b) => a.hitNumber - b.hitNumber);
+      const currentHitNum = liveChainCount !== null ? liveChainCount + 1 : getHighestDoneHitNum() + 1;
+      document.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
+        const pos = parseInt(cell.dataset.pos);
+        if (pos < 0) return;
+        const hit  = sortedPending[pos] || null;
+        const hosp = hit ? isHospStillIn(hit) : false;
+        const rem  = pendingCountdownMs(pos);
+        const newText  = rem <= 0 ? "NOW" : formatTime(rem);
+        const newClass = `chain-hit-timer ${hitTimerClass(rem)}`;
+        // Only write if value changed — avoids unnecessary style recalcs
+        if (cell.textContent !== newText) cell.textContent = newText;
+        if (cell.className   !== newClass) cell.className  = newClass;
+        const row = cell.closest(".chain-hit-row");
+        if (row) {
+          const newRc   = hitRowClass(rem, hosp, hit?.untracked || false);
+          const hitNum  = hit ? (hit.chainHitNum || hit.hitNumber) : 0;
+          const isBonus = BONUS_HITS.has(hitNum);
+          const isNow   = hitNum === currentHitNum;
+          const newRowClass = `chain-hit-row ${newRc}${isBonus?" bonus":""}${isNow?" sticky-now":""}`;
+          if (row.className !== newRowClass) row.className = newRowClass;
+        }
+      });
+      // Update hosp sub-timers
+      document.querySelectorAll("#chain-panel-inner [data-hosp-id]").forEach(hc => {
+        const hit = hitMap.get(hc.dataset.hospId);
+        if (!hit) { hc.remove(); return; }
+        if (!isHospStillIn(hit)) { hc.textContent = ""; hc.removeAttribute("data-hosp-id"); }
+        else hc.textContent = `out in ${formatTime(hit.hospReleaseAt - Date.now())}`;
+      });
 
-    const nh = getPendingHits()[0];
-    if (nh) {
-      const rem0 = pendingCountdownMs(0);
-      nextTimer.textContent = rem0 <= 0 ? "NOW" : formatTime(rem0);
-      nextTimer.className   = hitTimerClass(rem0);
-    } else if (liveChainSecs !== null) {
-      const rem  = chainTimerMs();
-      const disp = Math.round(rem/1000);
-      nextTimer.textContent = `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`;
-      nextTimer.className   = hitTimerClass(rem);
+      const nh = getPendingHits()[0];
+      if (nh) {
+        const rem0 = pendingCountdownMs(0);
+        nextTimer.textContent = rem0 <= 0 ? "NOW" : formatTime(rem0);
+        nextTimer.className   = hitTimerClass(rem0);
+      } else if (liveChainSecs !== null) {
+        const rem  = chainTimerMs();
+        const disp = Math.round(rem/1000);
+        nextTimer.textContent = `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`;
+        nextTimer.className   = hitTimerClass(rem);
+      }
     }
 
     // Top-bar chain badge (all pages)
@@ -3938,14 +3968,8 @@
 
     const btn = document.createElement("a");
     btn.className = "chain-target-btn";
-    // Match sibling cell size exactly by reading a real profile-button's computed dimensions
-    const siblingBtn = buttonsList.querySelector("a.profile-button");
-    if (siblingBtn) {
-      const cs = window.getComputedStyle(siblingBtn);
-      btn.style.cssText = `cursor:pointer;text-decoration:none;width:${cs.width};height:${cs.height};display:inline-flex;align-items:center;justify-content:center;`;
-    } else {
-      btn.style.cssText = "cursor:pointer;text-decoration:none;";
-    }
+    // Fixed 35px to match popup button grid — avoids getComputedStyle forced layout flush
+    btn.style.cssText = "cursor:pointer;text-decoration:none;width:35px;height:35px;display:inline-flex;align-items:center;justify-content:center;";
     const queued = [...hitMap.values()].find(h => h.status==="pending" && h.targetId===targetId);
     if (queued) {
       btn.textContent = "\u2713"; btn.classList.add("claimed");
@@ -3991,7 +4015,7 @@
     const trigger = () => {
       if (injectQueued) return;
       injectQueued = true;
-      setTimeout(() => { injectQueued = false; injectTargetButtons(); }, 150);
+      setTimeout(() => { injectQueued = false; injectTargetButtons(); }, 500);
     };
     new MutationObserver(trigger).observe(tornRoot, { childList: true, subtree: true });
     // Watch direct children of <body> (zero subtree cost) so we catch
