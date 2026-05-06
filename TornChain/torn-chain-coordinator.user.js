@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.8.15
+// @version      4.8.17
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -27,6 +27,7 @@
 // @connect      firebaseio.com
 // @connect      googleapis.com
 // @connect      securetoken.googleapis.com
+// @connect      raw.githubusercontent.com
 // @updateURL    https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js
 // @run-at       document-idle
@@ -43,7 +44,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.8.15";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.8.17";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -4493,15 +4494,33 @@
         const latest = match[1];
         // Write the canonical latest version to Firebase so all connected clients
         // see the update arrow immediately — without each one hitting GitHub.
-        // Always push if GitHub is ahead of what Firebase has stored — do NOT gate
-        // on CURRENT_VERSION, otherwise the owner (already updated) never writes it.
+        // Skip the pre-read (which doubled failure surface) and write directly.
+        // Gate only on fbConfigured + fbUid — not on CURRENT_VERSION, so an already-
+        // updated owner client still pushes the version for peers running older builds.
         if (fbConfigured() && fbUid) {
-          fbGet(P.latestVersion(), stored => {
-            const storedVer = stored && stored.version ? stored.version : "0.0.0";
-            if (isNewerVersion(latest, storedVer)) {
-              fbPut(P.latestVersion(), { version: latest, updatedAt: Date.now() });
-            }
-          });
+          const lvUrl = P.latestVersion();
+          if (lvUrl) {
+            GM_xmlhttpRequest({
+              method: "PUT", url: lvUrl,
+              headers: { "Content-Type": "application/json" },
+              data: JSON.stringify({ version: latest, updatedAt: Date.now() }),
+              timeout: 10000,
+              onload(wr) {
+                if (wr.status >= 200 && wr.status < 300) {
+                  console.log("[ChainCoord] latestVersion written to Firebase:", latest);
+                } else {
+                  // Surface the exact Firebase error — usually a rules denial
+                  let msg = wr.responseText;
+                  try { msg = JSON.parse(wr.responseText).error || msg; } catch { /**/ }
+                  console.warn("[ChainCoord] latestVersion write failed", wr.status, msg);
+                  showBanner("chain-banner-debug", true,
+                    `⚠ latestVersion write failed (${wr.status}): ${msg} — check Firebase rules allow write to /meta/latestVersion`);
+                }
+              },
+              onerror()  { console.warn("[ChainCoord] latestVersion write: network error"); },
+              ontimeout(){ console.warn("[ChainCoord] latestVersion write: timed out"); },
+            });
+          }
         }
         if (isNewerVersion(latest, CURRENT_VERSION)) {
           const banner = document.getElementById("chain-banner-update");
@@ -4515,8 +4534,8 @@
           if (ver)   ver.textContent = "(v" + CURRENT_VERSION + " → v" + latest + ")";
         }
       },
-      onerror()  {},
-      ontimeout(){},
+      onerror()  { console.warn("[ChainCoord] checkForUpdate: GitHub fetch network error — is raw.githubusercontent.com in @connect?"); },
+      ontimeout(){ console.warn("[ChainCoord] checkForUpdate: GitHub fetch timed out"); },
     });
   }
 
