@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.8.7
+// @version      4.8.8
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -43,7 +43,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.8.7";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.8.8";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -187,6 +187,8 @@
     // Global client version registry — keyed by torn_{tornId} for dedup across page loads
     clientVersion:   key => `${FIREBASE_DB_URL}/meta/clientVersions/${key}.json${auth()}`,
     clientVersions:  ()  => `${FIREBASE_DB_URL}/meta/clientVersions.json${auth()}`,
+    // Canonical latest-release node — written by checkForUpdate, read by all clients
+    latestVersion:   ()  => `${FIREBASE_DB_URL}/meta/latestVersion.json${auth()}`,
     // Bug reports (authenticated write, owner read) and public tracker (public read)
     bugReport:    id  => `${FIREBASE_DB_URL}/bugs/${id}.json${auth()}`,
     bugs:         ()  => `${FIREBASE_DB_URL}/bugs.json${auth()}`,
@@ -2520,21 +2522,27 @@
   // ══════════════════════════════════════════════════════════════════════════
   function fbPollClientVersions() {
     if (!fbConfigured() || !fbUid) return;
-    fbGet(P.clientVersions(), data => {
-      if (!data || typeof data !== "object") return;
-      const now = Date.now();
-      // Only consider entries seen within 2× presence timeout (recently active clients)
-      const ACTIVE_WINDOW = PRESENCE_TIMEOUT * 2;
-      let latest = CURRENT_VERSION;
-      clientVersionMap.clear();
-      Object.entries(data).forEach(([uid, entry]) => {
-        if (!entry || !entry.version) return;
-        if (entry.lastSeen && (now - entry.lastSeen) > ACTIVE_WINDOW) return;
-        clientVersionMap.set(uid, entry.version);
-        if (isNewerVersion(entry.version, latest)) latest = entry.version;
+    // Read the canonical GitHub-sourced latest version first, then layer
+    // peer versions on top — this way the update arrow shows for all clients
+    // as soon as checkForUpdate() writes it, without each client hitting GitHub.
+    fbGet(P.latestVersion(), lv => {
+      const githubLatest = (lv && lv.version) ? lv.version : CURRENT_VERSION;
+      fbGet(P.clientVersions(), data => {
+        const now = Date.now();
+        const ACTIVE_WINDOW = PRESENCE_TIMEOUT * 2;
+        let latest = githubLatest;   // seed with GitHub canonical, not CURRENT_VERSION
+        clientVersionMap.clear();
+        if (data && typeof data === "object") {
+          Object.entries(data).forEach(([uid, entry]) => {
+            if (!entry || !entry.version) return;
+            if (entry.lastSeen && (now - entry.lastSeen) > ACTIVE_WINDOW) return;
+            clientVersionMap.set(uid, entry.version);
+            if (isNewerVersion(entry.version, latest)) latest = entry.version;
+          });
+        }
+        networkLatestVersion = latest;
+        updateVersionUI();
       });
-      networkLatestVersion = latest;
-      updateVersionUI();
     });
   }
 
@@ -4397,6 +4405,18 @@
         const match = r.responseText.match(/@version\s+([\d.]+)/);
         if (!match) return;
         const latest = match[1];
+        // Write the canonical latest version to Firebase so all connected clients
+        // see the update arrow immediately — without each one hitting GitHub.
+        // Only write when this client can confirm GitHub has something newer than
+        // what we currently have stored (avoids stale downgrades on cache hits).
+        if (fbConfigured() && fbUid && isNewerVersion(latest, CURRENT_VERSION)) {
+          fbGet(P.latestVersion(), stored => {
+            const storedVer = stored && stored.version ? stored.version : "0.0.0";
+            if (isNewerVersion(latest, storedVer)) {
+              fbPut(P.latestVersion(), { version: latest, updatedAt: Date.now() });
+            }
+          });
+        }
         if (isNewerVersion(latest, CURRENT_VERSION)) {
           const banner = document.getElementById("chain-banner-update");
           const link   = document.getElementById("chain-update-link");
