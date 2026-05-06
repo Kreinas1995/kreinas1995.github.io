@@ -54,7 +54,7 @@
   const HIT_INTERVAL         = 5 * 60 * 1000;
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
-  const TIMER_FUDGE_SEC      = 1;
+  const TIMER_FUDGE_SEC      = 0;
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
