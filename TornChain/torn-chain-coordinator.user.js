@@ -525,7 +525,6 @@
     #chain-panel-body { display:flex !important; flex-direction:column !important; flex:1 !important; overflow:hidden !important; border-radius:0 0 12px 12px; }
     .chain-banner { padding:5px 10px !important; font-size:11px !important; text-align:center !important; flex-shrink:0 !important; line-height:1.3 !important; }
     .chain-banner.warn { color:#ff8888; background:rgba(255,60,60,.08); border-bottom:1px solid rgba(255,60,60,.15); }
-    .chain-banner.update { color:#ffcc66; background:rgba(255,180,0,.08); border-bottom:1px solid rgba(255,180,0,.2); }
     .chain-banner.info { color:#88aacc; background:rgba(80,120,200,.08); border-bottom:1px solid rgba(80,120,200,.15); }
 
     /* ── Column header ── */
@@ -944,10 +943,7 @@
       <div id="chain-banner-locked" class="chain-banner warn" style="display:none">🔒 Access Locked — your faction is not whitelisted.</div>
       <div id="chain-banner-status" class="chain-banner info" style="display:none"></div>
       <div id="chain-banner-debug"  class="chain-banner warn" style="display:none;font-size:10px;word-break:break-all"></div>
-      <div id="chain-banner-update" class="chain-banner warn" style="display:none">
-        ⬆ New version available — <a id="chain-update-link" href="#" target="_blank" style="color:#ffd700;font-weight:700;text-decoration:underline">click to update</a>
-        <span id="chain-update-ver" style="color:#ffaa44;font-size:10px;margin-left:4px"></span>
-      </div>
+
       <div id="chain-col-header" style="display:none">
         <span>#</span><span>Claimer</span><span>Target</span>
         <span style="text-align:right">Window</span><span></span><span></span>
@@ -4509,7 +4505,6 @@
                 if (wr.status >= 200 && wr.status < 300) {
                   console.log("[ChainCoord] latestVersion written to Firebase:", latest);
                 } else {
-                  // Surface the exact Firebase error — usually a rules denial
                   let msg = wr.responseText;
                   try { msg = JSON.parse(wr.responseText).error || msg; } catch { /**/ }
                   console.warn("[ChainCoord] latestVersion write failed", wr.status, msg);
@@ -4522,17 +4517,11 @@
             });
           }
         }
-        if (isNewerVersion(latest, CURRENT_VERSION)) {
-          const banner = document.getElementById("chain-banner-update");
-          const link   = document.getElementById("chain-update-link");
-          const ver    = document.getElementById("chain-update-ver");
-          if (banner) {
-            banner.style.display = "";
-            banner.className = "chain-banner update";
-          }
-          if (link)  link.href = SCRIPT_INSTALL_URL;
-          if (ver)   ver.textContent = "(v" + CURRENT_VERSION + " → v" + latest + ")";
+        // Update version badge + arrow button colour — no banner
+        if (isNewerVersion(latest, networkLatestVersion || "0.0.0") || networkLatestVersion === null) {
+          networkLatestVersion = latest;
         }
+        updateVersionUI();
       },
       onerror()  { console.warn("[ChainCoord] checkForUpdate: GitHub fetch network error — is raw.githubusercontent.com in @connect?"); },
       ontimeout(){ console.warn("[ChainCoord] checkForUpdate: GitHub fetch timed out"); },
