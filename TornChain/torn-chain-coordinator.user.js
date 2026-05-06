@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.8.12
+// @version      4.8.13
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -43,7 +43,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.8.12";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.8.13";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -1507,7 +1507,11 @@
   }
 
   // Recompute networkLatestVersion from presenceMap — called on every poll and popover open.
+  // Only runs before fbPollClientVersions has set networkLatestVersion from Firebase.
+  // Peer versions must never raise it above the GitHub canonical — dev/pre-release builds
+  // running locally would otherwise trigger phantom update arrows on other clients.
   function recomputeNetworkLatestVersion() {
+    if (networkLatestVersion) return;
     let latest = CURRENT_VERSION;
     presenceMap.forEach(m => {
       if (m.version && isNewerVersion(m.version, latest)) latest = m.version;
@@ -2522,25 +2526,26 @@
   // ══════════════════════════════════════════════════════════════════════════
   function fbPollClientVersions() {
     if (!fbConfigured() || !fbUid) return;
-    // Read the canonical GitHub-sourced latest version first, then layer
-    // peer versions on top — this way the update arrow shows for all clients
-    // as soon as checkForUpdate() writes it, without each client hitting GitHub.
+    // GitHub is the sole source of truth for the canonical latest version.
+    // Peer clientVersions are recorded for display purposes only and must never
+    // push networkLatestVersion above what GitHub has published — otherwise a
+    // dev/pre-release build running locally would trigger phantom update arrows
+    // on all other clients pointing to a version that doesn't exist on GitHub.
     fbGet(P.latestVersion(), lv => {
       const githubLatest = (lv && lv.version) ? lv.version : CURRENT_VERSION;
       fbGet(P.clientVersions(), data => {
         const now = Date.now();
         const ACTIVE_WINDOW = PRESENCE_TIMEOUT * 2;
-        let latest = githubLatest;   // seed with GitHub canonical, not CURRENT_VERSION
         clientVersionMap.clear();
         if (data && typeof data === "object") {
           Object.entries(data).forEach(([uid, entry]) => {
             if (!entry || !entry.version) return;
             if (entry.lastSeen && (now - entry.lastSeen) > ACTIVE_WINDOW) return;
             clientVersionMap.set(uid, entry.version);
-            if (isNewerVersion(entry.version, latest)) latest = entry.version;
           });
         }
-        networkLatestVersion = latest;
+        // Always cap at githubLatest — peer versions are never allowed to exceed it.
+        networkLatestVersion = githubLatest;
         updateVersionUI();
       });
     });
@@ -3024,7 +3029,9 @@
   // visibility:hidden for the duration of the attach-and-dismiss cycle.
   function scheduleTooltipTrigger() {
     let attempts = 0;
+    let cancelled = false;
     const tryAttach = () => {
+      if (cancelled) return;                    // a later retry was queued but we're done
       if (chainTimerObserver) return;           // observer already running — done
       if (startChainTimerObserver()) return;    // element in DOM — attached cleanly
 
@@ -3032,36 +3039,88 @@
       // suppressing any visual flash with a temporary visibility override.
       const chainBar = document.querySelector('[class*="chain-bar"]');
       if (chainBar) {
-        // Hide the tooltip layer before triggering hover so nothing is visible.
-        // We target the floating-ui portal/tooltip container if present, otherwise
-        // fall back to a style on the bar itself (less ideal but still works).
-        const portal = document.querySelector('[class*="tooltip"],[class*="floating"],[data-floating-ui-portal]')
-          || document.querySelector('[class*="chain-bar"] ~ *');
-        if (portal) portal.style.setProperty('visibility', 'hidden', 'important');
+        // The tooltip popup doesn't exist before the hover fires, so we can't
+        // hide it in advance. Instead, use a MutationObserver to catch it the
+        // instant it's added to the DOM and hide it immediately — before the
+        // browser has a chance to paint it. The chain bar itself is never
+        // touched so user interaction with it remains fully functional.
+        const hiddenPortals = new Set();
+        const hideNode = n => {
+          n.style.setProperty('visibility', 'hidden', 'important');
+          hiddenPortals.add(n);
+          // Also watch this specific node for attribute/style mutations — React
+          // re-renders can reset inline styles, causing a flicker. Re-apply
+          // visibility:hidden immediately whenever that happens.
+          nodeWatcher.observe(n, { attributes: true, attributeFilter: ['style', 'class'] });
+        };
+        const isTooltipNode = n =>
+          n instanceof Element && (
+            n.matches('[class*="tooltip"],[class*="floating"],[data-floating-ui-portal],[class*="popup"],[class*="Popup"],[class*="Tooltip"]')
+            || n.querySelector('[class*="bar-timeleft"],[class*="chainTimer"]')
+          );
+        // Watches already-hidden nodes and re-hides them if React resets their style.
+        const nodeWatcher = new MutationObserver(mutations => {
+          for (const m of mutations) {
+            if (m.type === 'attributes' && hiddenPortals.has(m.target)) {
+              m.target.style.setProperty('visibility', 'hidden', 'important');
+            }
+          }
+        });
+        // Watches the DOM for newly added tooltip/portal nodes.
+        const portalWatcher = new MutationObserver(mutations => {
+          for (const m of mutations) {
+            for (const node of m.addedNodes) {
+              if (isTooltipNode(node)) hideNode(node);
+            }
+            // Also check if a mutation re-showed a tracked node via subtree moves
+            if (m.type === 'childList' && hiddenPortals.has(m.target)) {
+              m.target.style.setProperty('visibility', 'hidden', 'important');
+            }
+          }
+        });
+        portalWatcher.observe(document.body, { childList: true, subtree: true });
 
         chainBar.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, cancelable: true }));
         chainBar.dispatchEvent(new MouseEvent('mouseenter',    { bubbles: true, cancelable: true }));
+
+        // Dismiss the synthetic hover, but keep watchers alive through the
+        // pointerleave re-render cycle — Torn may remove/re-add the tooltip
+        // node during dismiss, which would flash visible if we'd already
+        // disconnected. Restore visibility only after a short settle delay.
+        const dismissAndRestore = () => {
+          chainBar.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true, cancelable: true }));
+          chainBar.dispatchEvent(new MouseEvent('mouseleave',    { bubbles: true, cancelable: true }));
+          // Keep suppressing for 300ms after pointerleave to cover the re-render.
+          setTimeout(() => {
+            portalWatcher.disconnect();
+            nodeWatcher.disconnect();
+            hiddenPortals.forEach(n => n.style.removeProperty('visibility'));
+            hiddenPortals.clear();
+          }, 300);
+        };
 
         let polls = 0;
         const findAndAttach = setInterval(() => {
           polls++;
           if (startChainTimerObserver()) {
-            // Observer attached — dismiss and restore visibility.
+            // Observer attached — dismiss and allow tooltip to restore after settle.
             clearInterval(findAndAttach);
-            if (portal) portal.style.removeProperty('visibility');
-            chainBar.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true, cancelable: true }));
-            chainBar.dispatchEvent(new MouseEvent('mouseleave',    { bubbles: true, cancelable: true }));
+            cancelled = true;
+            dismissAndRestore();
           } else if (polls >= 20) {
             // 1s elapsed, element never appeared — give up this attempt.
             clearInterval(findAndAttach);
-            if (portal) portal.style.removeProperty('visibility');
-            chainBar.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true, cancelable: true }));
-            chainBar.dispatchEvent(new MouseEvent('mouseleave',    { bubbles: true, cancelable: true }));
+            cancelled = true;
+            dismissAndRestore();
           }
         }, 50);
       }
 
       if (++attempts < 5) setTimeout(tryAttach, 500);
+      // If the observer gets set by something else while we're waiting (e.g. Torn
+      // re-renders the chain bar on Firebase connect), cancel the next retry so we
+      // don't fire a synthetic hover on a page that already has the element.
+      if (chainTimerObserver) cancelled = true;
     };
     tryAttach();
   }
@@ -4277,7 +4336,7 @@
           // isOwner is determined by a Firebase probe read after auth — not client-side.
           // whitelistBtn is a hidden proxy; gear menu visibility is handled in updateClearBtn()
           updateApiBtn();
-          showBanner("chain-banner-status",false);
+          // Keep "Connecting…" banner up — lobby check-in will dismiss it.
 
           if(!factionId||factionId==="0"){showBanner("chain-banner-nofact",true);return;}
           showBanner("chain-banner-nofact",false);
@@ -4308,7 +4367,9 @@
             // fbUid is the only key Firebase rules can reliably look up via auth.uid.
             // Old fbUid entries from previous sessions are cleaned up by fbCleanOwnLobbyEntries.
             const lobbyBootstrapUrl = P.lobbyMe();
-            showBanner("chain-banner-debug", true, "⏳ Lobby check-in… uid="+fbUid+" fid="+factionId);
+            // Lobby check-in runs silently — keep the "Connecting…" status banner visible
+            // (already shown by fetchOwnProfile) and only surface debug info on error.
+            showBanner("chain-banner-status", true, "Connecting…");
             GM_xmlhttpRequest({
               method:"PUT", url: lobbyBootstrapUrl,
               headers:{"Content-Type":"application/json"},
@@ -4316,16 +4377,17 @@
               timeout:10000,
               onload(r) {
                 if (r.status>=200 && r.status<300) {
-                  showBanner("chain-banner-debug", true, "✓ Lobby check-in OK. fid="+factionId+" uid="+fbUid+" Verifying…");
                   setSyncDot("live");
                   // Read back to confirm committed in rules engine before proceeding
                   GM_xmlhttpRequest({
                     method: "GET", url: lobbyBootstrapUrl, timeout: 8000,
                     onload(rr) {
+                      showBanner("chain-banner-status", false);
                       fbCleanOwnLobbyEntries();
                       fbRegisterMember();
                       fbProbeOwner();   // silent boot-time owner check — sets isOwner + gear menu
-                      setTimeout(()=>showBanner("chain-banner-debug",false), 3000);
+                      // Lobby is confirmed — safe to push GitHub version to Firebase now.
+                      checkForUpdate();
                       fbCheckWhitelist(allowed => {
                         if (!allowed) {
                           showBanner("chain-banner-locked", true);
@@ -4338,19 +4400,20 @@
                         if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_MS);
                       });
                     },
-                    onerror()  { fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
-                    ontimeout(){ fbRegisterMember(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    onerror()  { showBanner("chain-banner-status", false); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    ontimeout(){ showBanner("chain-banner-status", false); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
                   });
                 } else {
                   setSyncDot("error");
+                  showBanner("chain-banner-status", false);
                   let msg = r.responseText;
                   try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
                   showBanner("chain-banner-debug", true, "❌ Lobby check-in failed "+r.status+": "+msg+" | url: "+lobbyBootstrapUrl.replace(/auth=[^&]+/,"auth=***"));
                   console.warn("[ChainCoord] Lobby check-in failed", r.status, r.responseText, lobbyUrl);
                 }
               },
-              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Lobby check-in network error — check @connect firebaseio.com"); },
-              ontimeout() { setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Lobby check-in timed out"); },
+              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-status", false); showBanner("chain-banner-debug", true, "❌ Lobby check-in network error — check @connect firebaseio.com"); },
+              ontimeout() { setSyncDot("error"); showBanner("chain-banner-status", false); showBanner("chain-banner-debug", true, "❌ Lobby check-in timed out"); },
             });
 
             if (!heartbeatInterval) heartbeatInterval = setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
@@ -4390,9 +4453,9 @@
         const latest = match[1];
         // Write the canonical latest version to Firebase so all connected clients
         // see the update arrow immediately — without each one hitting GitHub.
-        // Only write when this client can confirm GitHub has something newer than
-        // what we currently have stored (avoids stale downgrades on cache hits).
-        if (fbConfigured() && fbUid && isNewerVersion(latest, CURRENT_VERSION)) {
+        // Always push if GitHub is ahead of what Firebase has stored — do NOT gate
+        // on CURRENT_VERSION, otherwise the owner (already updated) never writes it.
+        if (fbConfigured() && fbUid) {
           fbGet(P.latestVersion(), stored => {
             const storedVer = stored && stored.version ? stored.version : "0.0.0";
             if (isNewerVersion(latest, storedVer)) {
@@ -4436,7 +4499,8 @@
   fetchOwnProfile();
   if (!isTornPDA) injectTargetButtons();
   updateVersionUI();   // set initial badge state before Firebase connects
-  // Check for updates once, 8 seconds after boot (non-blocking)
-  setTimeout(checkForUpdate, 8000);
+  // checkForUpdate() is called from inside the lobby check-in callback, once fbUid
+  // is confirmed — this guarantees the Firebase write succeeds (auth is ready).
+  // No blind setTimeout needed here anymore.
 
 })();
