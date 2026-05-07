@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.8.24
+// @version      4.9.7
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -44,7 +44,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.8.24";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.9.7";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -79,6 +79,17 @@
   const SK_SESSION_START  = "chain_session_start";
   const SK_SESSION_MIN    = "chain_session_min";
   const SK_CHAIN_COUNT    = "chain_live_count";
+  // ─── Settings keys ────────────────────────────────────────────────────────
+  const SK_SHOW_DONE_HITS   = "chain_show_done_hits";      // bool: show done hits in list
+  const SK_COMPACT_MODE     = "chain_compact_mode";         // bool: reduce row height
+  const SK_NOTIFY_SOUND     = "chain_notify_sound";         // bool: play sound when hit due
+  const SK_TIMER_FUDGE_USR  = "chain_timer_fudge";          // int: seconds offset on timer
+  const SK_PANEL_OPACITY    = "chain_panel_opacity";         // number: 0.6–1.0
+  const SK_WARN_THRESHOLD   = "chain_warn_threshold";        // int: seconds for warn color (default 90)
+  const SK_DANGER_THRESHOLD = "chain_danger_threshold";      // int: seconds for danger color (default 30)
+  const SK_SHOW_BONUS_ALERT = "chain_show_bonus_alert";      // bool: highlight bonus hits
+  const SK_MINI_SHOW_COUNT  = "chain_mini_show_count";       // bool: show chain count in mini pill
+  const SK_AUTO_EXPAND_DUE  = "chain_auto_expand_due";       // bool: auto-switch to full view when hit is due
 
   // ─── App state ────────────────────────────────────────────────────────────
   // Read API key: localStorage first (survives TM UUID changes on reinstall /
@@ -103,6 +114,34 @@
   let panelH        = GM_getValue(SK_PANEL_H, null);
   let viewMode      = isTornPDA ? 0 : GM_getValue(SK_VIEW_MODE, 1);
 
+  // ─── User settings state ──────────────────────────────────────────────────
+  let settShowDoneHits   = GM_getValue(SK_SHOW_DONE_HITS,   true);
+  let settCompactMode    = GM_getValue(SK_COMPACT_MODE,     false);
+  let settNotifySound    = GM_getValue(SK_NOTIFY_SOUND,     false);
+  let settTimerFudge     = GM_getValue(SK_TIMER_FUDGE_USR,  0);
+  let settPanelOpacity   = GM_getValue(SK_PANEL_OPACITY,    0.96);
+  let settWarnThreshold  = GM_getValue(SK_WARN_THRESHOLD,   90);
+  let settDangerThreshold= GM_getValue(SK_DANGER_THRESHOLD, 30);
+  let settShowBonusAlert = GM_getValue(SK_SHOW_BONUS_ALERT, true);
+  let settMiniShowCount  = GM_getValue(SK_MINI_SHOW_COUNT,  true);
+  let settAutoExpandDue  = GM_getValue(SK_AUTO_EXPAND_DUE,  false);
+  // Notification sound (AudioContext, created lazily)
+  let _notifyAudioCtx    = null;
+  function playDueSound() {
+    if (!settNotifySound) return;
+    try {
+      if (!_notifyAudioCtx) _notifyAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = _notifyAudioCtx;
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+    } catch { /**/ }
+  }
+
   let ownName       = "Me";
   let ownId         = null;
   let factionId     = null;
@@ -122,6 +161,12 @@
   let fbRefreshToken = null;  // used to refresh the ID token before it expires (1hr TTL)
   let fbUid         = null;
   let hitMap        = new Map();
+  // BUG FIX: Track notified hit IDs in a separate Set so Firebase re-syncs
+  // (which rebuild hitMap and wipe per-object flags) don't re-trigger alerts.
+  const _notifiedHitIds = new Set();
+  // BUG FIX: Track locally-deleted hit IDs so Firebase syncs don't re-insert them
+  // before the DELETE propagates to the server (race condition).
+  const _deletedHitIds = new Set();
   let permissions   = {};
   let canClear      = false;
   let presenceMap   = new Map();
@@ -499,6 +544,62 @@
     #chain-whitelist-close { padding:4px 0; border-radius:6px; font-size:11px; cursor:pointer; border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.08); color:#ccc; }
     #chain-whitelist-close:hover { background:rgba(255,255,255,.18); }
 
+    /* ── Settings panel ── */
+    #chain-settings-popover { flex-direction:column; gap:6px; }
+    #chain-settings-popover.open { display:flex !important; }
+    #chain-settings-body::-webkit-scrollbar { width:4px; }
+    #chain-settings-body::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:2px; }
+    .chain-sett-section-hdr {
+      font-size:9px; font-weight:700; color:#445; letter-spacing:.5px; text-transform:uppercase;
+      padding:8px 0 3px; border-top:1px solid rgba(255,255,255,.06); margin-top:2px;
+      flex-shrink:0;
+    }
+    .chain-sett-section-hdr:first-child { border-top:none; padding-top:2px; margin-top:0; }
+    .chain-sett-row {
+      display:flex; flex-direction:column; gap:2px;
+      padding:6px 0 6px 8px; border-radius:6px; cursor:pointer;
+      transition:background .1s; position:relative;
+    }
+    .chain-sett-row:hover { background:rgba(255,255,255,.04); }
+    .chain-sett-row input.chain-sett-toggle {
+      position:absolute; right:8px; top:50%; transform:translateY(-50%);
+      width:28px; height:16px; appearance:none; -webkit-appearance:none;
+      background:#223; border:1px solid rgba(255,255,255,.15); border-radius:8px;
+      cursor:pointer; transition:background .15s; flex-shrink:0;
+    }
+    .chain-sett-row input.chain-sett-toggle:checked { background:#1a6640; border-color:rgba(68,255,136,.5); }
+    .chain-sett-row input.chain-sett-toggle::after {
+      content:""; position:absolute; width:10px; height:10px; border-radius:50%;
+      background:#667; top:2px; left:2px; transition:left .15s, background .15s;
+    }
+    .chain-sett-row input.chain-sett-toggle:checked::after { left:14px; background:#44ff88; }
+    .chain-sett-label { font-size:11px; font-weight:600; color:#ccc; padding-right:42px; }
+    .chain-sett-desc  { font-size:9px; color:#445; line-height:1.3; padding-right:42px; }
+    .chain-sett-row-slider { cursor:default; }
+    .chain-sett-row-slider:hover { background:rgba(255,255,255,.04); }
+    .chain-sett-slider-wrap { display:flex; align-items:center; gap:7px; margin-top:4px; padding-right:4px; }
+    .chain-sett-slider {
+      flex:1; -webkit-appearance:none; appearance:none; height:4px;
+      background:rgba(255,255,255,.12); border-radius:2px; outline:none; cursor:pointer;
+    }
+    .chain-sett-slider::-webkit-slider-thumb {
+      -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+      background:#88bbff; border:2px solid rgba(100,160,255,.6); cursor:pointer;
+    }
+    .chain-sett-slider-val { font-size:10px; font-family:monospace; font-weight:700; color:#88bbff; min-width:30px; text-align:right; flex-shrink:0; }
+    .chain-sett-action-btn {
+      flex:1; padding:5px 0; border-radius:6px; font-size:10px; font-weight:700;
+      cursor:pointer; border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.07);
+      color:#aaa; letter-spacing:.3px; transition:background .1s;
+    }
+    .chain-sett-action-btn:hover  { background:rgba(255,255,255,.17); color:#fff; }
+    .chain-sett-action-btn.danger { border-color:rgba(255,80,80,.4); color:#ff8888; background:rgba(255,60,60,.08); }
+    .chain-sett-action-btn.danger:hover { background:rgba(255,60,60,.22); }
+
+    /* ── Compact mode ── */
+    #chain-panel.compact .chain-hit-row { padding:2px 10px !important; }
+    #chain-panel.compact #chain-col-header { padding:2px 10px !important; }
+
     /* ── Presence popover ── */
     #chain-presence-popover { left:50%; transform:translateX(-50%); width:220px; border:1px solid rgba(100,200,255,.3); }
     #chain-presence-title   { font-size:11px; font-weight:700; color:#88ccff; }
@@ -811,8 +912,8 @@
         <span id="chain-pill-icon">⛓</span>
         <span id="chain-pill-timer" class="ct-none">—</span>
         <span id="chain-pill-count" style="font-size:11px;font-weight:700;min-width:18px;text-align:center"></span>
-        <span id="chain-pill-sep" style="color:#334;font-size:10px">→</span>
-        <span id="chain-pill-next" style="font-size:11px;font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0e0e0">—</span>
+        <span id="chain-pill-sep" style="color:#44aa66;font-size:13px;font-weight:900;line-height:1;text-shadow:0 0 6px rgba(68,255,136,.4)">→</span>
+        <span id="chain-pill-next" style="font-size:11px;font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0e0e0;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px">—</span>
         <span id="chain-pill-badge">0</span>
       </span>
       <div id="chain-header-right">
@@ -918,13 +1019,102 @@
       </div>
 
       <!-- Settings popover -->
-      <div id="chain-settings-popover" class="chain-popover" style="left:8px;right:8px;border:1px solid rgba(120,160,255,.3);">
-        <div id="chain-settings-title" style="font-size:12px;font-weight:700;color:#88bbff;">⚙️ Settings</div>
-        <div id="chain-settings-body" style="display:flex;flex-direction:column;gap:10px;margin-top:2px;">
-          <!-- placeholder — settings rows will be added here in future updates -->
-          <div style="font-size:11px;color:#556;text-align:center;padding:8px 0;">No settings yet — more coming soon.</div>
+      <div id="chain-settings-popover" class="chain-popover" style="left:8px;right:8px;border:1px solid rgba(120,160,255,.3);max-height:85vh;overflow:hidden;">
+        <div id="chain-settings-title" style="font-size:12px;font-weight:700;color:#88bbff;letter-spacing:.3px;flex-shrink:0;">⚙️ Settings</div>
+        <div id="chain-settings-body" style="display:flex;flex-direction:column;gap:0;overflow-y:auto;flex:1;">
+
+          <!-- Section: Display -->
+          <div class="chain-sett-section-hdr">🖥 Display</div>
+
+          <label class="chain-sett-row">
+            <span class="chain-sett-label">Show done hits</span>
+            <span class="chain-sett-desc">Keep completed hits visible in the list</span>
+            <input type="checkbox" id="sett-show-done" class="chain-sett-toggle">
+          </label>
+
+          <label class="chain-sett-row">
+            <span class="chain-sett-label">Compact rows</span>
+            <span class="chain-sett-desc">Tighter row height for more hits on screen</span>
+            <input type="checkbox" id="sett-compact" class="chain-sett-toggle">
+          </label>
+
+          <label class="chain-sett-row">
+            <span class="chain-sett-label">Highlight bonus hits</span>
+            <span class="chain-sett-desc">Gold row glow at 10, 25, 50, 100… hits</span>
+            <input type="checkbox" id="sett-bonus-alert" class="chain-sett-toggle">
+          </label>
+
+          <label class="chain-sett-row">
+            <span class="chain-sett-label">Show count in mini pill</span>
+            <span class="chain-sett-desc">Display chain count number in mini view</span>
+            <input type="checkbox" id="sett-mini-count" class="chain-sett-toggle">
+          </label>
+
+          <div class="chain-sett-row chain-sett-row-slider">
+            <span class="chain-sett-label">Panel opacity</span>
+            <span class="chain-sett-desc">Background transparency of the panel</span>
+            <div class="chain-sett-slider-wrap">
+              <input type="range" id="sett-opacity" class="chain-sett-slider" min="50" max="100" step="5">
+              <span id="sett-opacity-val" class="chain-sett-slider-val">96%</span>
+            </div>
+          </div>
+
+          <!-- Section: Timer -->
+          <div class="chain-sett-section-hdr">⏱ Timer</div>
+
+          <div class="chain-sett-row chain-sett-row-slider">
+            <span class="chain-sett-label">Warn color threshold</span>
+            <span class="chain-sett-desc">Seconds remaining when timer turns yellow</span>
+            <div class="chain-sett-slider-wrap">
+              <input type="range" id="sett-warn" class="chain-sett-slider" min="30" max="180" step="10">
+              <span id="sett-warn-val" class="chain-sett-slider-val">90s</span>
+            </div>
+          </div>
+
+          <div class="chain-sett-row chain-sett-row-slider">
+            <span class="chain-sett-label">Danger color threshold</span>
+            <span class="chain-sett-desc">Seconds remaining when timer turns red</span>
+            <div class="chain-sett-slider-wrap">
+              <input type="range" id="sett-danger" class="chain-sett-slider" min="10" max="90" step="5">
+              <span id="sett-danger-val" class="chain-sett-slider-val">30s</span>
+            </div>
+          </div>
+
+          <div class="chain-sett-row chain-sett-row-slider">
+            <span class="chain-sett-label">Timer offset</span>
+            <span class="chain-sett-desc">Adjust displayed timer by ±N seconds (latency compensation)</span>
+            <div class="chain-sett-slider-wrap">
+              <input type="range" id="sett-fudge" class="chain-sett-slider" min="-15" max="15" step="1">
+              <span id="sett-fudge-val" class="chain-sett-slider-val">0s</span>
+            </div>
+          </div>
+
+          <!-- Section: Behaviour -->
+          <div class="chain-sett-section-hdr">🎯 Behaviour</div>
+
+          <label class="chain-sett-row">
+            <span class="chain-sett-label">Sound alert when hit is due</span>
+            <span class="chain-sett-desc">Short beep when your queued hit window opens</span>
+            <input type="checkbox" id="sett-sound" class="chain-sett-toggle">
+          </label>
+
+          <label class="chain-sett-row">
+            <span class="chain-sett-label">Auto-expand to full when due</span>
+            <span class="chain-sett-desc">Switch from mini/icon to full view when it's your hit</span>
+            <input type="checkbox" id="sett-auto-expand" class="chain-sett-toggle">
+          </label>
+
+          <!-- Section: Reset -->
+          <div class="chain-sett-section-hdr" style="margin-top:4px;">🔧 Reset</div>
+          <div style="display:flex;gap:6px;padding:6px 0 2px;">
+            <button id="sett-reset-pos" class="chain-sett-action-btn">Reset Position</button>
+            <button id="sett-reset-size" class="chain-sett-action-btn">Reset Size</button>
+            <button id="sett-reset-all" class="chain-sett-action-btn danger">Reset All</button>
+          </div>
+          <div id="chain-sett-status" style="font-size:10px;color:#44ff88;min-height:13px;text-align:center;padding-bottom:2px;"></div>
+
         </div>
-        <button id="chain-settings-close" style="padding:4px 0;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#888;">Close</button>
+        <button id="chain-settings-close" style="padding:5px 0;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#888;flex-shrink:0;margin-top:6px;">Close</button>
       </div>
     </div>
 
@@ -1000,6 +1190,15 @@
   const pillNext        = document.getElementById("chain-pill-next");
   const pillSep         = document.getElementById("chain-pill-sep");
   const pillBadge       = document.getElementById("chain-pill-badge");
+
+  // Tapping the target name in mini view navigates to the attack page
+  if (pillNext) {
+    pillNext.addEventListener("click", e => {
+      e.stopPropagation();
+      const url = pillNext.dataset.attackUrl;
+      if (url) window.open(url, "_blank");
+    });
+  }
   const nextNum         = document.getElementById("chain-next-num");
   const nextName        = document.getElementById("chain-next-name");
   const nextTimer       = document.getElementById("chain-next-timer");
@@ -1420,13 +1619,164 @@
     document.getElementById("chain-gmenu-settings").addEventListener("click", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
       const sp = document.getElementById("chain-settings-popover");
-      if (sp) { closeAllPopovers(); sp.classList.add("open"); }
+      if (sp) { closeAllPopovers(); sp.classList.add("open"); if (window._chainOpenSettings) window._chainOpenSettings(); }
     });
   })();
 
   // ── Settings popover close ───────────────────────────────────────────────
   const settingsClose = document.getElementById("chain-settings-close");
   if (settingsClose) settingsClose.onclick = closeAllPopovers;
+
+  // ── Settings: wire all controls ──────────────────────────────────────────
+  (function wireSettings() {
+    function applyPanelOpacity(v) {
+      panel.style.background = `rgba(16,18,24,${v})`;
+    }
+    function applyCompactMode(on) {
+      if (on) {
+        panel.style.setProperty("--chain-row-pad", "2px 10px");
+      } else {
+        panel.style.removeProperty("--chain-row-pad");
+      }
+      // Toggle a class so CSS can target row padding
+      panel.classList.toggle("compact", on);
+    }
+    function applyMiniCountVisibility(on) {
+      const pillCount = document.getElementById("chain-pill-count");
+      if (pillCount) pillCount.style.display = on ? "" : "none";
+      // Note: pillSep is controlled independently by the pill-next render logic
+    }
+
+    function settStatusMsg(msg, color) {
+      const el = document.getElementById("chain-sett-status");
+      if (!el) return;
+      el.textContent = msg; el.style.color = color || "#44ff88";
+      clearTimeout(el._t);
+      el._t = setTimeout(() => { el.textContent = ""; }, 2000);
+    }
+
+    // Populate controls with current values
+    function openSettingsPopover() {
+      const sd   = document.getElementById("sett-show-done");
+      const sc   = document.getElementById("sett-compact");
+      const sb   = document.getElementById("sett-bonus-alert");
+      const smc  = document.getElementById("sett-mini-count");
+      const sop  = document.getElementById("sett-opacity");
+      const sopv = document.getElementById("sett-opacity-val");
+      const sw   = document.getElementById("sett-warn");
+      const swv  = document.getElementById("sett-warn-val");
+      const sdg  = document.getElementById("sett-danger");
+      const sdgv = document.getElementById("sett-danger-val");
+      const sf   = document.getElementById("sett-fudge");
+      const sfv  = document.getElementById("sett-fudge-val");
+      const ss   = document.getElementById("sett-sound");
+      const sae  = document.getElementById("sett-auto-expand");
+
+      if (sd)  sd.checked  = settShowDoneHits;
+      if (sc)  sc.checked  = settCompactMode;
+      if (sb)  sb.checked  = settShowBonusAlert;
+      if (smc) smc.checked = settMiniShowCount;
+      if (ss)  ss.checked  = settNotifySound;
+      if (sae) sae.checked = settAutoExpandDue;
+
+      if (sop)  { sop.value  = Math.round(settPanelOpacity * 100); }
+      if (sopv) { sopv.textContent = Math.round(settPanelOpacity * 100) + "%"; }
+      if (sw)   { sw.value   = settWarnThreshold; }
+      if (swv)  { swv.textContent  = settWarnThreshold + "s"; }
+      if (sdg)  { sdg.value  = settDangerThreshold; }
+      if (sdgv) { sdgv.textContent = settDangerThreshold + "s"; }
+      if (sf)   { sf.value   = settTimerFudge; }
+      if (sfv)  { sfv.textContent  = (settTimerFudge >= 0 ? "+" : "") + settTimerFudge + "s"; }
+    }
+
+    // Toggle handlers
+    document.getElementById("sett-show-done")?.addEventListener("change", e => {
+      settShowDoneHits = e.target.checked; GM_setValue(SK_SHOW_DONE_HITS, settShowDoneHits);
+      scheduleRender();
+    });
+    document.getElementById("sett-compact")?.addEventListener("change", e => {
+      settCompactMode = e.target.checked; GM_setValue(SK_COMPACT_MODE, settCompactMode);
+      applyCompactMode(settCompactMode);
+    });
+    document.getElementById("sett-bonus-alert")?.addEventListener("change", e => {
+      settShowBonusAlert = e.target.checked; GM_setValue(SK_SHOW_BONUS_ALERT, settShowBonusAlert);
+      scheduleRender();
+    });
+    document.getElementById("sett-mini-count")?.addEventListener("change", e => {
+      settMiniShowCount = e.target.checked; GM_setValue(SK_MINI_SHOW_COUNT, settMiniShowCount);
+      applyMiniCountVisibility(settMiniShowCount);
+    });
+    document.getElementById("sett-sound")?.addEventListener("change", e => {
+      settNotifySound = e.target.checked; GM_setValue(SK_NOTIFY_SOUND, settNotifySound);
+      if (settNotifySound) playDueSound();  // preview sound on enable
+    });
+    document.getElementById("sett-auto-expand")?.addEventListener("change", e => {
+      settAutoExpandDue = e.target.checked; GM_setValue(SK_AUTO_EXPAND_DUE, settAutoExpandDue);
+    });
+
+    // Slider handlers
+    document.getElementById("sett-opacity")?.addEventListener("input", e => {
+      const v = parseInt(e.target.value) / 100;
+      settPanelOpacity = v; GM_setValue(SK_PANEL_OPACITY, v);
+      applyPanelOpacity(v);
+      const sopv = document.getElementById("sett-opacity-val");
+      if (sopv) sopv.textContent = Math.round(v * 100) + "%";
+    });
+    document.getElementById("sett-warn")?.addEventListener("input", e => {
+      settWarnThreshold = parseInt(e.target.value); GM_setValue(SK_WARN_THRESHOLD, settWarnThreshold);
+      const swv = document.getElementById("sett-warn-val");
+      if (swv) swv.textContent = settWarnThreshold + "s";
+    });
+    document.getElementById("sett-danger")?.addEventListener("input", e => {
+      settDangerThreshold = parseInt(e.target.value); GM_setValue(SK_DANGER_THRESHOLD, settDangerThreshold);
+      const sdgv = document.getElementById("sett-danger-val");
+      if (sdgv) sdgv.textContent = settDangerThreshold + "s";
+    });
+    document.getElementById("sett-fudge")?.addEventListener("input", e => {
+      settTimerFudge = parseInt(e.target.value); GM_setValue(SK_TIMER_FUDGE_USR, settTimerFudge);
+      const sfv = document.getElementById("sett-fudge-val");
+      if (sfv) sfv.textContent = (settTimerFudge >= 0 ? "+" : "") + settTimerFudge + "s";
+    });
+
+    // Reset buttons
+    document.getElementById("sett-reset-pos")?.addEventListener("click", () => {
+      [SK_POS_X_FULL, SK_POS_Y_FULL, SK_POS_X_ICON, SK_POS_Y_ICON, SK_POS_X_MINI, SK_POS_Y_MINI, SK_POS_X, SK_POS_Y].forEach(k => GM_setValue(k, null));
+      const px = Math.max(0, window.innerWidth - panelW - 12);
+      panel.style.left = px + "px"; panel.style.top = "120px";
+      settStatusMsg("Position reset ✓");
+    });
+    document.getElementById("sett-reset-size")?.addEventListener("click", () => {
+      panelW = 380; panelH = null;
+      GM_setValue(SK_PANEL_W, panelW); GM_setValue(SK_PANEL_H, null);
+      panel.style.width = panelW + "px"; panel.style.height = "";
+      settStatusMsg("Size reset ✓");
+    });
+    document.getElementById("sett-reset-all")?.addEventListener("click", () => {
+      if (!confirm("Reset ALL settings to defaults?")) return;
+      [SK_SHOW_DONE_HITS, SK_COMPACT_MODE, SK_NOTIFY_SOUND, SK_TIMER_FUDGE_USR,
+       SK_PANEL_OPACITY, SK_WARN_THRESHOLD, SK_DANGER_THRESHOLD, SK_SHOW_BONUS_ALERT,
+       SK_MINI_SHOW_COUNT, SK_AUTO_EXPAND_DUE, SK_PANEL_W, SK_PANEL_H,
+       SK_POS_X_FULL, SK_POS_Y_FULL, SK_POS_X_ICON, SK_POS_Y_ICON, SK_POS_X_MINI, SK_POS_Y_MINI
+      ].forEach(k => GM_setValue(k, null));
+      settShowDoneHits = true; settCompactMode = false; settNotifySound = false;
+      settTimerFudge = 0; settPanelOpacity = 0.96; settWarnThreshold = 90;
+      settDangerThreshold = 30; settShowBonusAlert = true; settMiniShowCount = true;
+      settAutoExpandDue = false;
+      applyPanelOpacity(0.96); applyCompactMode(false); applyMiniCountVisibility(true);
+      panelW = 380; panelH = null; panel.style.width = panelW + "px"; panel.style.height = "";
+      openSettingsPopover();
+      settStatusMsg("All settings reset ✓");
+      scheduleRender();
+    });
+
+    // Apply initial settings on boot
+    applyPanelOpacity(settPanelOpacity);
+    applyCompactMode(settCompactMode);
+    applyMiniCountVisibility(settMiniShowCount);
+
+    // Expose openSettingsPopover for gear menu wiring
+    window._chainOpenSettings = openSettingsPopover;
+  })();
 
   clearBtn.onclick = () => {
     if (!canClear || !factionId) return;
@@ -1461,7 +1811,7 @@
       outside:      true,
     };
     hitMap.set(outsideHit.id, outsideHit);
-    reNumberPending();
+    reNumberPending(true);  // skipWrite: fbWriteHit writes the full object below
     fbWriteHit(outsideHit);
   });
 
@@ -2230,7 +2580,7 @@
     return `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
   }
   function isHospStillIn(hit) { return !!(hit.hospReleaseAt && hit.hospReleaseAt>Date.now()); }
-  function hitTimerClass(rem) { if(rem<=0)return"due"; if(rem<=60000)return"soon"; return"wait"; }
+  function hitTimerClass(rem) { if(rem<=0)return"due"; if(rem<=settDangerThreshold*1000)return"soon"; return"wait"; }
   function hitRowClass(rem, hosp, untracked) {
     if(untracked) return"untracked";
     if(hosp)      return"hosp-waiting";
@@ -2244,7 +2594,7 @@
   // depending on network latency and poll phase).
   function chainTimerMs() {
     if (liveChainSecs !== null && lastTimerReadAt !== null) {
-      return Math.max(0, (liveChainSecs - (performance.now() - lastTimerReadAt) / 1000)) * 1000;
+      return Math.max(0, (liveChainSecs + settTimerFudge - (performance.now() - lastTimerReadAt) / 1000)) * 1000;
     }
     return 0;
   }
@@ -2287,29 +2637,56 @@
   }
 
   // syncPendingScheduledAt(): called once per UI tick when the DOM timer is live.
-  // Re-anchors the first pending hit's scheduledAt to the current DOM timer
-  // reading so that pendingCountdownMs() stays accurate regardless of the
-  // Firebase polling cadence.  Subsequent hits keep their relative spacing.
+  // Re-derives every pending hit's scheduledAt directly from the live chain timer
+  // so all countdowns stay in sync with the actual Torn countdown, not with
+  // wall-clock offsets that drift between Firebase polls.
+  //
+  // Layout (FIX 4.9.4):
+  //
+  //   currentHitNum  = liveChainCount + 1  (the hit the chain needs RIGHT NOW)
+  //   chainExpiresAt = Date.now() + chainTimerMsForScheduling()
+  //                    (absolute instant the current chain window expires)
+  //
+  //   For each pending hit sorted by hitNumber:
+  //     offset      = max(0, hitNumber - currentHitNum)
+  //                   0 for the current hit, 1 for the next, 2 for the one after…
+  //     scheduledAt = chainExpiresAt + offset * HIT_INTERVAL
+  //
+  //   Result:
+  //     slot N   (current)  → countdown mirrors the live chain timer
+  //     slot N+1            → chainTimer + 5:00
+  //     slot N+2            → chainTimer + 10:00
+  //     …
+  //
+  //   When liveChainCount increments after a hit, chainExpiresAt resets to the
+  //   fresh 5:00 window and every slot immediately re-derives from it, so the
+  //   "N+1 timer = chain_length" invariant is always maintained.
+  //   Hosp override: hospReleaseAt takes priority when it falls later.
   function syncPendingScheduledAt() {
     if (liveChainSecs === null || lastTimerReadAt === null) return;
     const pending = [...hitMap.values()]
       .filter(h => h.status !== "done")
-      .sort((a, b) => a.scheduledAt - b.scheduledAt);
+      .sort((a, b) => (a.chainHitNum || a.hitNumber) - (b.chainHitNum || b.hitNumber));
     if (!pending.length) return;
 
-    // Where the chain timer will expire, as an absolute wall-clock instant.
+    // Absolute wall-clock instant when the current chain window expires.
     const chainExpiresAt = Date.now() + chainTimerMsForScheduling();
 
-    // pos-0 should fire at chain expiry (or hospRelease, whichever is later).
-    const firstHit = pending[0];
-    const newFirst = Math.max(chainExpiresAt, firstHit.hospReleaseAt || 0);
+    // The hit number the chain needs right now.
+    const currentHitNum = liveChainCount !== null
+      ? liveChainCount + 1
+      : getHighestDoneHitNum() + 1;
 
-    // Only adjust when drift exceeds 1s — avoids constant churn on each tick.
-    if (Math.abs(newFirst - firstHit.scheduledAt) < 1000) return;
-
-    const delta = newFirst - firstHit.scheduledAt;
-    // Shift all pending hits by the same delta to preserve relative spacing.
-    pending.forEach(h => { h.scheduledAt += delta; });
+    pending.forEach(h => {
+      const hitNum = h.chainHitNum || h.hitNumber;
+      const offset = Math.max(0, hitNum - currentHitNum); // 0 = current, 1 = next, …
+      const computed = chainExpiresAt + offset * HIT_INTERVAL;
+      const newScheduledAt = Math.max(computed, h.hospReleaseAt || 0);
+      // Only adjust when drift exceeds 1s — avoids constant churn on each tick.
+      if (Math.abs(newScheduledAt - h.scheduledAt) >= 1000) {
+        h.scheduledAt = newScheduledAt;
+      }
+    });
     // No Firebase write — this is a local display-only re-anchor.  The
     // authoritative scheduledAt (from scheduleAndWrite / moveToSlot) persists
     // in Firebase unchanged and drives scheduling decisions.
@@ -2337,17 +2714,26 @@
     return [...hitMap.values()].filter(h=>h.status==="done"&&h.chainHitNum).reduce((m,h)=>Math.max(m,h.chainHitNum),0);
   }
 
-  // FIX #1: reNumberPending now pushes updated numbers back to Firebase
-  // so all clients stay in sync.
-  function reNumberPending() {
+  // reNumberPending: assigns correct hitNumbers locally and syncs to Firebase.
+  // IMPORTANT: Only pushes hitNumber updates for hits that are ALREADY fully committed
+  // to Firebase (i.e. exist in the server payload). Newly-created hits (added to hitMap
+  // by scheduleAndWrite but not yet written) must NOT receive a field-level PUT — a
+  // field-level write to /hits/{id}/hitNumber recreates the parent node in Firebase
+  // even after the /hits node was wiped, producing zombie entries with only hitNumber.
+  // The caller (scheduleAndWrite) always calls fbWriteHit() immediately after
+  // reNumberPending(), which writes the complete hit object including the correct number.
+  // Pass skipWrite=true to suppress all Firebase writes (used during local-only renumber).
+  function reNumberPending(skipWrite) {
     const highest = getHighestDoneHitNum();
     const pending = [...hitMap.values()].filter(h=>h.status!=="done").sort((a,b)=>a.scheduledAt-b.scheduledAt);
     pending.forEach((h, i) => {
       const newNum = highest + i + 1;
       if (h.hitNumber !== newNum) {
         h.hitNumber = newNum;
-        // Push the updated hitNumber to Firebase so all clients agree
-        if (h.id && fbConfigured() && fbToken) {
+        // Only push a field-level hitNumber update if the hit is already in Firebase
+        // as a complete object (has a status field in the server copy).
+        // Newly-created hits are skipped here — fbWriteHit writes the full object.
+        if (!skipWrite && h.id && fbConfigured() && fbToken && h._fbCommitted) {
           fbPut(P.hitField(h.id, "hitNumber"), newNum);
         }
       }
@@ -2747,6 +3133,7 @@
       // But never wipe local state if data is undefined/missing (transient Firebase state).
       if (data === null) {
         hitMap.clear();  // deliberate clear from Firebase
+        _deletedHitIds.clear();  // all hits gone — no need to guard deletions any more
       } else if (data && typeof data === "object") {
         // Merge: keep any local pending hits that Firebase doesn't know about yet.
         // These are hits written by fbWriteHit whose PUT hasn't been committed before
@@ -2755,9 +3142,31 @@
           ([id, h]) => h.status !== "done" && !(id in data)
         );
         hitMap.clear();
-        Object.entries(data).forEach(([id, h]) => { if(h) hitMap.set(id, h); });
-        // Re-inject local-only pending hits so they survive until Firebase confirms
-        for (const [id, h] of localPendingNotInFb) hitMap.set(id, h);
+        Object.entries(data).forEach(([id, h]) => {
+          // BUG FIX: Never re-insert a hit that was locally deleted — skip until
+          // Firebase confirms the DELETE by omitting the node from future responses.
+          // BUG FIX: Skip "zombie" entries that only have a hitNumber and no status/targetName —
+          // these are leftover partial nodes after fbClearHits() wipes the /hits node but
+          // Firebase retains child keys that were written individually (e.g. hitNumber fields).
+          if (h && !_deletedHitIds.has(id) && h.status && h.targetName) {
+            h._fbCommitted = true;
+            hitMap.set(id, h);
+          } else if (h && !h.status && !h.targetName && !_deletedHitIds.has(id)) {
+            // Zombie node: only has hitNumber (or similar partial data), no status/targetName.
+            // This was created by a stale field-level hitNumber PUT after the /hits node
+            // was wiped. Delete it from Firebase so it stops reappearing on every poll.
+            _deletedHitIds.add(id);
+            fbDelete(P.hit(id));
+          }
+        });
+        // Re-inject local-only pending hits so they survive until Firebase confirms,
+        // but never re-inject hits that are pending deletion.
+        for (const [id, h] of localPendingNotInFb) {
+          if (!_deletedHitIds.has(id)) hitMap.set(id, h);
+        }
+        // Prune _deletedHitIds for entries that Firebase has already removed
+        // (they're no longer in the server payload, so the guard is no longer needed).
+        _deletedHitIds.forEach(id => { if (!(id in data)) _deletedHitIds.delete(id); });
       }
       // If data is undefined or any other falsy — leave hitMap alone
       reNumberPending();
@@ -2769,8 +3178,16 @@
     const hitMatch = path.match(/^\/hits\/([^/]+)$/);
     if (hitMatch) {
       const id = hitMatch[1];
-      if (data === null) { hitMap.delete(id); }
-      else { hitMap.set(id, data); }
+      if (data === null) {
+        hitMap.delete(id);
+        _deletedHitIds.delete(id);  // Firebase confirmed the delete — release the guard
+      } else if (!_deletedHitIds.has(id)) {
+        // BUG FIX: Don't re-insert a hit that's pending local deletion
+        if (data && data.status && data.targetName) {
+          data._fbCommitted = true;
+          hitMap.set(id, data);
+        }
+      }
       reNumberPending();
       setSyncDot("live");
       scheduleRender();
@@ -2878,7 +3295,7 @@
               ([id, h]) => h.status !== "done" && !(id in data.hits)
             );
             hitMap.clear();
-            Object.entries(data.hits).forEach(([id,h]) => { if(h) hitMap.set(id,h); });
+            Object.entries(data.hits).forEach(([id,h]) => { if(h && h.status && h.targetName) { h._fbCommitted = true; hitMap.set(id,h); } });
             for (const [id, h] of localPendingNotInFb) hitMap.set(id, h);
           } else if (data.hits === null) {
             hitMap.clear();  // deliberate clear
@@ -2917,6 +3334,9 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   function fbWriteHit(hit) {
+    // Mark as committed optimistically so reNumberPending() may field-write hitNumber
+    // on subsequent renumbers (e.g. when another hit is removed from the queue).
+    hit._fbCommitted = true;
     fbPut(P.hit(hit.id), hit);
     hitMap.set(hit.id, hit);
     reNumberPending();
@@ -3451,16 +3871,16 @@
       const disp = Math.max(0, Math.round(ms / 1000));
       const txt  = `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`;
       chainTimerVal.textContent = txt; pillTimer.textContent = txt;
-      const cls = disp<=30?"ct-danger":disp<=90?"ct-warn":"ct-ok";
+      const cls = disp<=settDangerThreshold?"ct-danger":disp<=settWarnThreshold?"ct-warn":"ct-ok";
       chainTimerVal.className=cls; pillTimer.className=cls;
     }
     if (count!==null) {
-      chainCountBadge.textContent="#"+count;
+      chainCountBadge.textContent=count;
       chainCountBadge.className = chainConfirmed?"running":"warming";
       warmingMsg.style.display  = chainConfirmed?"none":"";
-      // Update pill count
+      // Update pill count — show N+1 (the next hit number needed)
       if (pillCount) {
-        pillCount.textContent = "#"+count;
+        pillCount.textContent = count + 1;
         pillCount.style.color = chainConfirmed ? "#44ff88" : "#ffaa44";
       }
     } else {
@@ -3654,8 +4074,24 @@
       const matchedEntry = [...hitMap.entries()].find(([,h]) =>
         h.status==="pending" && String(h.targetId)===String(c.targetId)
       );
+      // Also check for an "Unspecified" outside hit occupying this chain slot number,
+      // BUT only if it was claimed by the same person who made the scraped hit.
+      // An unspecified queued by Sypharius should only be consumed when Sypharius
+      // makes the untracked hit — not when someone else fills the slot.
+      const outsideEntry = !matchedEntry ? [...hitMap.entries()].find(([,h]) =>
+        h.status==="pending" && (h.outside || !h.targetId) &&
+        (h.chainHitNum === c.chainHitNum || h.hitNumber === c.chainHitNum) &&
+        (!h.claimedBy || h.claimedBy === c.attackerName)
+      ) : null;
       if (matchedEntry) {
         fbUpdateHit(matchedEntry[0], {
+          status:"done", doneAt:c.attackTime,
+          hitNumber:c.chainHitNum, chainHitNum:c.chainHitNum,
+          claimedBy:c.attackerName, targetId:c.targetId, targetName:c.targetName,
+        });
+      } else if (outsideEntry) {
+        // A real hit filled this slot — consume the Unspecified placeholder for that slot
+        fbUpdateHit(outsideEntry[0], {
           status:"done", doneAt:c.attackTime,
           hitNumber:c.chainHitNum, chainHitNum:c.chainHitNum,
           claimedBy:c.attackerName, targetId:c.targetId, targetName:c.targetName,
@@ -3716,13 +4152,26 @@
       tc = "done"; timerText = "Done";
     } else {
       const rem = pendingCountdownMs(queuePos);
-      // pos=0 shows the chain timer (when to hit), not "NOW"
-      // "NOW" only shows when timer has expired (rem <= 0)
-      timerText = rem <= 0 ? "NOW" : formatTime(rem);
-      tc = hitTimerClass(rem);
-      rc = hitRowClass(rem, hosp, hit.untracked);
+      // Timer rules:
+      //   Hits 1–9  (warmup):  always show NOW — all immediately actionable.
+      //   Hit  10   (confirm): shows the live chain timer countdown.
+      //   Hits 11+  (running): shows chain timer + N * 5 min offsets.
+      // When no live chain timer exists, hits outside warmup range show "—"
+      // (their scheduledAt timestamps are stale/past — rem=0 is misleading).
+      const hitNum = hit.chainHitNum || hit.hitNumber;
+      const hasLiveTimer = liveChainSecs !== null && lastTimerReadAt !== null;
+      const currentHitNumForTimer = liveChainCount !== null ? liveChainCount + 1 : getHighestDoneHitNum() + 1;
+      const isCurrentTarget = !isDone && hitNum === currentHitNumForTimer;
+      const isWarmupSlot = hitNum < CHAIN_CONFIRM_HITS;   // slots 1-9: always NOW
+      // Show NOW only for warmup slots or when the countdown has actually elapsed.
+      // Non-warmup slots with no live timer get "—" instead of a misleading NOW.
+      const showNow = isWarmupSlot || (hasLiveTimer && (rem <= 0 || isCurrentTarget));
+      const showDash = !isWarmupSlot && !hasLiveTimer;
+      timerText = showDash ? "—" : showNow ? "NOW" : formatTime(rem);
+      tc = showDash ? "wait" : hitTimerClass(showNow ? 0 : rem);
+      rc = showDash ? "waiting" : hitRowClass(showNow ? 0 : rem, hosp, hit.untracked);
     }
-    const isBonus = BONUS_HITS.has(hit.chainHitNum || hit.hitNumber);
+    const isBonus = settShowBonusAlert && BONUS_HITS.has(hit.chainHitNum || hit.hitNumber);
     // "Current" hit = the next hit the chain needs right now.
     // When chain is live: liveChainCount + 1 (e.g. chain at 13 → hit 14 is current).
     // Fallback: highest done + 1.
@@ -3769,8 +4218,28 @@
         const hit = hitMap.get(hitId);
         if (!hit) return;
         if (!confirm(`Remove ${hit.targetName} from the queue?`)) return;
+
+        // BUG FIX: Register deletion BEFORE removing from hitMap so applyPatch
+        // merges never re-inject this hit from Firebase before the DELETE lands.
+        _deletedHitIds.add(hitId);
+        _notifiedHitIds.delete(hitId);
+
+        // Capture the deleted hit's scheduledAt so we can close the gap.
+        const deletedScheduledAt = hit.scheduledAt;
         fbDelete(P.hit(hitId));
         hitMap.delete(hitId);
+
+        // BUG FIX: Shift remaining pending hits' scheduledAt to close the gap
+        // left by the removed hit so their displayed timers are correct immediately.
+        const remaining = [...hitMap.values()]
+          .filter(h => h.status !== "done")
+          .sort((a, b) => a.scheduledAt - b.scheduledAt);
+        remaining.forEach(h => {
+          if (h.scheduledAt > deletedScheduledAt) {
+            h.scheduledAt -= HIT_INTERVAL;
+          }
+        });
+
         reNumberPending();
         scheduleRender();
       });
@@ -3840,11 +4309,11 @@
     if (titleEl) titleEl.textContent = factionName ? `⛓ ${factionName}` : "⛓ Chain Board";
 
     const pendingHits = getPendingHits();
-    const doneHits    = getDoneHits();
+    const doneHits    = settShowDoneHits ? getDoneHits() : [];
 
     // Only refresh 🎯 buttons when hit structure has changed (renderKey will differ)
     const allHitsForKey = [...doneHits, ...pendingHits];
-    const renderKey = allHitsForKey.map(h => h.id + h.status + (h.chainHitNum||"")).join("|");
+    const renderKey = allHitsForKey.map(h => h.id + h.status + (h.chainHitNum||"")).join("|") + "|c" + (liveChainCount||0);
     if (renderKey !== lastRenderedIds) {
       // Build a lookup of pending targetId → hit once — O(hits) — rather than
       // calling [...hitMap.values()].find() inside the loop which is O(buttons × hits).
@@ -3868,31 +4337,38 @@
     pillBadge.classList.toggle("visible", pendingHits.length > 0);
     if (iconBadge) { iconBadge.textContent = pendingHits.length; iconBadge.classList.toggle("visible", pendingHits.length > 0); }
     if (pillNext) {
-      // Show the queued target for the slot the chain needs RIGHT NOW: liveChainCount+1.
-      // pendingHits[0] is queue-position-0 which may be ahead of or behind the live count
-      // (e.g. queued as hit #5 but chain is already at 3 — slot 4 is what matters).
-      // Fall back to pendingHits[0] when there's no live count yet.
-      const currentSlot = liveChainCount !== null ? liveChainCount + 1 : null;
-      const nextUp = currentSlot !== null
-        ? (pendingHits.find(h => (h.chainHitNum || h.hitNumber) === currentSlot) || pendingHits[0])
-        : pendingHits[0];
-      pillNext.textContent = nextUp ? nextUp.targetName : "Unclaimed";
-      pillNext.style.color = nextUp ? "" : "#ff8888";
-      if (pillSep) pillSep.style.display = "";
+      // liveChainCount = hits already completed. The next hit needed = liveChainCount + 1.
+      if (liveChainCount !== null) {
+        // Chain count known — find the pending hit for the next slot
+        const nextSlot = liveChainCount + 1;
+        const nextUp = pendingHits.find(h => (h.chainHitNum || h.hitNumber) === nextSlot)
+          || pendingHits[0];  // fallback to first pending if no exact slot match
+        pillNext.textContent = nextUp ? nextUp.targetName : "Unclaimed";
+        pillNext.style.color = nextUp ? "" : "#ff8888";
+        pillNext.dataset.attackUrl = (nextUp && nextUp.attackUrl && nextUp.attackUrl !== "#") ? nextUp.attackUrl : "";
+        if (pillSep) pillSep.style.display = "";
+      } else if (pendingHits.length > 0) {
+        // No chain count yet but we have queued hits — show first pending
+        const nextUp = pendingHits[0];
+        pillNext.textContent = nextUp.targetName;
+        pillNext.style.color = "#aaa";
+        pillNext.dataset.attackUrl = (nextUp.attackUrl && nextUp.attackUrl !== "#") ? nextUp.attackUrl : "";
+        if (pillSep) pillSep.style.display = "";
+      } else {
+        // No chain data and no pending hits — nothing to show
+        pillNext.textContent = "—";
+        pillNext.style.color = "#445";
+        pillNext.dataset.attackUrl = "";
+        if (pillSep) pillSep.style.display = "none";
+      }
     }
 
     // ── Single scrollable list: done history + all pending ───────────────────
-    const hasDoneOrPending = doneHits.length > 0 || pendingHits.length > 0;
+    // Show content if we have hits OR if we have a known chain count (need placeholders)
+    const hasDoneOrPending = doneHits.length > 0 || pendingHits.length > 0 || liveChainCount !== null;
     if (!hasDoneOrPending) {
       colHead.style.display = "none";
-      if (liveChainCount !== null) {
-        const nextSlot = getHighestDoneHitNum() + 1;
-        const disp = Math.round(chainTimerMs() / 1000);
-        const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-        inner.innerHTML = `<div class="chain-hit-row unclaimed sticky-now"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
-      } else {
-        inner.innerHTML = `<div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">No hits queued.<br>Click 🎯 next to an attack button.</div>`;
-      }
+      inner.innerHTML = `<div style="padding:18px 10px;text-align:center;font-size:11px;color:#334;line-height:1.6">No hits queued.<br>Click 🎯 next to an attack button.</div>`;
       lastRenderedIds = renderKey;
       return;
     }
@@ -3907,16 +4383,56 @@
       const now = Date.now();
       let html = "";
 
-      // Done hits (history)
-      for (const hit of doneHits) {
-        html += hitRowHtml(hit, -1, now);
+      // Done hits (history) + "Waiting for Data" placeholders for unrecorded past slots.
+      // Build slot→hit lookup from the FULL hitMap (not display-filtered doneHits) so
+      // placeholders are replaced correctly even when settShowDoneHits=false.
+      const allDoneBySlot = new Map();
+      for (const h of hitMap.values()) {
+        if (h.status !== "done") continue;
+        const slot = h.chainHitNum || h.hitNumber;
+        if (!slot) continue;
+        const ex = allDoneBySlot.get(slot);
+        // Prefer user-queued over scraped untracked
+        if (!ex || (ex.untracked && !h.untracked)) allDoneBySlot.set(slot, h);
+      }
+      // How far back do we fill? Up to liveChainCount (hits already done on the chain).
+      const placeholderUpTo = liveChainCount !== null ? liveChainCount : 0;
+      if (placeholderUpTo > 0) {
+        for (let slot = 1; slot <= placeholderUpTo; slot++) {
+          const doneHit = allDoneBySlot.get(slot);
+          if (doneHit && settShowDoneHits) {
+            html += hitRowHtml(doneHit, -1, now);
+          } else if (doneHit) {
+            // Done hit exists but "show done hits" is off.
+            // Still render a minimal collapsed row so the slot stays visible and
+            // does not leave a gap — without this, the "Waiting for Data" placeholder
+            // is correctly suppressed (we have data) but the done row is also hidden,
+            // making it look like the WFD was consumed by the poll cycle.
+            html += `<div class="chain-hit-row done" style="opacity:.25" data-hit-id="${doneHit.id}" data-queue-pos="-1">` +
+              `<span class="chain-hit-num">${slot}</span>` +
+              `<span class="chain-hit-claimer" style="font-size:10px">\u2713 ${escHtml(doneHit.claimedBy||"\u2014")}</span>` +
+              `<span class="chain-hit-target" style="font-size:10px">${escHtml(doneHit.targetName||"\u2014")}</span>` +
+              `<span class="chain-hit-timer done">Done</span>` +
+              `<span></span><span></span></div>`;
+          } else {
+            html += `<div class="chain-hit-row waiting" style="opacity:.4;font-style:italic">` +
+              `<span class="chain-hit-num" style="color:#445">${slot}</span>` +
+              `<span class="chain-hit-claimer" style="color:#334">—</span>` +
+              `<span class="chain-hit-target" style="color:#445">Waiting for Data</span>` +
+              `<span class="chain-hit-timer wait" style="color:#334">—</span>` +
+              `<span></span><span></span></div>`;
+          }
+        }
+      } else {
+        // No live count — just render whatever done hits we have
+        for (const hit of doneHits) html += hitRowHtml(hit, -1, now);
       }
 
       // All pending hits — pos 0 gets sticky-now via hitRowHtml
       pendingHits.forEach((hit, i) => { html += hitRowHtml(hit, i, now); });
 
       // Unclaimed placeholder when chain is live but queue is empty
-      if (pendingHits.length === 0 && doneHits.length > 0 && liveChainCount !== null) {
+      if (pendingHits.length === 0 && allDoneBySlot.size === 0 && liveChainCount !== null) {
         const nextSlot = getHighestDoneHitNum() + 1;
         const disp = Math.round(chainTimerMs() / 1000);
         const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
@@ -3986,17 +4502,28 @@
         const hit  = sortedPending[pos] || null;
         const hosp = hit ? isHospStillIn(hit) : false;
         const rem  = pendingCountdownMs(pos, sortedPending);
-        const newText  = rem <= 0 ? "NOW" : formatTime(rem);
-        const newClass = `chain-hit-timer ${hitTimerClass(rem)}`;
+        // Timer rules (same as hitRowHtml):
+        //   Hits 1-9  (warmup):  always NOW
+        //   Hit  10   (confirm): chain timer
+        //   Hits 11+  (running): chain timer + offsets
+        // No live timer → non-warmup slots show "—" (scheduledAt is stale).
+        const hitNum      = hit ? (hit.chainHitNum || hit.hitNumber) : 0;
+        const isCurrent   = hitNum === currentHitNum;
+        const hasLiveTimer = liveChainSecs !== null && lastTimerReadAt !== null;
+        const isWarmupSlot = hitNum < CHAIN_CONFIRM_HITS;
+        const showNow     = isWarmupSlot || (hasLiveTimer && (isCurrent || rem <= 0));
+        const showDash    = !isWarmupSlot && !hasLiveTimer;
+        const dispRem     = showNow ? 0 : rem;
+        const newText     = showDash ? "—" : dispRem <= 0 ? "NOW" : formatTime(dispRem);
+        const newClass   = showDash ? "chain-hit-timer wait" : `chain-hit-timer ${hitTimerClass(dispRem)}`;
         // Only write if value changed — avoids unnecessary style recalcs
         if (cell.textContent !== newText) cell.textContent = newText;
         if (cell.className   !== newClass) cell.className  = newClass;
         const row = cell.closest(".chain-hit-row");
         if (row) {
-          const newRc   = hitRowClass(rem, hosp, hit?.untracked || false);
-          const hitNum  = hit ? (hit.chainHitNum || hit.hitNumber) : 0;
-          const isBonus = BONUS_HITS.has(hitNum);
-          const isNow   = hitNum === currentHitNum;
+          const newRc   = showDash ? "waiting" : hitRowClass(dispRem, hosp, hit?.untracked || false);
+          const isBonus = settShowBonusAlert && BONUS_HITS.has(hitNum);
+          const isNow   = isCurrent && hasLiveTimer;
           const newRowClass = `chain-hit-row ${newRc}${isBonus?" bonus":""}${isNow?" sticky-now":""}`;
           if (row.className !== newRowClass) row.className = newRowClass;
         }
@@ -4025,6 +4552,38 @@
 
     // Top-bar chain badge (all pages)
     updateTopBarBadge();
+
+    // ── Auto-expand + sound notification when OWN hit becomes due ────────────
+    if (settNotifySound || settAutoExpandDue) {
+      // Only fire alerts when the page is in the foreground — prevents background tabs
+      // from beeping and auto-expanding continuously on every poll cycle.
+      const pageVisible = !document.hidden;
+      const myPending = [...hitMap.values()].filter(h => h.status !== "done" && h.claimedBy === ownName)
+        .sort((a, b) => a.scheduledAt - b.scheduledAt);
+      if (myPending.length) {
+        const first = myPending[0];
+        const rem = Math.max(0, first.scheduledAt - Date.now());
+        // Fire exactly once when countdown hits 0 — keyed by hit ID in a persistent Set
+        // so Firebase re-syncs (which wipe per-object flags) don't re-trigger the alert.
+        if (rem < 1000 && !_notifiedHitIds.has(first.id)) {
+          _notifiedHitIds.add(first.id);
+          if (pageVisible) {
+            playDueSound();
+            if (settAutoExpandDue && viewMode !== 0) {
+              viewMode = 0; GM_setValue(SK_VIEW_MODE, viewMode); applyViewMode();
+            }
+          }
+        } else if (rem > 5000) {
+          // Reset: hit is back in the future (e.g. rescheduled), allow future alert
+          _notifiedHitIds.delete(first.id);
+        }
+        // Purge stale IDs for hits that are now done or removed
+        _notifiedHitIds.forEach(id => {
+          const h = hitMap.get(id);
+          if (!h || h.status === "done") _notifiedHitIds.delete(id);
+        });
+      }
+    }
   }, 1000);
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -4063,10 +4622,13 @@
       sessionId:     chainSessionId,
     };
 
-    // FIX #1: add to hitMap first, THEN reNumber so hitNumber is correct before write
+    // Add to hitMap first, THEN reNumber so hitNumber is correct before write.
+    // Pass skipWrite=true to reNumberPending: existing hits already have the right
+    // numbers, and the new hit is about to be written in full by fbWriteHit below —
+    // a field-level hitNumber PUT here would create a zombie partial node.
     hitMap.set(newHit.id, newHit);
-    reNumberPending();
-    fbWriteHit(newHit);  // writes the now-numbered hit to Firebase
+    reNumberPending(true);
+    fbWriteHit(newHit);  // writes the complete, correctly-numbered hit to Firebase
 
     if (btn.dataset.iconClaimed) { btn.innerHTML = btn.dataset.iconClaimed; btn.style.color="#44ff88"; }
     else { btn.textContent = "✓"; }
