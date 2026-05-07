@@ -1,8 +1,7 @@
-
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.8.22
+// @version      4.8.24
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -45,7 +44,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.8.22";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.8.24";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -1165,10 +1164,6 @@
     ].forEach(p => p && p.classList.remove("open"));
   }
 
-  document.addEventListener("click", e => {
-    if (!panel.contains(e.target)) closeAllPopovers();
-  });
-
   // ══════════════════════════════════════════════════════════════════════════
   //  Draggable
   // ══════════════════════════════════════════════════════════════════════════
@@ -1215,34 +1210,37 @@
       }
     }
 
+    // Attach move/end listeners only while a drag is in progress — zero cost when idle.
+    function attachDragListeners() {
+      const mm = e => moveDrag(e.clientX, e.clientY);
+      const mu = () => { endDrag(); document.removeEventListener("mousemove", mm); document.removeEventListener("mouseup", mu); };
+      document.addEventListener("mousemove", mm);
+      document.addEventListener("mouseup", mu);
+    }
+    function attachTouchDragListeners() {
+      const tm = e => { if(!dragging) return; e.preventDefault(); const t=e.touches[0]; moveDrag(t.clientX,t.clientY); };
+      const te = () => { endDrag(); document.removeEventListener("touchmove", tm); document.removeEventListener("touchend", te); };
+      document.addEventListener("touchmove", tm, {passive:false});
+      document.addEventListener("touchend", te);
+    }
+
     // Header drag (full + mini modes)
-    handle.addEventListener("mousedown",e=>{if(DRAG_IDS.has(e.target.id)||e.target===handle)startDrag(e.clientX,e.clientY);});
+    handle.addEventListener("mousedown",e=>{if(DRAG_IDS.has(e.target.id)||e.target===handle){startDrag(e.clientX,e.clientY);attachDragListeners();}});
     handle.addEventListener("touchstart",e=>{
       if(DRAG_IDS.has(e.target.id)||e.target===handle){
-        const t=e.touches[0]; startDrag(t.clientX,t.clientY);
+        const t=e.touches[0]; startDrag(t.clientX,t.clientY); attachTouchDragListeners();
       }
     },{passive:true});
 
     // Icon mode: drag on the whole panel (header is hidden)
     panel.addEventListener("mousedown",e=>{
-      if(viewMode===1) startDrag(e.clientX,e.clientY);
+      if(viewMode===1){startDrag(e.clientX,e.clientY);attachDragListeners();}
     });
     panel.addEventListener("touchstart",e=>{
       if(viewMode===1){
-        const t=e.touches[0]; startDrag(t.clientX,t.clientY);
+        const t=e.touches[0]; startDrag(t.clientX,t.clientY); attachTouchDragListeners();
       }
     },{passive:true});
-
-    document.addEventListener("mousemove",e=>moveDrag(e.clientX,e.clientY));
-    document.addEventListener("mouseup",endDrag);
-    document.addEventListener("touchmove",e=>{
-      if(!dragging) return;
-      e.preventDefault();
-      const t=e.touches[0]; moveDrag(t.clientX,t.clientY);
-    },{passive:false});
-    document.addEventListener("touchend",e=>{
-      endDrag();
-    });
   })();
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1275,12 +1273,20 @@
       GM_setValue(SK_POS_X, cx);
       GM_setValue(SK_POS_Y, cy);
     }
-    resizeHandle.addEventListener("mousedown",e=>{e.preventDefault();e.stopPropagation();start(e.clientX,e.clientY);});
-    document.addEventListener("mousemove",e=>move(e.clientX,e.clientY));
-    document.addEventListener("mouseup",end);
-    resizeHandle.addEventListener("touchstart",e=>{e.stopPropagation();const t=e.touches[0];start(t.clientX,t.clientY);},{passive:true});
-    document.addEventListener("touchmove",e=>{if(!resizing)return;e.preventDefault();const t=e.touches[0];move(t.clientX,t.clientY);},{passive:false});
-    document.addEventListener("touchend",end);
+    resizeHandle.addEventListener("mousedown",e=>{
+      e.preventDefault();e.stopPropagation();start(e.clientX,e.clientY);
+      const mm = e2 => move(e2.clientX,e2.clientY);
+      const mu = () => { end(); document.removeEventListener("mousemove",mm); document.removeEventListener("mouseup",mu); };
+      document.addEventListener("mousemove",mm);
+      document.addEventListener("mouseup",mu);
+    });
+    resizeHandle.addEventListener("touchstart",e=>{
+      e.stopPropagation();const t=e.touches[0];start(t.clientX,t.clientY);
+      const tm = e2 => { if(!resizing)return;e2.preventDefault();const t2=e2.touches[0];move(t2.clientX,t2.clientY); };
+      const te = () => { end(); document.removeEventListener("touchmove",tm); document.removeEventListener("touchend",te); };
+      document.addEventListener("touchmove",tm,{passive:false});
+      document.addEventListener("touchend",te);
+    },{passive:true});
 
     // ── Pinch-to-resize (two-finger) ─────────────────────────────────────────
     // Lets users resize the panel without needing to reach the corner handle.
@@ -1395,7 +1401,6 @@
       closeAllPopovers();
       gearMenu.classList.add("open");
     });
-    document.addEventListener("click", () => gearMenu.classList.remove("open"));
     document.getElementById("chain-gmenu-bug").addEventListener("click", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
       document.getElementById("chain-bug-btn").click();
@@ -1469,16 +1474,6 @@
     closeAllPopovers();
     renderPresence();
     presencePopover.classList.add("open");
-  });
-
-  // Offline section toggle
-  document.addEventListener("click", e => {
-    const toggle = e.target.closest("#chain-offline-toggle");
-    if (!toggle) return;
-    e.stopPropagation();
-    const list = document.getElementById("chain-offline-list");
-    const isOpen = toggle.classList.toggle("open");
-    if (list) list.classList.toggle("open", isOpen);
   });
 
   // ── Shared sort: own name first, then A→Z ─────────────────────────────────
@@ -1770,12 +1765,20 @@
       inbox.style.height = Math.min(MAX_H, Math.max(MIN_H, startH-(cy-startY)))+"px"; }
     function onEnd()     { if(!resizing) return; resizing=false; document.body.style.userSelect=""; GM_setValue(SK_ADMIN_H, inbox.offsetHeight); }
 
-    handle.addEventListener("mousedown",  e => { e.preventDefault(); e.stopPropagation(); onStart(e.clientY); });
-    handle.addEventListener("touchstart", e => { e.stopPropagation(); onStart(e.touches[0].clientY); }, {passive:true});
-    document.addEventListener("mousemove", e => onMove(e.clientY));
-    document.addEventListener("touchmove", e => { if(resizing){ e.preventDefault(); onMove(e.touches[0].clientY); } }, {passive:false});
-    document.addEventListener("mouseup",  onEnd);
-    document.addEventListener("touchend", onEnd);
+    handle.addEventListener("mousedown",  e => {
+      e.preventDefault(); e.stopPropagation(); onStart(e.clientY);
+      const mm = e2 => onMove(e2.clientY);
+      const mu = () => { onEnd(); document.removeEventListener("mousemove",mm); document.removeEventListener("mouseup",mu); };
+      document.addEventListener("mousemove", mm);
+      document.addEventListener("mouseup", mu);
+    });
+    handle.addEventListener("touchstart", e => {
+      e.stopPropagation(); onStart(e.touches[0].clientY);
+      const tm = e2 => { if(resizing){ e2.preventDefault(); onMove(e2.touches[0].clientY); } };
+      const te = () => { onEnd(); document.removeEventListener("touchmove",tm); document.removeEventListener("touchend",te); };
+      document.addEventListener("touchmove", tm, {passive:false});
+      document.addEventListener("touchend", te);
+    }, {passive:true});
   })();
 
   // ── Tracker resize handle ─────────────────────────────────────────────────
@@ -1802,12 +1805,20 @@
       document.body.style.userSelect="";
       GM_setValue(SK_TRACKER_H, trackerPopover.offsetHeight);
     }
-    handle.addEventListener("mousedown",  e => { e.preventDefault(); e.stopPropagation(); onStart(e.clientY); });
-    handle.addEventListener("touchstart", e => { e.stopPropagation(); onStart(e.touches[0].clientY); }, {passive:true});
-    document.addEventListener("mousemove", e => onMove(e.clientY));
-    document.addEventListener("touchmove", e => { if(resizing) { e.preventDefault(); onMove(e.touches[0].clientY); } }, {passive:false});
-    document.addEventListener("mouseup",  onEnd);
-    document.addEventListener("touchend", onEnd);
+    handle.addEventListener("mousedown",  e => {
+      e.preventDefault(); e.stopPropagation(); onStart(e.clientY);
+      const mm = e2 => onMove(e2.clientY);
+      const mu = () => { onEnd(); document.removeEventListener("mousemove",mm); document.removeEventListener("mouseup",mu); };
+      document.addEventListener("mousemove", mm);
+      document.addEventListener("mouseup", mu);
+    });
+    handle.addEventListener("touchstart", e => {
+      e.stopPropagation(); onStart(e.touches[0].clientY);
+      const tm = e2 => { if(resizing) { e2.preventDefault(); onMove(e2.touches[0].clientY); } };
+      const te = () => { onEnd(); document.removeEventListener("touchmove",tm); document.removeEventListener("touchend",te); };
+      document.addEventListener("touchmove", tm, {passive:false});
+      document.addEventListener("touchend", te);
+    }, {passive:true});
   })();
 
   // Submit bug report
@@ -2180,12 +2191,35 @@
   }
 
   // Close bug popovers when clicking outside panel — but not when clicking inside them
+  // ── Single consolidated document click handler ────────────────────────────
+  // Replaces four separate document.addEventListener("click") calls:
+  //   1. closeAllPopovers when clicking outside panel
+  //   2. gearMenu close
+  //   3. offline-section toggle
+  //   4. bug/tracker popover close when clicking outside panel
   document.addEventListener("click", e => {
-    if (!panel.contains(e.target)) {
-      bugMenu.classList.remove("open");
-      // Only close the report/tracker popover if click is outside panel
-      if (bugPopover && !bugPopover.contains(e.target)) bugPopover.classList.remove("open");
+    const outsidePanel = !panel.contains(e.target);
+
+    // 1 + 4: close all popovers (including bug/tracker) on outside click
+    if (outsidePanel) {
+      closeAllPopovers();
+      // bug popovers need explicit remove in case they're outside the panel contains check
+      if (bugMenu)        bugMenu.classList.remove("open");
+      if (bugPopover     && !bugPopover.contains(e.target))     bugPopover.classList.remove("open");
       if (trackerPopover && !trackerPopover.contains(e.target)) trackerPopover.classList.remove("open");
+    }
+
+    // 2: gear menu closes on any click (inside or outside panel)
+    const gearMenu = document.getElementById("chain-gear-menu");
+    if (gearMenu) gearMenu.classList.remove("open");
+
+    // 3: offline section toggle
+    const toggle = e.target.closest("#chain-offline-toggle");
+    if (toggle) {
+      e.stopPropagation();
+      const list = document.getElementById("chain-offline-list");
+      const isOpen = toggle.classList.toggle("open");
+      if (list) list.classList.toggle("open", isOpen);
     }
   });
 
@@ -3818,7 +3852,7 @@
       for (const h of hitMap.values()) {
         if (h.status === "pending") pendingByTargetId.set(h.targetId, h);
       }
-      document.querySelectorAll(".chain-target-btn").forEach(btn => {
+      injectRoot.querySelectorAll(".chain-target-btn").forEach(btn => {
         const profileA = btn.nextElementSibling;
         if (!profileA) return;
         const m = (profileA.href || "").match(/XID=(\d+)/i);
@@ -3943,7 +3977,10 @@
         .filter(h => h.status === "pending")
         .sort((a, b) => a.hitNumber - b.hitNumber);
       const currentHitNum = liveChainCount !== null ? liveChainCount + 1 : getHighestDoneHitNum() + 1;
-      document.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
+      // Use the cached panel inner reference to scope querySelector — avoids scanning the whole document
+      const _panelInner = document.getElementById("chain-panel-inner");
+      if (_panelInner) {
+      _panelInner.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
         const pos = parseInt(cell.dataset.pos);
         if (pos < 0) return;
         const hit  = sortedPending[pos] || null;
@@ -3965,12 +4002,13 @@
         }
       });
       // Update hosp sub-timers
-      document.querySelectorAll("#chain-panel-inner [data-hosp-id]").forEach(hc => {
+      _panelInner.querySelectorAll("[data-hosp-id]").forEach(hc => {
         const hit = hitMap.get(hc.dataset.hospId);
         if (!hit) { hc.remove(); return; }
         if (!isHospStillIn(hit)) { hc.textContent = ""; hc.removeAttribute("data-hosp-id"); }
         else hc.textContent = `out in ${formatTime(hit.hospReleaseAt - Date.now())}`;
       });
+      } // end if (_panelInner)
 
       const nh = getPendingHits()[0];
       if (nh) {
@@ -4195,6 +4233,19 @@
   // Inject into Torn's popup hover cards (appear on any page when tap-holding a name)
   // Uses class*= to handle CSS module hashed suffixes on the class name.
   function injectPopupHoverCards() {
+    // Fast early-exit: if #profile-mini-root exists but contains no .buttons-list
+    // without an already-injected chain button, there is no open hover card to inject
+    // into. This avoids the 6-selector document-wide scan on every idle mutation.
+    const miniRoot = document.getElementById("profile-mini-root");
+    if (miniRoot) {
+      const hasWork = miniRoot.querySelector(
+        ".buttons-list:not(:has(.chain-target-btn)), .buttons-wrap:not(:has(.chain-target-btn))"
+      );
+      if (!hasWork && !miniRoot.querySelector(".mini-profile-wrapper, [class*=\"profile-mini-_wrapper_\"]")) {
+        return;  // miniRoot is empty or all cards already injected
+      }
+    }
+
     // Collect candidate popup roots, then deduplicate to outermost only.
     // This prevents injecting multiple buttons when nested children all match the selector.
     const seen = new Set();
@@ -4216,7 +4267,6 @@
 
     // Strategy 1: stable ID — #profile-mini-root is a direct <body> child outside
     // #mainContainer so the main MutationObserver doesn't cover it.
-    const miniRoot = document.getElementById("profile-mini-root");
     if (miniRoot) {
       miniRoot.querySelectorAll(
         ".mini-profile-wrapper, [class*=\"profile-mini-_wrapper_\"]"
@@ -4337,15 +4387,69 @@
   (function setupInjectObserver() {
     const tornRoot = injectRoot;
     let injectQueued = false;
+
+    // tornRoot observer is disconnected once all visible profile links are injected.
+    // It is re-armed on SPA navigation (popstate / pushstate) so new page loads get covered.
+    let tornRootObs = null;
+    let tornRootConnected = false;
+
+    // Declare trigger first so connectTornRootObs can close over it.
     const trigger = () => {
       if (injectQueued) return;
       injectQueued = true;
-      setTimeout(() => { injectQueued = false; injectTargetButtons(); }, 500);
+      setTimeout(() => {
+        injectQueued = false;
+        // Fast early-exit: if every profile link in the inject root is already marked,
+        // there is no work to do. Skip the full injectTargetButtons scan entirely.
+        // querySelectorAll with :not() is far cheaper than running the full inject.
+        const hasUninjected = injectRoot.querySelector(
+          'a[href*="profiles.php?XID="]:not([data-chain-btn-injected])'
+        );
+        // Always run on profile/miniRoot triggers (hover cards) — they don't set chainBtnInjected.
+        // For the main tornRoot, skip if nothing is uninjected.
+        if (!hasUninjected && (IS_FACTIONS_PAGE || IS_LIST_PAGE)) {
+          // All links already injected — disconnect the main observer until navigation
+          disconnectTornRootObs();
+          return;
+        }
+        injectTargetButtons();
+      }, 500);
     };
-    new MutationObserver(trigger).observe(tornRoot, { childList: true, subtree: true });
+
+    function disconnectTornRootObs() {
+      if (tornRootObs && tornRootConnected) {
+        tornRootObs.disconnect();
+        tornRootConnected = false;
+      }
+    }
+    function connectTornRootObs() {
+      if (!tornRootObs) {
+        tornRootObs = new MutationObserver(trigger);
+        tornRootObs.observe(tornRoot, { childList: true, subtree: true });
+        tornRootConnected = true;
+      } else if (!tornRootConnected) {
+        tornRootObs.observe(tornRoot, { childList: true, subtree: true });
+        tornRootConnected = true;
+      }
+    }
+
+    connectTornRootObs();
+
+    // Re-arm tornRoot observer on SPA navigation so new page content gets covered.
+    const rearmOnNav = () => {
+      profilePageInjected = false;   // reset profile page flag on navigation
+      connectTornRootObs();
+      trigger();
+    };
+    window.addEventListener("popstate", rearmOnNav);
+    // Intercept pushState/replaceState (SPA routers)
+    const _pushState = history.pushState.bind(history);
+    history.pushState = function(...args) { _pushState(...args); rearmOnNav(); };
+    const _replaceState = history.replaceState.bind(history);
+    history.replaceState = function(...args) { _replaceState(...args); rearmOnNav(); };
+
     // Watch direct children of <body> (zero subtree cost) so we catch
-    // #profile-mini-root being appended. Also observe #profile-mini-root itself
-    // with subtree so React's async render of the card content triggers injection.
+    // #profile-mini-root being appended.
     if (tornRoot !== document.body) {
       new MutationObserver(trigger).observe(document.body, { childList: true, subtree: false });
     }
