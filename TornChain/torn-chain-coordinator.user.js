@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.9.7
+// @version      4.9.8
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -44,7 +44,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.9.7";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.9.8";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -3545,19 +3545,29 @@
             }
           }
         });
-        // Watches the DOM for newly added tooltip/portal nodes.
-        const portalWatcher = new MutationObserver(mutations => {
-          for (const m of mutations) {
-            for (const node of m.addedNodes) {
-              if (isTooltipNode(node)) hideNode(node);
-            }
-            // Also check if a mutation re-showed a tracked node via subtree moves
-            if (m.type === 'childList' && hiddenPortals.has(m.target)) {
-              m.target.style.setProperty('visibility', 'hidden', 'important');
+
+        // FIX (4.9.8): Replace portalWatcher document.body subtree:true MutationObserver
+        // with a lightweight poll. The subtree observer fired on EVERY DOM mutation
+        // site-wide (including Torn's ~10s attack-log rerenders), compounding the freeze.
+        // Polling at 50ms is far cheaper — the browser only runs it between frames and
+        // there are at most ~20 ticks during the 1s attach window (same as before).
+        // We scan only direct children of body for new portal nodes, which is O(1)
+        // compared to the O(subtree) traversal the MutationObserver implied.
+        let _lastPortalChildCount = document.body.children.length;
+        const portalWatcher = setInterval(() => {
+          const currentCount = document.body.children.length;
+          if (currentCount !== _lastPortalChildCount) {
+            _lastPortalChildCount = currentCount;
+            // A child was added/removed — check the newest children for tooltip portals.
+            for (const child of document.body.children) {
+              if (!hiddenPortals.has(child) && isTooltipNode(child)) hideNode(child);
             }
           }
-        });
-        portalWatcher.observe(document.body, { childList: true, subtree: true });
+          // Re-hide tracked portals in case React reset their visibility.
+          hiddenPortals.forEach(n => {
+            if (n.isConnected) n.style.setProperty('visibility', 'hidden', 'important');
+          });
+        }, 50);
 
         chainBar.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, cancelable: true }));
         chainBar.dispatchEvent(new MouseEvent('mouseenter',    { bubbles: true, cancelable: true }));
@@ -3571,7 +3581,7 @@
           chainBar.dispatchEvent(new MouseEvent('mouseleave',    { bubbles: true, cancelable: true }));
           // Keep suppressing for 300ms after pointerleave to cover the re-render.
           setTimeout(() => {
-            portalWatcher.disconnect();
+            clearInterval(portalWatcher);
             nodeWatcher.disconnect();
             hiddenPortals.forEach(n => n.style.removeProperty('visibility'));
             hiddenPortals.clear();
@@ -3604,7 +3614,19 @@
     tryAttach();
   }
 
+  // FIX (4.9.8): Cache the last-found timer element so the expensive querySelectorAll("*")
+  // fallback in findChainTimerEl is only reached when the cached reference is stale.
+  // Once found, subsequent calls hit the fast-path document.contains() check and return
+  // immediately — no DOM scan needed during Torn's ~10s attack-log rerenders.
+  let _cachedTimerEl = null;
+
   function findChainTimerEl() {
+    // Fast path: return cached element if it's still in the DOM and still readable.
+    if (_cachedTimerEl && document.contains(_cachedTimerEl) && parseTimerText(_cachedTimerEl.textContent) !== null) {
+      return _cachedTimerEl;
+    }
+    _cachedTimerEl = null;  // stale — clear and re-scan
+
     const sels = [
       // Top-bar tooltip timer — present on ALL Torn pages (mobile and desktop).
       // The tooltip div is always in the DOM; only its opacity is toggled on hover.
@@ -3616,7 +3638,7 @@
       '[class*="chain"] [class*="time"]:not(#chain-panel *)',
     ];
     for (const sel of sels) {
-      try { const el=document.querySelector(sel); if(el&&parseTimerText(el.textContent)!==null) return el; } catch {/**/ }
+      try { const el=document.querySelector(sel); if(el&&parseTimerText(el.textContent)!==null) { _cachedTimerEl = el; return el; } } catch {/**/ }
     }
     // Expensive fallback: walk every child of the chain widget looking for a
     // leaf node whose text parses as a timer. Guard with a chain-widget presence
@@ -3628,7 +3650,7 @@
     if (!cw) return null;
     for (const el of cw.querySelectorAll("*")) {
       if (el.children.length > 0) continue;
-      if (parseTimerText(el.textContent) !== null) return el;
+      if (parseTimerText(el.textContent) !== null) { _cachedTimerEl = el; return el; }
     }
     return null;
   }
@@ -3658,6 +3680,7 @@
   // once a timer element is found.
   function startChainTimerObserver() {
     if (chainTimerObserver) { chainTimerObserver.disconnect(); chainTimerObserver = null; }
+    _cachedTimerEl = null;  // FIX (4.9.8): invalidate cache so findChainTimerEl re-scans fresh
     const timerEl = findChainTimerEl();
     if (!timerEl) return false;  // return false so caller knows we failed
 
@@ -3670,6 +3693,7 @@
       if (secs === null) {
         onDomTimerUpdate(null);
         chainTimerObserver.disconnect(); chainTimerObserver = null;
+        _cachedTimerEl = null;  // FIX (4.9.8): element left DOM — clear cache so next scan is fresh
         // FIX #2: restart fallback retry when observer loses the element
         startTimerRetryLoop();
       } else { onDomTimerUpdate(secs); }
