@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.9.9
+// @version      4.9.10
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -44,7 +44,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.9.9";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "4.9.10";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -468,7 +468,7 @@
     #chain-timer-value { font-family:monospace !important; font-weight:700 !important; font-size:14px !important; flex:1 !important; }
     #chain-timer-value.ct-ok     { color:#44ff88 !important; }
     #chain-timer-value.ct-warn   { color:#ffcc66 !important; }
-    #chain-timer-value.ct-danger { color:#ff5555 !important; animation:chain-pulse 1s ease-in-out infinite alternate !important; }
+    #chain-timer-value.ct-danger { color:#ff5555 !important; animation:chain-pulse 1s ease-in-out infinite alternate !important; will-change:opacity !important; }
     #chain-timer-value.ct-none   { color:#445 !important; }
     #chain-count-badge { font-size:11px !important; font-weight:700 !important; padding:1px 7px !important; border-radius:8px !important; white-space:nowrap !important; }
     #chain-count-badge.warming { background:rgba(255,160,0,.18) !important; color:#ffaa44 !important; border:1px solid rgba(255,160,0,.3) !important; }
@@ -484,7 +484,11 @@
       background:rgba(60,160,255,.07) !important; border-bottom:1px solid rgba(60,160,255,.14) !important;
       text-align:center !important; flex-shrink:0 !important; letter-spacing:.2px !important;
     }
-    @keyframes chain-pulse { from{background:rgba(255,85,85,.04)} to{background:rgba(255,85,85,.14)} }
+    /* FIX (4.9.9): background-color animations are not GPU-compositable in Chrome and force
+       main-thread repaints at 60fps. Replaced with opacity animation on a ::before pseudo-element
+       approach — but since we can't use ::before in GM_addStyle easily, we use opacity directly
+       on the element. This allows Chrome to compositor-promote the animation off the main thread. */
+    @keyframes chain-pulse { from{opacity:0.6} to{opacity:1.0} }
 
     /* ── Popovers ── */
     .chain-popover {
@@ -657,7 +661,7 @@
       border-left:3px solid transparent !important; font-size:11px !important; transition:background .1s !important;
     }
     .chain-hit-row:hover        { background:rgba(255,255,255,.04) !important; }
-    .chain-hit-row.due          { border-left-color:#44ff88 !important; animation:chain-row-pulse 1s ease-in-out infinite alternate !important; }
+    .chain-hit-row.due          { border-left-color:#44ff88 !important; animation:chain-row-pulse 1s ease-in-out infinite alternate !important; will-change:opacity !important; }
     .chain-hit-row.soon         { border-left-color:#ffcc66 !important; }
     .chain-hit-row.waiting      { border-left-color:#445 !important; }
     .chain-hit-row.done         { opacity:.35 !important; border-left-color:#222 !important; }
@@ -671,7 +675,8 @@
     /* Bonus chain hit — gold highlight */
     .chain-hit-row.bonus        { background:rgba(255,200,0,.10) !important; border-left-color:#ffd700 !important; }
     .chain-hit-row.bonus .chain-hit-num { color:#ffd700 !important; }
-    @keyframes chain-row-pulse { from{background:rgba(68,255,136,.04)} to{background:rgba(68,255,136,.14)} }
+    /* FIX (4.9.9): Same compositor fix — opacity instead of background-color. */
+    @keyframes chain-row-pulse { from{opacity:0.75} to{opacity:1.0} }
 
     .chain-hit-num     { font-weight:700; font-size:12px; color:#556; text-align:center; }
     .chain-hit-claimer { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#9aa8c0; }
