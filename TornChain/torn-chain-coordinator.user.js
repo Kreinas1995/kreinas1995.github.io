@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.2.5
+// @version      5.2.8
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -50,6 +50,19 @@
     recordPoll:       null,   // assigned by wireSettings() once the function exists
   };
 
+  // Detect localStorage availability once — before _bg block since _bgLoadPersisted uses it.
+  // Opera GX, some Chromium builds, and sandboxed contexts block localStorage even
+  // when not on TornPDA. Test it rather than assume.
+  const _lsAvailable = (() => {
+    if (typeof localStorage === "undefined") return false;
+    try {
+      const k = "__tcc_ls_test__";
+      localStorage.setItem(k, "1");
+      localStorage.removeItem(k);
+      return true;
+    } catch(_) { return false; }
+  })();
+
   // ── Always-on background diagnostics (persisted across page loads) ─────────
   // Runs unconditionally from boot — zero UI, ~0.01ms overhead per frame.
   // Counters are saved to localStorage on every freeze event and XHR error,
@@ -58,14 +71,8 @@
   const BG_FREEZE_MS  = 150;   // gap threshold to count as a freeze
   const BG_LOG_MAX    = 60;    // ring buffer depth
   const BG_LS_KEY     = "tcc_diag_v1";  // localStorage persistence key
-  // isTornPDA is declared later in the script — inline the check here to avoid TDZ
-  const _bgIsPDA = (typeof navigator !== "undefined" && (
-    navigator.userAgent.includes("TornPDA") || navigator.userAgent.includes("torn_pda") ||
-    navigator.userAgent.includes("Dart")
-  )) || (typeof document !== "undefined" && document.documentElement.dataset.tornpda === "true");
-
   function _bgLoadPersisted() {
-    if (_bgIsPDA) return null;
+    if (!_lsAvailable) return null;
     try {
       const raw = localStorage.getItem(BG_LS_KEY);
       return raw ? JSON.parse(raw) : null;
@@ -85,7 +92,7 @@
   let _bgLastSaveAt = 0;
   let _bgSaveQueued = false;
   function _bgSavePersisted() {
-    if (_bgIsPDA) return;
+    if (!_lsAvailable) return;
     _bgSaveDirty = true;
     if (_bgSaveQueued) return;  // already a save task pending
     const now = Date.now();
@@ -190,15 +197,21 @@
   // ── XHR instrumentation wrapper ──────────────────────────────────────────
   // Intercepts every GM_xmlhttpRequest call to count calls and errors for the
   // freeze report. Zero overhead: increments a counter, delegates immediately.
-  const _rawGMXhr = (typeof GM_xmlhttpRequest !== "undefined") ? GM_xmlhttpRequest : null;
   function _xhrTracked(details) {
+    // Count XHR for diagnostics. Pass a NEW object to GM_xmlhttpRequest so we never
+    // mutate the caller's literal — some Violentmonkey builds on Opera treat the
+    // passed object as frozen or proxy-wrapped, causing silent failures if mutated.
+    // Also call GM_xmlhttpRequest directly (not via a stored reference) so Opera's
+    // binding context is always fresh.
     _bg.xhrTotal++;
-    _bgSavePersisted();  // debounced (min 2s between writes) — safe to call on every XHR
+    _bgSavePersisted();
     const origErr     = details.onerror;
     const origTimeout = details.ontimeout;
-    details.onerror   = function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); };
-    details.ontimeout = function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origTimeout) origTimeout.apply(this, a); };
-    if (_rawGMXhr) _rawGMXhr(details);
+    const wrapped = Object.assign({}, details, {
+      onerror:   function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); },
+      ontimeout: function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origTimeout) origTimeout.apply(this, a); },
+    });
+    GM_xmlhttpRequest(wrapped);
   }
 
 
@@ -210,7 +223,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.2.5";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "5.2.8";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -279,10 +292,11 @@
   // Read priority: GM_getValue first (correct value), fall back to localStorage.
   // Write: always writes both so they stay in sync.
   const LS_SETT_PREFIX = "tcc_sett_";
+
   function _gmGet(key, def) {
     const gmVal = GM_getValue(key, null);
     if (gmVal !== null && gmVal !== undefined) return gmVal;
-    if (!isTornPDA) {
+    if (_lsAvailable) {
       try {
         const raw = localStorage.getItem(LS_SETT_PREFIX + key);
         if (raw !== null) {
@@ -297,7 +311,7 @@
   }
   function _gmSet(key, val) {
     GM_setValue(key, val);
-    if (!isTornPDA) {
+    if (_lsAvailable) {
       try { localStorage.setItem(LS_SETT_PREFIX + key, JSON.stringify(val)); } catch(_) {}
     }
   }
@@ -388,6 +402,7 @@
   let chainEndDebounce = null;
   let sessionMinHitNum = null;
   let chainCooldownSecs   = null;   // seconds remaining on cooldown (from API)
+  let _chainStartPending  = false;   // true while waiting for Firebase session before creating a new one
   let chainCooldownReadAt = null;   // performance.now() when cooldown was last read
   let apiTimerSecs        = null;   // API chain timeout — SCHEDULING USE ONLY, never displayed
   let apiTimerReadAt      = null;   // performance.now() when that API poll arrived
@@ -3441,10 +3456,11 @@
     return [...byNum.values()].sort((a,b)=>(a.chainHitNum||0)-(b.chainHitNum||0));
   }
   function getHighestDoneHitNum() {
-    return [...hitMap.values()].filter(h =>
-      h.status === "done" && h.chainHitNum &&
-      (!h.sessionId || !chainSessionId || h.sessionId === chainSessionId)
-    ).reduce((m,h)=>Math.max(m,h.chainHitNum),0);
+    // No session filter here — used for slot numbering, where a higher watermark
+    // from a stale session is safer than resetting to 0 and misnumbering new hits.
+    // getDoneHits() and allDoneBySlot apply the display-layer session filter.
+    return [...hitMap.values()].filter(h => h.status === "done" && h.chainHitNum)
+      .reduce((m,h)=>Math.max(m,h.chainHitNum),0);
   }
 
   // reNumberPending: assigns correct hitNumbers locally and syncs to Firebase.
@@ -4352,6 +4368,7 @@
       chainSessionId   = data.id;
       chainStartTime   = remoteStart || Date.now();
       sessionMinHitNum = null;
+      _chainStartPending = false;  // Firebase delivered the session — cancel any pending onChainStart
       scrapedHitIds.clear();  // clear dedup so scraper re-evaluates with correct start time
       persistSession();
     }
@@ -4650,7 +4667,17 @@
         : (newTimeout > 0 ? Date.now() - (300 - newTimeout) * 1000 : null);
 
       if (!chainSessionId) {
-        onChainStart(apiStartMs || Date.now());
+        // Don't immediately create a new session — wait briefly for Firebase to
+        // deliver the existing session via handleRemoteSession (fbPollOnce runs
+        // every 3s). If no session arrives within 4s, we're the first on a new chain.
+        if (!_chainStartPending) {
+          _chainStartPending = true;
+          const _pendingApiStart = apiStartMs || Date.now();
+          setTimeout(() => {
+            _chainStartPending = false;
+            if (!chainSessionId) onChainStart(_pendingApiStart);
+          }, 4000);
+        }
       } else if (apiStartMs && chainStartTime && Math.abs(apiStartMs - chainStartTime) > 3000) {
         // API start time differs from our local start by more than 3s — new chain
         onChainEnd();
@@ -4756,12 +4783,18 @@
 
           // ── Handle API errors ──────────────────────────────────────────
           if (d && d.error) {
-            // Error code 7 = Limited access required
-            if (d.error.code === 7 || d.error.code === 2) {
+            const errCode = d.error.code ?? d.error;
+            // Code 16 (v2) = Access level too low — genuine limited key required
+            // Code 2 = Incorrect key — key is wrong format or invalid
+            // Do NOT stop on code 7 (wrong entity) — that's transient, not a key issue
+            if (errCode === 16 || errCode === 2) {
               hasLimitedKey = false;
               showBanner("chain-banner-limitedkey", true);
               // Stop polling — no point retrying without a key upgrade
               if (attackPollInterval) { clearInterval(attackPollInterval); attackPollInterval = null; }
+            } else {
+              // Transient error (rate limit, backend, etc.) — log but keep polling
+              console.warn("[ChainCoord] pollFactionAttacks error:", errCode, d.error.error || "");
             }
             return;
           }
