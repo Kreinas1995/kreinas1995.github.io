@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      4.9.10
+// @version      5.1.5
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -36,6 +36,20 @@
 (function () {
   "use strict";
 
+  // ── Singleton guard ───────────────────────────────────────────────────────
+  // Prevents a second panel from spawning if two versions of the script are
+  // installed simultaneously (e.g. old 5.0.0 + new 5.0.3 both active).
+  // The first instance to run wins; subsequent runs abort immediately.
+  if (window.__tccRunning) return;
+  window.__tccRunning = true;
+
+  // Shared debug state — readable by all scopes within this IIFE without window hacks
+  const _dbg = {
+    verbosePoll:      false,
+    verboseMutations: false,
+    recordPoll:       null,   // assigned by wireSettings() once the function exists
+  };
+
   // ╔══════════════════════════════════════════════════════════════════════════╗
   // ║  CONFIG                                                                  ║
   // ╚══════════════════════════════════════════════════════════════════════════╝
@@ -44,7 +58,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "4.9.10";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "5.1.5";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -55,6 +69,7 @@
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
   const TIMER_FUDGE_SEC      = 0;
+  const ATTACKS_POLL_MS      = 7000;   // prime vs CHAIN_POLL_MS(5300) and fbPollOnce(3000)
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
@@ -74,6 +89,10 @@
   const SK_POS_Y_ICON     = "chain_pos_y_icon";
   const SK_POS_X_MINI     = "chain_pos_x_mini";
   const SK_POS_Y_MINI     = "chain_pos_y_mini";
+  const SK_DBG_POS_X      = "chain_dbg_pos_x";   // debug console last position
+  const SK_DBG_POS_Y      = "chain_dbg_pos_y";
+  const SK_DBG_OPEN       = "chain_dbg_open";      // bool: debug console open across page loads
+  const SK_DBG_MINIMIZED  = "chain_dbg_minimized"; // bool: debug console minimized state
   // FIX #2: persist chain session so reload doesn't lose history
   const SK_SESSION_ID     = "chain_session_id";
   const SK_SESSION_START  = "chain_session_start";
@@ -90,6 +109,7 @@
   const SK_SHOW_BONUS_ALERT = "chain_show_bonus_alert";      // bool: highlight bonus hits
   const SK_MINI_SHOW_COUNT  = "chain_mini_show_count";       // bool: show chain count in mini pill
   const SK_AUTO_EXPAND_DUE  = "chain_auto_expand_due";       // bool: auto-switch to full view when hit is due
+  const SK_DEBUG_CONSOLE    = "chain_debug_console";          // bool: show debug console panel
 
   // ─── App state ────────────────────────────────────────────────────────────
   // Read API key: localStorage first (survives TM UUID changes on reinstall /
@@ -125,6 +145,7 @@
   let settShowBonusAlert = GM_getValue(SK_SHOW_BONUS_ALERT, true);
   let settMiniShowCount  = GM_getValue(SK_MINI_SHOW_COUNT,  true);
   let settAutoExpandDue  = GM_getValue(SK_AUTO_EXPAND_DUE,  false);
+  let settDebugConsole   = GM_getValue(SK_DEBUG_CONSOLE,    false);
   // Notification sound (AudioContext, created lazily)
   let _notifyAudioCtx    = null;
   function playDueSound() {
@@ -172,8 +193,8 @@
   let presenceMap   = new Map();
 
   // ─── Chain state ──────────────────────────────────────────────────────────
-  let liveChainSecs    = null;
-  let lastTimerReadAt  = null;
+  let liveChainSecs    = null;   // DOM observer timer — the ONLY source for display
+  let lastTimerReadAt  = null;   // performance.now() when DOM timer was last read
   let liveChainCount   = null;
   let lastKnownCount   = null;
   let chainConfirmed   = false;
@@ -182,16 +203,22 @@
   let chainSessionId   = null;
   let chainStartTime   = null;
   let chainEndDebounce = null;
-  let chainTimerObserver = null;
-  let timerRetryInterval = null;   // FIX #2: fallback retry for timer observer
   let sessionMinHitNum = null;
   let chainCooldownSecs   = null;   // seconds remaining on cooldown (from API)
   let chainCooldownReadAt = null;   // performance.now() when cooldown was last read
-  let apiTimerSecs        = null;   // chain timeout from last API poll (fallback timer)
-  let apiTimerReadAt      = null;   // performance.now() when that poll arrived
+  let apiTimerSecs        = null;   // API chain timeout — SCHEDULING USE ONLY, never displayed
+  let apiTimerReadAt      = null;   // performance.now() when that API poll arrived
+  let chainTimerObserver  = null;   // MutationObserver on Torn chain timer element
+  let timerRetryInterval  = null;   // fallback retry for DOM observer
+  let _cachedTimerEl      = null;   // cached Torn chain timer DOM element
   let networkLatestVersion = null;  // highest version seen across all online clients
   let clientVersionMap     = new Map(); // fbUid → version string for all active clients
   let heartbeatFailCount   = 0;     // consecutive heartbeat lobby failures → triggers re-auth
+  // Suppress transient Firebase errors during the first 10s of page load.
+  const _bootGraceUntil = Date.now() + 10000;
+  let lastAttackId         = null;  // highest attack id seen — used for incremental polling
+  let attackPollInterval   = null;  // handle for pollFactionAttacks interval
+  let hasLimitedKey        = null;  // null=unknown, true=confirmed, false=insufficient
 
   // Session is restored from Firebase on first poll — do not restore from
   // GM storage as stale chainStartTime causes the scraper to accept hits
@@ -305,6 +332,7 @@
     #chain-panel.view-mini #chain-warming-msg,
     #chain-panel.view-mini #chain-cooling-msg,
     #chain-panel.view-mini #chain-panel-body,
+    #chain-panel.view-mini #chain-outside-bar,
     #chain-panel.view-mini #chain-resize-handle { display:none !important; }
     #chain-panel.view-icon #chain-whitelist-btn { display:none !important; }
     #chain-panel.view-icon #chain-version-badge { display:none !important; }
@@ -338,6 +366,7 @@
     #chain-panel.view-icon #chain-warming-msg,
     #chain-panel.view-icon #chain-cooling-msg,
     #chain-panel.view-icon #chain-panel-body,
+    #chain-panel.view-icon #chain-outside-bar,
     #chain-panel.view-icon #chain-resize-handle { display:none !important; }
     #chain-icon-btn {
       display:none; align-items:center; justify-content:center;
@@ -668,6 +697,9 @@
     .chain-hit-row.hosp-waiting { border-left-color:#6699cc !important; background:rgba(80,120,200,.04) !important; }
     .chain-hit-row.hosp-waiting .chain-hit-target::before { content:"🏥 " !important; }
     .chain-hit-row.hosp-waiting .chain-hit-attack { opacity:.25 !important; pointer-events:none !important; }
+    .chain-hit-row.hosp-unreachable { border-left-color:#cc4444 !important; background:rgba(200,40,40,.06) !important; opacity:.65 !important; }
+    .chain-hit-row.hosp-unreachable .chain-hit-target::before { content:"⛔ " !important; }
+    .chain-hit-row.hosp-unreachable .chain-hit-attack { opacity:.15 !important; pointer-events:none !important; }
     .chain-hit-row.untracked    { border-left-color:#ff8c00 !important; opacity:.5 !important; font-style:italic !important; }
     /* FIX #4: unclaimed placeholder row */
     .chain-hit-row.unclaimed    { border-left-color:#334 !important; border-left-style:dashed !important; opacity:.5 !important; }
@@ -941,6 +973,8 @@
         <div class="chain-gear-menu-item" id="chain-gmenu-clear" style="display:none">❌ Wipe Tracker</div>
         <div class="chain-gear-menu-item" id="chain-gmenu-manage" style="display:none">⚙ Permissions</div>
         <div style="height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
+        <div class="chain-gear-menu-item" id="chain-gmenu-debug" style="display:none">🔬 Debug Console</div>
+        <div style="height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
         <div class="chain-gear-menu-item" id="chain-gmenu-settings">⚙️ Settings</div>
       </div>
 
@@ -982,6 +1016,7 @@
       <!-- API popover -->
       <div id="chain-api-popover" class="chain-popover">
         <div id="chain-api-popover-title">🔑 Torn API Key</div>
+<div style="font-size:10px;color:#778;margin-top:-4px">Requires <b>Limited</b> access for attack tracking</div>
         <input id="chain-api-input" type="password" placeholder="Paste your API key here" autocomplete="off" spellcheck="false">
         <div id="chain-api-popover-row">
           <button class="chain-api-pop-btn save" id="chain-api-save">Save</button>
@@ -1109,6 +1144,15 @@
             <input type="checkbox" id="sett-auto-expand" class="chain-sett-toggle">
           </label>
 
+          <!-- Section: Debug -->
+          <div class="chain-sett-section-hdr">🔬 Debug</div>
+
+          <label class="chain-sett-row">
+            <span class="chain-sett-label">Show debug console button</span>
+            <span class="chain-sett-desc">Adds a 🔬 Debug Console entry to the ⚙️ menu (off by default)</span>
+            <input type="checkbox" id="sett-debug-console" class="chain-sett-toggle">
+          </label>
+
           <!-- Section: Reset -->
           <div class="chain-sett-section-hdr" style="margin-top:4px;">🔧 Reset</div>
           <div style="display:flex;gap:6px;padding:6px 0 2px;">
@@ -1138,6 +1182,7 @@
       <div id="chain-banner-locked" class="chain-banner warn" style="display:none">🔒 Access Locked — your faction is not whitelisted.</div>
       <div id="chain-banner-status" class="chain-banner info" style="display:none"></div>
       <div id="chain-banner-debug"  class="chain-banner warn" style="display:none;font-size:10px;word-break:break-all"></div>
+      <div id="chain-banner-limitedkey" class="chain-banner warn" style="display:none">⚠ Limited API key required for attack tracking — re-enter your key with Limited access enabled.</div>
 
       <div id="chain-col-header" style="display:none">
         <span>#</span><span>Claimer</span><span>Target</span>
@@ -1155,7 +1200,7 @@
         <a id="chain-next-attack" class="chain-hit-attack" href="#" target="_blank">🗡</a>
       </div>
     </div>
-    <div id="chain-outside-bar" style="display:flex;align-items:center;padding:5px 8px;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0;gap:6px;">
+    <div id="chain-outside-bar" style="display:none;align-items:center;padding:5px 8px;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0;gap:6px;">
       <button id="chain-outside-btn" style="flex:1;padding:4px 0;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid rgba(100,180,255,.28);background:rgba(80,140,255,.09);color:#7ab8e8;font-weight:600;letter-spacing:.3px;display:flex;align-items:center;justify-content:center;gap:5px;">🎯 <span style="opacity:.85">Non-War</span></button>
     </div>
     <div id="chain-icon-btn" title="Tap to expand">⛓<span id="chain-icon-badge"></span></div>
@@ -1279,7 +1324,7 @@
       panel.style.cursor = "";
       viewBtn.textContent = "●";
       viewBtn.title = "Switch to button view";
-      if (outsideBar) outsideBar.style.display = "";
+      if (outsideBar) outsideBar.style.display = "flex";
     } else if (viewMode === 1) {
       panel.classList.add("view-icon");
       panel.style.width  = "";
@@ -1354,6 +1399,11 @@
     if (!el) return;
     el.style.display = show ? "" : "none";
     if (text !== undefined) el.textContent = text;
+  }
+  // showErrorBanner: shows chain-banner-debug but suppressed during boot grace.
+  function showErrorBanner(msg) {
+    if (Date.now() < _bootGraceUntil) return;
+    showBanner("chain-banner-debug", true, msg);
   }
 
   // ── Close all popovers ────────────────────────────────────────────────────
@@ -1605,26 +1655,31 @@
       closeAllPopovers();
       gearMenu.classList.add("open");
     });
-    document.getElementById("chain-gmenu-bug").addEventListener("click", e => {
+    const _gWire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+    _gWire("chain-gmenu-bug", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
-      document.getElementById("chain-bug-btn").click();
+      const bb = document.getElementById("chain-bug-btn"); if (bb) bb.click();
     });
-    document.getElementById("chain-gmenu-whitelist").addEventListener("click", e => {
+    _gWire("chain-gmenu-whitelist", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
       whitelistBtn.click();
     });
-    document.getElementById("chain-gmenu-clear").addEventListener("click", e => {
+    _gWire("chain-gmenu-clear", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
       clearBtn.click();
     });
-    document.getElementById("chain-gmenu-manage").addEventListener("click", e => {
+    _gWire("chain-gmenu-manage", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
       manageBtn.click();
     });
-    document.getElementById("chain-gmenu-settings").addEventListener("click", e => {
+    _gWire("chain-gmenu-settings", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
       const sp = document.getElementById("chain-settings-popover");
       if (sp) { closeAllPopovers(); sp.classList.add("open"); if (window._chainOpenSettings) window._chainOpenSettings(); }
+    });
+    _gWire("chain-gmenu-debug", e => {
+      e.stopPropagation(); gearMenu.classList.remove("open");
+      if (window._chainToggleDebugConsole) window._chainToggleDebugConsole();
     });
   })();
 
@@ -1652,6 +1707,396 @@
       // Note: pillSep is controlled independently by the pill-next render logic
     }
 
+    // ── Debug console ─────────────────────────────────────────────────────────
+    // A self-contained overlay panel that tracks freeze events (via rAF), Firebase
+    // poll timing, and key state variables. Toggled from Settings → Debug Console.
+    // Designed to be the first tool grabbed when a user reports jank or sync issues.
+    let _dbgPanel = null;
+    let _dbgRafActive = false;
+    let _dbgLastTick = 0;
+    let _dbgDragging = false, _dbgDragOX = 0, _dbgDragOY = 0, _dbgPosSaveTimer = null;
+    let _dbgVerbosePoll = false;      // verbose Firebase poll logging
+    let _dbgVerboseMutations = false; // verbose MutationObserver logging
+    let _dbgFreezeLog   = [];       // { time, gap }
+    let _dbgPollLog     = [];       // { time, ms }
+    let _dbgConsoleLogs = [];       // { time, level, msg } — intercepted console output
+    let _dbgLastPollTime = 0;
+    let _dbgTotalFreezes = 0;
+    let _dbgPollCount    = 0;
+    const DBG_FREEZE_THRESHOLD = 150;
+    const DBG_LOG_MAX = 200;        // keep last 200 console lines
+
+    // ── HTML escape helper ──
+    function _escHtml(s) {
+      return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    }
+
+    // ── Console interception ──
+    // Patch console.log/warn/error once so all TCC output is captured in _dbgConsoleLogs.
+    (function _patchConsole() {
+      ["log","warn","error"].forEach(level => {
+        const orig = console[level].bind(console);
+        console[level] = function(...args) {
+          orig(...args);
+          // Only capture messages that look TCC-related, or capture all — your call.
+          // Capturing all is more useful for diagnosing silent failures.
+          const msg = args.map(a => {
+            if (a instanceof Error) return a.message + (a.stack ? "\n" + a.stack.split("\n").slice(1,3).join("\n") : "");
+            try { return (typeof a === "object" && a !== null) ? JSON.stringify(a) : String(a); }
+            catch(_) { return String(a); }
+          }).join(" ");
+          _dbgConsoleLogs.push({ time: new Date().toLocaleTimeString(), level, msg });
+          if (_dbgConsoleLogs.length > DBG_LOG_MAX) _dbgConsoleLogs.shift();
+          if (_dbgPanel) _dbgRender();
+        };
+      });
+    })();
+
+    function _dbgRafLoop(now) {
+      if (!_dbgRafActive) return;
+      const gap = now - _dbgLastTick;
+      if (_dbgLastTick > 0 && gap > DBG_FREEZE_THRESHOLD) {
+        _dbgTotalFreezes++;
+        _dbgFreezeLog.unshift({ time: new Date().toLocaleTimeString(), gap: Math.round(gap) });
+        if (_dbgFreezeLog.length > DBG_LOG_MAX) _dbgFreezeLog.pop();
+      }
+      _dbgLastTick = now;
+      requestAnimationFrame(_dbgRafLoop);
+    }
+
+    // Called by fbPollOnce after each successful poll — wired below
+    function _dbgRecordPoll() {
+      const now = performance.now();
+      _dbgPollCount++;
+      if (_dbgLastPollTime > 0) {
+        const interval = Math.round(now - _dbgLastPollTime);
+        _dbgPollLog.unshift({ time: new Date().toLocaleTimeString(), ms: interval });
+        if (_dbgPollLog.length > DBG_LOG_MAX) _dbgPollLog.pop();
+      }
+      _dbgLastPollTime = now;
+    }
+
+    function _dbgRender() {
+      if (!_dbgPanel) return;
+      const _pn = performance.now();
+
+      // DOM timer (display source)
+      const domSecs = liveChainSecs !== null && lastTimerReadAt !== null
+        ? Math.max(0, Math.floor(liveChainSecs - (_pn - lastTimerReadAt) / 1000)) : null;
+      const domAge  = lastTimerReadAt !== null ? Math.round((_pn - lastTimerReadAt) / 1000) : null;
+      const domStr  = domSecs !== null ? `${Math.floor(domSecs/60)}:${String(domSecs%60).padStart(2,"0")} (read ${domAge}s ago)` : "— (no DOM timer)";
+
+      // API timer (scheduling only — NEVER displayed)
+      const apiSecs = apiTimerSecs !== null && apiTimerReadAt !== null
+        ? Math.max(0, Math.floor(apiTimerSecs - (_pn - apiTimerReadAt) / 1000)) : null;
+      const apiAge  = apiTimerReadAt !== null ? Math.round((_pn - apiTimerReadAt) / 1000) : null;
+      const apiStr  = apiSecs !== null ? `${Math.floor(apiSecs/60)}:${String(apiSecs%60).padStart(2,"0")} (read ${apiAge}s ago)` : "—";
+
+      const obsColor = chainTimerObserver ? "#44ff88" : "#ff5555";
+      const obsState = chainTimerObserver ? "ATTACHED ✓" : "MISSING ✗";
+      const elInfo   = _cachedTimerEl
+        ? `${_cachedTimerEl.tagName}.${String(_cachedTimerEl.className||"").split(" ")[0]}`.slice(0,28)
+        : "none";
+      const retryStr = timerRetryInterval ? "running" : "off";
+
+      // ── Stats pane ──
+      const statsDiv = document.getElementById("tcc-dbg-stats");
+      if (statsDiv) {
+        statsDiv.innerHTML =
+          `<span style="color:#778">DOM timer ▶</span><span style="color:#44ff88;font-size:9px">${domStr}</span>` +
+          `<span style="color:#778">API timer ✗</span><span style="color:#ff8844;font-size:9px">${apiStr}</span>` +
+          `<span style="color:#778">Observer</span><span style="color:${obsColor}">${obsState}</span>` +
+          `<span style="color:#778">Retry loop</span><span style="color:#aaa">${retryStr}</span>` +
+          `<span style="color:#778">Cached el</span><span style="color:#aaa;font-size:8px">${elInfo}</span>` +
+          `<span style="color:#778">Chain count</span><span style="color:#ffcc66">${liveChainCount ?? "—"}</span>` +
+          `<span style="color:#778">chainStart</span><span style="color:#aaa;font-size:8px">${chainStartTime ? new Date(chainStartTime).toLocaleTimeString() : "—"}</span>` +
+          `<span style="color:#778">Session</span><span style="color:#aaa;font-size:8px">${chainSessionId ? chainSessionId.slice(0,14)+"…" : "none"}</span>` +
+          `<span style="color:#778">Hits</span><span style="color:#aaa">${hitMap.size}</span>` +
+          `<span style="color:#778">FB polls</span><span style="color:#aaa">${_dbgPollCount}</span>` +
+          `<span style="color:#778">Freezes</span><span style="color:${_dbgTotalFreezes > 0 ? "#ff8888" : "#44ff88"}">${_dbgTotalFreezes}</span>` +
+          `<span style="color:#778">Faction</span><span style="color:#aaa">${factionId || "—"}</span>` +
+          `<span style="color:#778">Auth uid</span><span style="color:#aaa;font-size:9px">${fbUid ? fbUid.slice(0,8)+"…" : "—"}</span>`;
+      }
+
+      // ── Log pane (last 10 entries, auto-scroll) ──
+      const logDiv = document.getElementById("tcc-dbg-log");
+      if (logDiv) {
+        const wasAtBottom = logDiv.scrollHeight - logDiv.scrollTop - logDiv.clientHeight < 30;
+        // Merge freezes + console entries into one chronological feed, newest last
+        const allEntries = [];
+        _dbgFreezeLog.slice().reverse().forEach(f => {
+          allEntries.push({ _type: "freeze", ...f });
+        });
+        _dbgConsoleLogs.forEach(e => allEntries.push({ _type: "log", ...e }));
+        // Sort by raw insertion time isn't available, so freezes go first then logs —
+        // already newest-last since _dbgFreezeLog is unshifted and we reversed it.
+        const visible = allEntries.slice(-10);
+        let html = "";
+        if (!visible.length) {
+          html = `<div style="color:#334;padding:4px 0">No events yet.</div>`;
+        }
+        visible.forEach(e => {
+          if (e._type === "freeze") {
+            html += `<div style="color:#ff8888"><span style="color:#445">${e.time}</span> ⚠ FREEZE <b>${e.gap}ms</b></div>`;
+          } else {
+            const col = e.level === "error" ? "#ff8888" : e.level === "warn" ? "#ffcc66" : "#aaa";
+            const lbl = e.level === "error" ? "ERR" : e.level === "warn" ? "WRN" : "LOG";
+            html += `<div style="color:${col};word-break:break-all"><span style="color:#445">${e.time}</span> <b>${lbl}</b> ${_escHtml(e.msg)}</div>`;
+          }
+        });
+        logDiv.innerHTML = html;
+        if (wasAtBottom) logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+
+    // applyDebugConsole: controls visibility of the 🔬 gear menu button.
+    // The actual console window is opened/closed by toggleDebugConsole() via that button.
+    function applyDebugConsole(on) {
+      const btn = document.getElementById("chain-gmenu-debug");
+      const sep = btn && btn.previousElementSibling; // the <hr>-style divider before it
+      if (btn) btn.style.display = on ? "" : "none";
+      if (sep) sep.style.display = on ? "" : "none";
+      // If the setting is turned off while the window is open, close it
+      if (!on && _dbgPanel) { _dbgPanel.remove(); _dbgPanel = null; _dbgRafActive = false; }
+    }
+
+    // toggleDebugConsole: opens the debug window. State persists across page loads.
+    // Minimize collapses to title bar only; close removes and saves closed state.
+    let _dbgMinimized = GM_getValue(SK_DBG_MINIMIZED, false);
+
+    function _dbgApplyMinimized(val) {
+      _dbgMinimized = val;
+      GM_setValue(SK_DBG_MINIMIZED, val);
+      if (!_dbgPanel) return;
+      const body = _dbgPanel.querySelector(".tcc-dbg-body");
+      const minBtn = document.getElementById("tcc-dbg-min");
+      if (val) {
+        if (body) body.style.display = "none";
+        _dbgPanel.style.width = "auto";
+        _dbgPanel.style.minWidth = "180px";
+        _dbgPanel.style.maxHeight = "";
+        _dbgPanel.style.overflow = "visible";
+        if (minBtn) minBtn.textContent = "▲";
+      } else {
+        if (body) body.style.display = "";
+        _dbgPanel.style.width = "340px";
+        _dbgPanel.style.minWidth = "";
+        _dbgPanel.style.maxHeight = "480px";
+        _dbgPanel.style.overflow = "hidden";
+        if (minBtn) minBtn.textContent = "▼";
+      }
+    }
+
+    function toggleDebugConsole() {
+      if (_dbgPanel) {
+        _dbgPanel.remove(); _dbgPanel = null;
+        _dbgRafActive = false;
+        if (_dbgRenderInterval) { clearInterval(_dbgRenderInterval); _dbgRenderInterval = null; }
+        GM_setValue(SK_DBG_OPEN, false);
+        return;
+      }
+      GM_setValue(SK_DBG_OPEN, true);
+      _dbgPanel = document.createElement("div");
+      _dbgPanel.id = "tcc-debug-panel";
+      const _dbgSavedX = GM_getValue(SK_DBG_POS_X, null);
+      const _dbgSavedY = GM_getValue(SK_DBG_POS_Y, null);
+      const _dbgInitTop   = (_dbgSavedY !== null) ? _dbgSavedY + "px" : "80px";
+      const _dbgInitLeft  = (_dbgSavedX !== null) ? _dbgSavedX + "px" : null;
+      const _dbgInitRight = (_dbgSavedX !== null) ? "auto" : "20px";
+      Object.assign(_dbgPanel.style, {
+        position: "fixed", top: _dbgInitTop, right: _dbgInitRight, zIndex: "999997",
+        background: "rgba(10,12,18,0.97)", color: "#e8e8e8",
+        fontFamily: "monospace", fontSize: "10px",
+        borderRadius: "8px", border: "1px solid rgba(100,160,255,.25)",
+        width: "340px", userSelect: "text", lineHeight: "1.5",
+        boxShadow: "0 4px 24px rgba(0,0,0,.7)",
+        display: "flex", flexDirection: "column",
+        maxHeight: "480px", overflow: "hidden",
+      });
+      if (_dbgInitLeft) _dbgPanel.style.left = _dbgInitLeft;
+
+      // ── Title bar (drag handle) ──
+      const titleBar = document.createElement("div");
+      Object.assign(titleBar.style, {
+        display: "flex", alignItems: "center", gap: "6px",
+        padding: "6px 10px", borderBottom: "1px solid rgba(255,255,255,.08)",
+        cursor: "grab", flexShrink: "0", userSelect: "none",
+        background: "rgba(100,160,255,.07)", borderRadius: "8px 8px 0 0",
+      });
+      titleBar.innerHTML =
+        `<span style="color:#88bbff;font-weight:700;font-size:11px;flex:1">🔬 TCC Debug Console <span style="color:#334;font-size:10px;font-weight:400">v${CURRENT_VERSION}</span></span>` +
+        `<button id="tcc-dbg-min" style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:#aaa;font-size:11px;cursor:pointer;line-height:1;padding:2px 9px;border-radius:4px;margin-right:6px" title="Minimize/Maximize">▼</button>` +
+        `<button id="tcc-dbg-close" style="background:rgba(255,60,60,.15);border:1px solid rgba(255,80,80,.3);color:#ff8888;font-size:13px;cursor:pointer;line-height:1;padding:2px 7px;border-radius:4px" title="Close">✕</button>`;
+      _dbgPanel.appendChild(titleBar);
+
+      // ── Collapsible body wrapper ──
+      const bodyWrap = document.createElement("div");
+      bodyWrap.className = "tcc-dbg-body";
+      Object.assign(bodyWrap.style, { display: "flex", flexDirection: "column", overflow: "hidden", flex: "1" });
+
+      // ── Stats row ──
+      const statsDiv = document.createElement("div");
+      statsDiv.id = "tcc-dbg-stats";
+      Object.assign(statsDiv.style, {
+        display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 8px",
+        padding: "6px 10px 4px", fontSize: "10px", flexShrink: "0",
+        borderBottom: "1px solid rgba(255,255,255,.06)",
+      });
+      bodyWrap.appendChild(statsDiv);
+
+      // ── Console log area ──
+      const logDiv = document.createElement("div");
+      logDiv.id = "tcc-dbg-log";
+      Object.assign(logDiv.style, {
+        overflowY: "auto", padding: "4px 6px",
+        fontSize: "10px", fontFamily: "monospace",
+        height: "150px", flexShrink: "0",
+        borderBottom: "1px solid rgba(255,255,255,.06)",
+      });
+      bodyWrap.appendChild(logDiv);
+
+      // ── Footer buttons ──
+      const footer = document.createElement("div");
+      Object.assign(footer.style, {
+        display: "flex", gap: "5px", padding: "5px 10px 7px",
+        borderTop: "1px solid rgba(255,255,255,.06)", flexShrink: "0",
+      });
+      footer.innerHTML =
+        `<button id="tcc-dbg-copy" style="flex:1;background:rgba(100,160,255,.15);border:1px solid rgba(100,160,255,.3);color:#88bbff;border-radius:4px;padding:2px 0;font-size:10px;cursor:pointer;font-family:monospace">Copy report</button>` +
+        `<button id="tcc-dbg-clear" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff8888;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;font-family:monospace">Clear</button>`;
+      bodyWrap.appendChild(footer);
+
+      // ── Verbose toggles ──
+      const verboseDiv = document.createElement("div");
+      verboseDiv.id = "tcc-dbg-verbose";
+      Object.assign(verboseDiv.style, {
+        display: "flex", gap: "12px", padding: "4px 10px 5px",
+        borderTop: "1px solid rgba(255,255,255,.06)", flexShrink: "0",
+        fontSize: "10px", color: "#556",
+      });
+      verboseDiv.innerHTML =
+        `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none">` +
+          `<input type="checkbox" id="tcc-dbg-verbose-poll" style="cursor:pointer" ${_dbg.verbosePoll ? "checked" : ""}>` +
+          `<span>Verbose FB polls</span>` +
+        `</label>` +
+        `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none">` +
+          `<input type="checkbox" id="tcc-dbg-verbose-mo" style="cursor:pointer" ${_dbg.verboseMutations ? "checked" : ""}>` +
+          `<span>Verbose mutations</span>` +
+        `</label>`;
+      bodyWrap.appendChild(verboseDiv);
+      _dbgPanel.appendChild(bodyWrap);
+
+      document.body.appendChild(_dbgPanel);
+
+      // Apply saved minimized state, then wire buttons
+      _dbgApplyMinimized(_dbgMinimized);
+      const _minBtn = document.getElementById("tcc-dbg-min");
+      if (_minBtn) {
+        _minBtn.addEventListener("mousedown", e => e.stopPropagation());
+        _minBtn.addEventListener("touchstart", e => e.stopPropagation(), { passive: true });
+        _minBtn.addEventListener("click", e => { e.stopPropagation(); _dbgApplyMinimized(!_dbgMinimized); });
+      }
+      const _closeBtn = document.getElementById("tcc-dbg-close");
+      if (_closeBtn) {
+        _closeBtn.addEventListener("mousedown", e => e.stopPropagation());
+        _closeBtn.addEventListener("touchstart", e => e.stopPropagation(), { passive: true });
+        _closeBtn.addEventListener("click", e => { e.stopPropagation(); toggleDebugConsole(); });
+      }
+
+      // Wire footer buttons
+      document.getElementById("tcc-dbg-copy").onclick = () => {
+        const chainSecs = liveChainSecs !== null && lastTimerReadAt !== null
+          ? Math.max(0, Math.floor(liveChainSecs - (performance.now() - lastTimerReadAt) / 1000)) : null;
+        const chainStr = chainSecs !== null ? `${Math.floor(chainSecs/60)}:${String(chainSecs%60).padStart(2,"0")}` : "—";
+        const lines = [
+          `TCC Debug Report — ${new Date().toISOString()}`,
+          `Version: ${CURRENT_VERSION}`,
+          `Browser: ${navigator.userAgent}`,
+          `Chain timer: ${chainStr} | count: ${liveChainCount ?? "—"} | hits: ${hitMap.size}`,
+          `Total freezes: ${_dbgTotalFreezes} | Polls: ${_dbgPollCount}`,
+          ``,
+          `Console log:`,
+          ..._dbgConsoleLogs.map(e => `  [${e.level}] ${e.time} ${e.msg}`),
+        ].join("\n");
+        navigator.clipboard.writeText(lines).catch(() => {
+          const ta = document.createElement("textarea");
+          ta.value = lines; document.body.appendChild(ta); ta.select();
+          document.execCommand("copy"); ta.remove();
+        });
+        const btn = document.getElementById("tcc-dbg-copy");
+        if (btn) { btn.textContent = "Copied!"; setTimeout(() => { if (btn) btn.textContent = "Copy report"; }, 1500); }
+      };
+      document.getElementById("tcc-dbg-clear").onclick = () => {
+        _dbgConsoleLogs = []; _dbgFreezeLog = []; _dbgPollLog = [];
+        _dbgTotalFreezes = 0; _dbgPollCount = 0; _dbgLastPollTime = 0;
+        _dbgRender();
+      };
+
+      // Wire verbose toggles
+      document.getElementById("tcc-dbg-verbose-poll").onchange = e => { _dbg.verbosePoll      = e.target.checked; };
+      document.getElementById("tcc-dbg-verbose-mo").onchange   = e => { _dbg.verboseMutations = e.target.checked; };
+
+      // ── Drag logic (mouse + touch; position saved to GM storage on drag end) ──
+      function _dbgStartDrag(clientX, clientY) {
+        _dbgDragging = true;
+        const r = _dbgPanel.getBoundingClientRect();
+        _dbgDragOX = clientX - r.left;
+        _dbgDragOY = clientY - r.top;
+      }
+      titleBar.addEventListener("mousedown", ev => {
+        if (ev.target.id === "tcc-dbg-close") return;
+        _dbgStartDrag(ev.clientX, ev.clientY);
+        titleBar.style.cursor = "grabbing";
+        ev.preventDefault();
+      });
+      titleBar.addEventListener("touchstart", ev => {
+        if (ev.target.id === "tcc-dbg-close") return;
+        const t = ev.touches[0];
+        _dbgStartDrag(t.clientX, t.clientY);
+        ev.preventDefault();
+      }, { passive: false });
+      // mousemove/mouseup/touchmove/touchend wired once at module level below
+
+      // Start RAF + render interval
+      _dbgRafActive = true;
+      _dbgLastTick = performance.now();
+      requestAnimationFrame(_dbgRafLoop);
+      _dbgRender();
+      if (!_dbgRenderInterval) _dbgRenderInterval = setInterval(_dbgRender, 1000);
+    }
+    let _dbgRenderInterval = null;
+
+    // Module-level drag handlers — wired once, work across panel re-opens
+    function _dbgMove(clientX, clientY) {
+      if (!_dbgDragging || !_dbgPanel) return;
+      const maxX = window.innerWidth  - _dbgPanel.offsetWidth;
+      const maxY = window.innerHeight - _dbgPanel.offsetHeight;
+      const nx = Math.max(0, Math.min(clientX - _dbgDragOX, maxX));
+      const ny = Math.max(0, Math.min(clientY - _dbgDragOY, maxY));
+      _dbgPanel.style.left  = nx + "px";
+      _dbgPanel.style.top   = ny + "px";
+      _dbgPanel.style.right = "auto";
+    }
+    function _dbgEndDrag() {
+      if (!_dbgDragging) return;
+      _dbgDragging = false;
+      if (!_dbgPanel) return;
+      // Debounce save — only write after dragging settles
+      clearTimeout(_dbgPosSaveTimer);
+      _dbgPosSaveTimer = setTimeout(() => {
+        GM_setValue(SK_DBG_POS_X, parseInt(_dbgPanel.style.left));
+        GM_setValue(SK_DBG_POS_Y, parseInt(_dbgPanel.style.top));
+      }, 300);
+    }
+    document.addEventListener("mousemove", ev => { _dbgMove(ev.clientX, ev.clientY); });
+    document.addEventListener("mouseup",   _dbgEndDrag);
+    document.addEventListener("touchmove", ev => {
+      if (!_dbgDragging) return;
+      ev.preventDefault();
+      _dbgMove(ev.touches[0].clientX, ev.touches[0].clientY);
+    }, { passive: false });
+    document.addEventListener("touchend",  _dbgEndDrag);
+
     function settStatusMsg(msg, color) {
       const el = document.getElementById("chain-sett-status");
       if (!el) return;
@@ -1676,6 +2121,7 @@
       const sfv  = document.getElementById("sett-fudge-val");
       const ss   = document.getElementById("sett-sound");
       const sae  = document.getElementById("sett-auto-expand");
+      const sdc  = document.getElementById("sett-debug-console");
 
       if (sd)  sd.checked  = settShowDoneHits;
       if (sc)  sc.checked  = settCompactMode;
@@ -1683,6 +2129,7 @@
       if (smc) smc.checked = settMiniShowCount;
       if (ss)  ss.checked  = settNotifySound;
       if (sae) sae.checked = settAutoExpandDue;
+      if (sdc) sdc.checked = settDebugConsole;
 
       if (sop)  { sop.value  = Math.round(settPanelOpacity * 100); }
       if (sopv) { sopv.textContent = Math.round(settPanelOpacity * 100) + "%"; }
@@ -1718,6 +2165,10 @@
     document.getElementById("sett-auto-expand")?.addEventListener("change", e => {
       settAutoExpandDue = e.target.checked; GM_setValue(SK_AUTO_EXPAND_DUE, settAutoExpandDue);
     });
+    document.getElementById("sett-debug-console")?.addEventListener("change", e => {
+      settDebugConsole = e.target.checked; GM_setValue(SK_DEBUG_CONSOLE, settDebugConsole);
+      applyDebugConsole(settDebugConsole);
+    });
 
     // Slider handlers
     document.getElementById("sett-opacity")?.addEventListener("input", e => {
@@ -1745,7 +2196,7 @@
 
     // Reset buttons
     document.getElementById("sett-reset-pos")?.addEventListener("click", () => {
-      [SK_POS_X_FULL, SK_POS_Y_FULL, SK_POS_X_ICON, SK_POS_Y_ICON, SK_POS_X_MINI, SK_POS_Y_MINI, SK_POS_X, SK_POS_Y].forEach(k => GM_setValue(k, null));
+      [SK_POS_X_FULL, SK_POS_Y_FULL, SK_POS_X_ICON, SK_POS_Y_ICON, SK_POS_X_MINI, SK_POS_Y_MINI, SK_POS_X, SK_POS_Y, SK_DBG_POS_X, SK_DBG_POS_Y].forEach(k => GM_setValue(k, null));
       const px = Math.max(0, window.innerWidth - panelW - 12);
       panel.style.left = px + "px"; panel.style.top = "120px";
       settStatusMsg("Position reset ✓");
@@ -1760,13 +2211,14 @@
       if (!confirm("Reset ALL settings to defaults?")) return;
       [SK_SHOW_DONE_HITS, SK_COMPACT_MODE, SK_NOTIFY_SOUND, SK_TIMER_FUDGE_USR,
        SK_PANEL_OPACITY, SK_WARN_THRESHOLD, SK_DANGER_THRESHOLD, SK_SHOW_BONUS_ALERT,
-       SK_MINI_SHOW_COUNT, SK_AUTO_EXPAND_DUE, SK_PANEL_W, SK_PANEL_H,
+       SK_MINI_SHOW_COUNT, SK_AUTO_EXPAND_DUE, SK_DEBUG_CONSOLE, SK_PANEL_W, SK_PANEL_H,
        SK_POS_X_FULL, SK_POS_Y_FULL, SK_POS_X_ICON, SK_POS_Y_ICON, SK_POS_X_MINI, SK_POS_Y_MINI
       ].forEach(k => GM_setValue(k, null));
       settShowDoneHits = true; settCompactMode = false; settNotifySound = false;
       settTimerFudge = 0; settPanelOpacity = 0.96; settWarnThreshold = 90;
       settDangerThreshold = 30; settShowBonusAlert = true; settMiniShowCount = true;
-      settAutoExpandDue = false;
+      settAutoExpandDue = false; settDebugConsole = false;
+      applyDebugConsole(false);
       applyPanelOpacity(0.96); applyCompactMode(false); applyMiniCountVisibility(true);
       panelW = 380; panelH = null; panel.style.width = panelW + "px"; panel.style.height = "";
       openSettingsPopover();
@@ -1778,9 +2230,18 @@
     applyPanelOpacity(settPanelOpacity);
     applyCompactMode(settCompactMode);
     applyMiniCountVisibility(settMiniShowCount);
+    applyDebugConsole(settDebugConsole);
 
-    // Expose openSettingsPopover for gear menu wiring
-    window._chainOpenSettings = openSettingsPopover;
+    // Auto-restore debug console if it was open during the last session
+    if (GM_getValue(SK_DBG_OPEN, false) && settDebugConsole) {
+      setTimeout(toggleDebugConsole, 800);
+    }
+
+    // Expose functions needed by gear menu wiring (outside this IIFE's scope)
+    window._chainOpenSettings       = openSettingsPopover;
+    window._chainToggleDebugConsole = toggleDebugConsole;
+    // Wire shared _dbg object so outer-scope poll/MO code can reach inner functions/flags
+    _dbg.recordPoll = _dbgRecordPoll;
   })();
 
   clearBtn.onclick = () => {
@@ -2586,32 +3047,34 @@
   }
   function isHospStillIn(hit) { return !!(hit.hospReleaseAt && hit.hospReleaseAt>Date.now()); }
   function hitTimerClass(rem) { if(rem<=0)return"due"; if(rem<=settDangerThreshold*1000)return"soon"; return"wait"; }
-  function hitRowClass(rem, hosp, untracked) {
+  function hitRowClass(rem, hosp, untracked, hospReleaseAt) {
     if(untracked) return"untracked";
-    if(hosp)      return"hosp-waiting";
+    if(hosp) {
+      // If the target won't be out of hospital before the chain window closes,
+      // flag as unreachable so it's visually distinct and won't block the queue.
+      const chainWindowMs = chainTimerMs();
+      if (hospReleaseAt && chainWindowMs > 0 && hospReleaseAt > Date.now() + chainWindowMs) {
+        return "hosp-unreachable";
+      }
+      return"hosp-waiting";
+    }
     if(rem<=0)    return"due";
     if(rem<=60000)return"soon";
     return"waiting";
   }
 
-  // chainTimerMs() — used for UI display. DOM observer ONLY.
-  // Never uses the API timer — it's too imprecise for display (1-30s off
-  // depending on network latency and poll phase).
+  // chainTimerMs() — DOM observer ONLY. NEVER uses apiTimerSecs.
   function chainTimerMs() {
     if (liveChainSecs !== null && lastTimerReadAt !== null) {
-      return Math.max(0, (liveChainSecs + settTimerFudge - (performance.now() - lastTimerReadAt) / 1000)) * 1000;
+      return Math.max(0, (liveChainSecs * 1000) - (performance.now() - lastTimerReadAt));
     }
     return 0;
   }
 
-  // chainTimerMsForScheduling() — used for hit window calculations only.
-  // Falls back to API timer when DOM observer unavailable (acceptable ±5s precision).
+  // chainTimerMsForScheduling() — DOM observer only, used for hit window calculations.
   function chainTimerMsForScheduling() {
-    if (liveChainSecs !== null && lastTimerReadAt !== null) {
+    if (liveChainSecs !== null && lastTimerReadAt !== null && liveChainCount !== null) {
       return Math.max(0, (liveChainSecs - (performance.now() - lastTimerReadAt) / 1000)) * 1000;
-    }
-    if (apiTimerSecs !== null && apiTimerReadAt !== null && liveChainCount !== null) {
-      return Math.max(0, (apiTimerSecs - (performance.now() - apiTimerReadAt) / 1000)) * 1000;
     }
     return 0;
   }
@@ -2668,7 +3131,10 @@
   //   "N+1 timer = chain_length" invariant is always maintained.
   //   Hosp override: hospReleaseAt takes priority when it falls later.
   function syncPendingScheduledAt() {
-    if (liveChainSecs === null || lastTimerReadAt === null) return;
+    // Allow API timer as fallback so offsets are correct immediately on page load,
+    // before the DOM observer attaches.  chainTimerMsForScheduling() handles both sources.
+    const hasTimer = liveChainSecs !== null && lastTimerReadAt !== null;
+    if (!hasTimer) return;
     const pending = [...hitMap.values()]
       .filter(h => h.status !== "done")
       .sort((a, b) => (a.chainHitNum || a.hitNumber) - (b.chainHitNum || b.hitNumber));
@@ -2678,14 +3144,30 @@
     const chainExpiresAt = Date.now() + chainTimerMsForScheduling();
 
     // The hit number the chain needs right now.
+    // For offset math we use liveChainCount + 1 from the live Torn timer, which is
+    // the most up-to-date source. However, after confirmation we must never let
+    // currentHitNum fall below CHAIN_CONFIRM_HITS + 1 (11) — if Firebase lags and
+    // liveChainCount is still low, using it raw would make hits 11+ show giant offsets.
+    const chainConfirmedNow = liveChainCount !== null && liveChainCount >= CHAIN_CONFIRM_HITS;
     const currentHitNum = liveChainCount !== null
-      ? liveChainCount + 1
+      ? Math.max(liveChainCount + 1, chainConfirmedNow ? CHAIN_CONFIRM_HITS + 1 : 1)
       : getHighestDoneHitNum() + 1;
 
     pending.forEach(h => {
       const hitNum = h.chainHitNum || h.hitNumber;
-      const offset = Math.max(0, hitNum - currentHitNum); // 0 = current, 1 = next, …
+      // During warmup: hits ≤ CHAIN_CONFIRM_HITS (10) share the current window
+      // (offset=0). Hits beyond 10 are already past confirmation so stagger them
+      // relative to hit 10 (+1 interval for hit 11, +2 for hit 12, etc.).
+      // Post-confirmation: normal stagger from currentHitNum.
+      let offset;
+      if (!chainConfirmedNow) {
+        offset = hitNum <= CHAIN_CONFIRM_HITS ? 0 : hitNum - CHAIN_CONFIRM_HITS;
+      } else {
+        offset = Math.max(0, hitNum - currentHitNum);
+      }
       const computed = chainExpiresAt + offset * HIT_INTERVAL;
+      // Always apply hosp override — if the target is in hosp past their slot
+      // time, push scheduledAt out so the "out in X" label and timer are correct.
       const newScheduledAt = Math.max(computed, h.hospReleaseAt || 0);
       // Only adjust when drift exceeds 1s — avoids constant churn on each tick.
       if (Math.abs(newScheduledAt - h.scheduledAt) >= 1000) {
@@ -2745,6 +3227,136 @@
     });
   }
 
+  // resolveHospGaps: called after hitMap changes (new hit queued, Firebase poll).
+  //
+  // For each pending hit blocked by hospital (hospReleaseAt > its natural chain slot):
+  //   1. Compute how many slots back it needs to move (slotsBack).
+  //   2. For each vacated natural slot:
+  //      a. Pull the earliest non-hosp, non-gap hit from after that slot forward.
+  //      b. If no filler, create an unspecified gap entry in Firebase.
+  //   3. Push the hosp hit's scheduledAt to its release-aligned slot.
+  //   4. Delete unspecified gaps that are now covered by real hits.
+  //
+  // Uses the same natural-slot formula as syncPendingScheduledAt so the two
+  // functions agree on what "natural" means.
+  function resolveHospGaps() {
+    if (!fbConfigured() || !fbToken) return;
+
+    // chainTimerMsForScheduling() returns 0 when no timer is active — natural slots
+    // all collapse to Date.now(), which is still correct: any hospReleaseAt > now
+    // will trigger gap creation, and slots get correct times once the timer attaches.
+    const chainExpiresAt = Date.now() + chainTimerMsForScheduling();
+    const chainConfirmedNow = liveChainCount !== null && liveChainCount >= CHAIN_CONFIRM_HITS;
+    const currentHitNum = liveChainCount !== null
+      ? Math.max(liveChainCount + 1, chainConfirmedNow ? CHAIN_CONFIRM_HITS + 1 : 1)
+      : getHighestDoneHitNum() + 1;
+
+    function naturalSlotForHit(h) {
+      const hitNum = h.chainHitNum || h.hitNumber;
+      let offset;
+      if (!chainConfirmedNow) {
+        offset = hitNum <= CHAIN_CONFIRM_HITS ? 0 : hitNum - CHAIN_CONFIRM_HITS;
+      } else {
+        offset = Math.max(0, hitNum - currentHitNum);
+      }
+      return chainExpiresAt + offset * HIT_INTERVAL;
+    }
+
+    let pending = [...hitMap.values()]
+      .filter(h => h.status !== "done")
+      .sort((a, b) => (a.chainHitNum || a.hitNumber) - (b.chainHitNum || b.hitNumber));
+
+    if (!pending.length) return;
+
+    let changed = false;
+
+    for (const h of pending) {
+      if (!h.hospReleaseAt || h.unspecified) continue;
+
+      const naturalSlot = naturalSlotForHit(h);
+      if (h.hospReleaseAt <= naturalSlot) continue; // hosp clears before natural slot — no gap
+
+      const slotsBack = Math.ceil((h.hospReleaseAt - naturalSlot) / HIT_INTERVAL);
+      if (slotsBack <= 0) continue;
+
+      // Refresh pending after each modification
+      pending = [...hitMap.values()]
+        .filter(x => x.status !== "done")
+        .sort((a, b) => (a.chainHitNum || a.hitNumber) - (b.chainHitNum || b.hitNumber));
+
+      for (let s = 0; s < slotsBack; s++) {
+        const gapTime = naturalSlot + s * HIT_INTERVAL;
+
+        // Already have a real (non-gap) hit at this slot time?
+        const occupied = [...hitMap.values()].find(x =>
+          x.status !== "done" && x !== h && !x.unspecified &&
+          Math.abs(x.scheduledAt - gapTime) < 5000
+        );
+        if (occupied) continue;
+
+        // Try to pull the earliest eligible non-hosp hit from a later slot
+        const allPending = [...hitMap.values()]
+          .filter(x => x.status !== "done" && x !== h && !x.unspecified &&
+                       !(x.hospReleaseAt && x.hospReleaseAt > gapTime) &&
+                       x.scheduledAt > gapTime + 5000)
+          .sort((a, b) => a.scheduledAt - b.scheduledAt);
+        const filler = allPending[0] || null;
+
+        if (filler) {
+          filler.scheduledAt = gapTime;
+          fbPut(P.hitField(filler.id, "scheduledAt"), gapTime);
+          changed = true;
+          continue;
+        }
+
+        // No filler — create an unspecified gap if not already present
+        const existingGap = [...hitMap.values()].find(x =>
+          x.unspecified && x.status !== "done" && Math.abs(x.scheduledAt - gapTime) < 5000
+        );
+        if (existingGap) continue;
+
+        const gapId = `gap_${(chainSessionId||"s").slice(0,8)}_${Math.round(gapTime/1000)}_${Math.random().toString(36).slice(2,5)}`;
+        const gapHit = {
+          id: gapId, hitNumber: 0, targetId: null, targetName: "Unclaimed",
+          claimedBy: null, claimedAt: Date.now(), scheduledAt: gapTime,
+          hospReleaseAt: null, attackUrl: null, status: "pending",
+          outside: true, unspecified: true, sessionId: chainSessionId,
+        };
+        hitMap.set(gapId, gapHit);
+        gapHit._fbCommitted = true;
+        fbPut(P.hit(gapId), gapHit);
+        changed = true;
+      }
+
+      // Push the hosp hit to its release-aligned slot
+      const newHospSlot = naturalSlot + slotsBack * HIT_INTERVAL;
+      if (Math.abs(h.scheduledAt - newHospSlot) >= 1000) {
+        h.scheduledAt = newHospSlot;
+        fbPut(P.hitField(h.id, "scheduledAt"), newHospSlot);
+        changed = true;
+      }
+    }
+
+    // Clean up unspecified gaps whose slot time is now covered by a real hit
+    const realSlotTimes = new Set(
+      [...hitMap.values()]
+        .filter(h => h.status !== "done" && !h.unspecified)
+        .map(h => Math.round(h.scheduledAt / 1000))
+    );
+    for (const h of [...hitMap.values()]) {
+      if (!h.unspecified || h.status === "done") continue;
+      if (realSlotTimes.has(Math.round(h.scheduledAt / 1000))) {
+        _deletedHitIds.add(h.id);
+        fbDelete(P.hit(h.id));
+        hitMap.delete(h.id);
+        changed = true;
+      }
+    }
+
+    if (changed) { reNumberPending(); scheduleRender(); }
+  }
+
+
   function fbConfigured() {
     return FIREBASE_DB_URL!=="https://YOUR-PROJECT-default-rtdb.firebaseio.com"
         && FIREBASE_API_KEY!=="YOUR_FIREBASE_WEB_API_KEY";
@@ -2771,12 +3383,12 @@
             const e=JSON.parse(r.responseText);
             const msg = e.error||r.responseText;
             syncDot.title="Sync error "+r.status+": "+msg;
-            showBanner("chain-banner-debug",true,"❌ Firebase "+r.status+": "+msg);
-          } catch { syncDot.title="Sync error "+r.status; showBanner("chain-banner-debug",true,"❌ Firebase error "+r.status+": "+r.responseText); }
+            showErrorBanner("❌ Firebase "+r.status+": "+msg);
+          } catch { syncDot.title="Sync error "+r.status; showErrorBanner("❌ Firebase error "+r.status+": "+r.responseText); }
         }
       },
-      onerror(e)  { setSyncDot("error"); showBanner("chain-banner-debug",true,"❌ Network error reaching Firebase. Check @connect firebaseio.com in script header."); console.warn("[ChainCoord] Firebase PUT network error",e); },
-      ontimeout(){ setSyncDot("error"); showBanner("chain-banner-debug",true,"❌ Firebase PUT timed out — DB may be unreachable."); console.warn("[ChainCoord] Firebase PUT timeout"); },
+      onerror(e)  { setSyncDot("error"); showErrorBanner("❌ Network error reaching Firebase. Check @connect firebaseio.com in script header."); console.warn("[ChainCoord] Firebase PUT network error",e); },
+      ontimeout(){ setSyncDot("error"); showErrorBanner("❌ Firebase PUT timed out — DB may be unreachable."); console.warn("[ChainCoord] Firebase PUT timeout"); },
     });
   }
 
@@ -3051,10 +3663,15 @@
 
   function clearAllIntervals() {
     if (factionPollInterval)  { clearInterval(factionPollInterval);  factionPollInterval  = null; }
+    if (attackPollInterval)   { clearInterval(attackPollInterval);   attackPollInterval   = null; }
     if (heartbeatInterval)    { clearInterval(heartbeatInterval);    heartbeatInterval    = null; }
     if (versionPollInterval)  { clearInterval(versionPollInterval);  versionPollInterval  = null; }
     if (ownerCleanupInterval) { clearInterval(ownerCleanupInterval); ownerCleanupInterval = null; }
     if (ssePollInterval)      { clearInterval(ssePollInterval);      ssePollInterval      = null; }
+    // Disconnect DOM timer observer — re-attaches when setupTimerObserver retry fires
+    if (chainTimerObserver)   { chainTimerObserver.disconnect();     chainTimerObserver   = null; }
+    if (timerRetryInterval)   { clearInterval(timerRetryInterval);   timerRetryInterval   = null; }
+    _cachedTimerEl = null;
   }
 
   function fbStartMainListener() {
@@ -3095,11 +3712,14 @@
             }
             lastPollResponse = r.responseText;
             const data = JSON.parse(r.responseText);
-            applyPatch("/", data);
+            queuePatch("/", data);
+            if (_dbg.recordPoll) _dbg.recordPoll();
+            if (_dbg.verbosePoll) console.log("[ChainCoord] Poll OK — status:", r.status, "| bytes:", r.responseText.length, "| changed:", r.responseText !== lastPollResponse);
             setSyncDot("live");
             showBanner("chain-banner-debug", false);
           } catch(e) {
-            console.warn("[ChainCoord] Poll parse error", e);
+            const snippet = r.responseText ? r.responseText.slice(0, 120) : "(empty)";
+            console.warn("[ChainCoord] Poll parse error:", e.message || String(e), "| response:", snippet);
           }
         } else {
           setSyncDot("error");
@@ -3120,14 +3740,47 @@
           } else {
             let msg = r.responseText;
             try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
-            showBanner("chain-banner-debug", true, "❌ Poll failed "+r.status+": "+msg);
+            showErrorBanner("❌ Poll failed "+r.status+": "+msg);
             console.warn("[ChainCoord] Poll failed", r.status, r.responseText);
           }
         }
       },
-      onerror()  { pollInFlight=false; setSyncDot("error"); showBanner("chain-banner-debug", true, "❌ Poll network error — check @connect firebaseio.com"); },
+      onerror()  { pollInFlight=false; setSyncDot("error"); showErrorBanner("❌ Poll network error — check @connect firebaseio.com"); },
       ontimeout(){ pollInFlight=false; setSyncDot("error"); },
     });
+  }
+
+  // ── Patch debounce ────────────────────────────────────────────────────────
+  // GM_xmlhttpRequest callbacks for fbPollOnce, pollFactionChain, and fbHeartbeat
+  // can all land within the same ~100ms window (their intervals share common
+  // multiples at ~15s and ~30s). Without debouncing, each callback independently
+  // calls applyPatch → reNumberPending → scheduleRender, triggering multiple
+  // hitMap rebuilds and innerHTML rewrites in a single event loop drain — causing
+  // the ~2.5s paint stall User D experiences every ~10s on Chrome.
+  //
+  // queuePatch collapses all patches arriving within 50ms into one deferred batch.
+  // The RAF-debounced scheduleRender() already collapses the render calls; this
+  // handles the upstream CPU work (JSON processing, hitMap rebuild) that happens
+  // before scheduleRender is even reached.
+  let _patchDebounceTimer = null;
+  let _pendingPatches     = [];
+
+  function queuePatch(path, data) {
+    _pendingPatches.push({ path, data });
+    if (_patchDebounceTimer) return;
+    _patchDebounceTimer = setTimeout(() => {
+      _patchDebounceTimer = null;
+      const batch = _pendingPatches.splice(0);
+      // If the batch contains a root ("/") patch, it supersedes all others —
+      // the root payload already contains hits, session, members, and permissions.
+      // Applying individual sub-patches on top would double-process the same data.
+      const rootPatch = batch.find(p => p.path === "/");
+      if (rootPatch) {
+        applyPatch("/", rootPatch.data);
+      } else {
+        for (const { path, data } of batch) applyPatch(path, data);
+      }
+    }, 50);
   }
 
     // Route a Firebase patch to the right handler
@@ -3175,6 +3828,7 @@
       }
       // If data is undefined or any other falsy — leave hitMap alone
       reNumberPending();
+      resolveHospGaps();        // create gap placeholders and reorder around hosp-blocked hits
       setSyncDot("live");
       scheduleRender();
       return;
@@ -3286,9 +3940,6 @@
     // Root full load
     if (path === "/") {
       if (data && typeof data === "object") {
-        const keys = Object.keys(data).join(",") || "(empty)";
-        showBanner("chain-banner-debug", true, "✓ SSE root received. keys="+keys);
-        setTimeout(()=>showBanner("chain-banner-debug",false), 6000);
         // Only replace hitMap if Firebase actually sent hits data.
         // If the hits key is absent from the root response, leave local state alone —
         // it means Firebase returned a partial/transient snapshot, not a deliberate clear.
@@ -3345,6 +3996,7 @@
     fbPut(P.hit(hit.id), hit);
     hitMap.set(hit.id, hit);
     reNumberPending();
+    resolveHospGaps();        // create gap placeholders if new hit is hosp-blocked
     scheduleRender();
   }
 
@@ -3381,6 +4033,7 @@
   function onChainStart(startMs) {
     chainStartTime = startMs || Date.now();
     chainSessionId = `s_${chainStartTime}_${Math.random().toString(36).slice(2,7)}`;
+    lastAttackId   = null;  // reset so pollFactionAttacks re-fetches from chain start
     fbPut(P.session(), { id: chainSessionId, startTime: chainStartTime });
     persistSession();
   }
@@ -3400,7 +4053,7 @@
     scrapedHitIds.clear();
     apiTimerSecs      = null;
     apiTimerReadAt    = null;
-    if (chainCountObserver) { chainCountObserver.disconnect(); chainCountObserver = null; }
+    lastAttackId      = null;
     hitMap.clear();
     fbClearHits();
     fbDelete(P.session());
@@ -3450,91 +4103,82 @@
       : parseInt(m[1])*60+parseInt(m[2]);
   }
 
-  // ── Top-bar chain count observer (all pages) ─────────────────────────────
-  // bar-value inside chain-bar always shows "N / 10" or "N / 50" etc.
-  // We watch it with a MutationObserver so count increments are caught
-  // instantly from the DOM on every page, not just after the next API poll.
 
-  function parseChainCountText(txt) {
-    // Matches "1 / 10", "25 / 50", etc. Returns current hit count or null.
-    const m = (txt || "").match(/(\d+)\s*\/\s*\d+/);
-    return m ? parseInt(m[1]) : null;
-  }
+  // ══════════════════════════════════════════════════════════════════════════
+  //  Chain timer — DOM observer (accurate) + API fallback (coarse)
+  //  Ported from v4.9.17. Reads the Torn chain bar timer directly from the
+  //  page DOM so the displayed countdown matches exactly what Torn shows.
+  //  The API (chain.timeout) lags by up to 20s — DOM is authoritative.
+  // ══════════════════════════════════════════════════════════════════════════
 
-  function findChainCountEl() {
-    // chain-bar is the <a> wrapper; bar-value is the text node inside it.
-    const bar = document.querySelector('[class*="chain-bar"]');
-    if (!bar) return null;
-    const val = bar.querySelector('[class*="bar-value"]');
-    if (val && parseChainCountText(val.textContent) !== null) return val;
+  function findChainTimerEl() {
+    if (_cachedTimerEl && document.contains(_cachedTimerEl) && parseTimerText(_cachedTimerEl.textContent) !== null) {
+      return _cachedTimerEl;
+    }
+    _cachedTimerEl = null;
+
+    // Fast CSS selector scan — covers sidebar chain bar on most pages,
+    // and the attack-page header "[class*=labelTitle]" which contains "2 (02:02)".
+    // labelTitle is confirmed from MHT analysis of page.php?sid=attack.
+    // parseTimerText extracts MM:SS from within any text, so "2 (02:02)" works.
+    const sels = [
+      '[class*="bar-timeleft"]',
+      '[class*="chainTimer"] [class*="counter"]',
+      '[class*="chain-timer"]',
+      '[class*="chainInfo"] [class*="timer"]',
+      '[class*="chainInfo"] [class*="timeLeft"]',
+      '[class*="chainInfo"] [class*="time-left"]',
+      '[class*="chainTimer"] [class*="timeLeft"]',
+      // Attack page: labelsContainer > labelContainer > labelTitle contains "N (M:SS)"
+      '[class*="labelTitle"]:not(#chain-panel *)',
+      '[class*="chain"] [class*="time"]:not(#chain-panel *)',
+    ];
+    for (const sel of sels) {
+      try {
+        const el = document.querySelector(sel);
+        if (el && parseTimerText(el.textContent) !== null) { _cachedTimerEl = el; return el; }
+      } catch {/**/ }
+    }
+
+    // Walk children of chain-bar widget (tooltip render on other pages)
+    const cw = document.querySelector('[class*="chain-bar"]:not(#chain-panel *)')
+             || document.querySelector('[class*="chain"]:not(#chain-panel *)');
+    if (cw) {
+      for (const el of cw.querySelectorAll('*')) {
+        if (el.children.length > 0) continue;
+        if (parseTimerText(el.textContent) !== null) { _cachedTimerEl = el; return el; }
+      }
+    }
+
     return null;
   }
 
-  let chainCountObserver = null;
-
-  function onDomChainCountUpdate(newCount) {
-    if (newCount === null || newCount === liveChainCount) return;
-    const prev = liveChainCount;
-    liveChainCount = newCount > 0 ? newCount : null;
-    persistSession();
-    if (liveChainCount !== null && liveChainCount >= CHAIN_CONFIRM_HITS) chainConfirmed = true;
-    if (prev !== null && liveChainCount !== null && liveChainCount > prev) {
-      reNumberPending();
-      scheduleRender();
-    }
+  function onDomTimerUpdate(rawSecs) {
+    if (rawSecs === null || rawSecs === 0) return;
+    // DOM observer is the SOLE authoritative source for display.
+    liveChainSecs   = rawSecs;
+    lastTimerReadAt = performance.now();
     updateChainTimerUI();
   }
 
-  function startChainCountObserver() {
-    if (chainCountObserver) return;  // already watching
-    const el = findChainCountEl();
-    if (!el) return;
-    onDomChainCountUpdate(parseChainCountText(el.textContent));
-    chainCountObserver = new MutationObserver(() => {
-      const count = parseChainCountText(el.textContent);
-      if (count === null) {
-        chainCountObserver.disconnect(); chainCountObserver = null;
-      } else {
-        onDomChainCountUpdate(count);
-      }
-    });
-    chainCountObserver.observe(el, { characterData: true, childList: true, subtree: true });
-  }
-
-  // ── Chain bar timer element bootstrap ────────────────────────────────────
-  // Desktop Torn uses React keepMounted — bar-timeleft is always in the DOM,
-  // only its opacity is toggled on hover, so we can attach directly with no
-  // visual side-effect.
-  //
-  // Mobile Torn (Firefox / Chrome) conditionally renders the tooltip only on
-  // tap/hover — the element is genuinely absent until an interaction occurs.
-  // For those cases we dispatch a synthetic pointerenter to force the render,
-  // but suppress the visual flash by briefly setting the tooltip container to
-  // visibility:hidden for the duration of the attach-and-dismiss cycle.
+  // Mobile Torn conditionally renders the chain bar tooltip only on tap/hover.
+  // We dispatch a synthetic pointerenter to force-render the element, hiding
+  // the visual flash via a portal watcher. Ported verbatim from v4.9.17.
   function scheduleTooltipTrigger() {
     let attempts = 0;
     let cancelled = false;
     const tryAttach = () => {
-      if (cancelled) return;                    // a later retry was queued but we're done
-      if (chainTimerObserver) return;           // observer already running — done
-      if (startChainTimerObserver()) return;    // element in DOM — attached cleanly
+      if (cancelled) return;
+      if (chainTimerObserver) return;
+      if (startChainTimerObserver()) return;
 
-      // Element not in DOM yet. Try to force-render it via synthetic hover,
-      // suppressing any visual flash with a temporary visibility override.
-      const chainBar = document.querySelector('[class*="chain-bar"]');
+      const chainBar = document.querySelector('[class*="chain-bar"]:not(#chain-panel *)');
+      // On pages without a chain-bar (attack page), still retry via the loop.
       if (chainBar) {
-        // The tooltip popup doesn't exist before the hover fires, so we can't
-        // hide it in advance. Instead, use a MutationObserver to catch it the
-        // instant it's added to the DOM and hide it immediately — before the
-        // browser has a chance to paint it. The chain bar itself is never
-        // touched so user interaction with it remains fully functional.
         const hiddenPortals = new Set();
         const hideNode = n => {
           n.style.setProperty('visibility', 'hidden', 'important');
           hiddenPortals.add(n);
-          // Also watch this specific node for attribute/style mutations — React
-          // re-renders can reset inline styles, causing a flicker. Re-apply
-          // visibility:hidden immediately whenever that happens.
           nodeWatcher.observe(n, { attributes: true, attributeFilter: ['style', 'class'] });
         };
         const isTooltipNode = n =>
@@ -3542,7 +4186,6 @@
             n.matches('[class*="tooltip"],[class*="floating"],[data-floating-ui-portal],[class*="popup"],[class*="Popup"],[class*="Tooltip"]')
             || n.querySelector('[class*="bar-timeleft"],[class*="chainTimer"]')
           );
-        // Watches already-hidden nodes and re-hides them if React resets their style.
         const nodeWatcher = new MutationObserver(mutations => {
           for (const m of mutations) {
             if (m.type === 'attributes' && hiddenPortals.has(m.target)) {
@@ -3550,25 +4193,15 @@
             }
           }
         });
-
-        // FIX (4.9.8): Replace portalWatcher document.body subtree:true MutationObserver
-        // with a lightweight poll. The subtree observer fired on EVERY DOM mutation
-        // site-wide (including Torn's ~10s attack-log rerenders), compounding the freeze.
-        // Polling at 50ms is far cheaper — the browser only runs it between frames and
-        // there are at most ~20 ticks during the 1s attach window (same as before).
-        // We scan only direct children of body for new portal nodes, which is O(1)
-        // compared to the O(subtree) traversal the MutationObserver implied.
         let _lastPortalChildCount = document.body.children.length;
         const portalWatcher = setInterval(() => {
           const currentCount = document.body.children.length;
           if (currentCount !== _lastPortalChildCount) {
             _lastPortalChildCount = currentCount;
-            // A child was added/removed — check the newest children for tooltip portals.
             for (const child of document.body.children) {
               if (!hiddenPortals.has(child) && isTooltipNode(child)) hideNode(child);
             }
           }
-          // Re-hide tracked portals in case React reset their visibility.
           hiddenPortals.forEach(n => {
             if (n.isConnected) n.style.setProperty('visibility', 'hidden', 'important');
           });
@@ -3577,14 +4210,9 @@
         chainBar.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, cancelable: true }));
         chainBar.dispatchEvent(new MouseEvent('mouseenter',    { bubbles: true, cancelable: true }));
 
-        // Dismiss the synthetic hover, but keep watchers alive through the
-        // pointerleave re-render cycle — Torn may remove/re-add the tooltip
-        // node during dismiss, which would flash visible if we'd already
-        // disconnected. Restore visibility only after a short settle delay.
         const dismissAndRestore = () => {
           chainBar.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true, cancelable: true }));
           chainBar.dispatchEvent(new MouseEvent('mouseleave',    { bubbles: true, cancelable: true }));
-          // Keep suppressing for 300ms after pointerleave to cover the re-render.
           setTimeout(() => {
             clearInterval(portalWatcher);
             nodeWatcher.disconnect();
@@ -3597,12 +4225,10 @@
         const findAndAttach = setInterval(() => {
           polls++;
           if (startChainTimerObserver()) {
-            // Observer attached — dismiss and allow tooltip to restore after settle.
             clearInterval(findAndAttach);
             cancelled = true;
             dismissAndRestore();
           } else if (polls >= 20) {
-            // 1s elapsed, element never appeared — give up this attempt.
             clearInterval(findAndAttach);
             cancelled = true;
             dismissAndRestore();
@@ -3610,179 +4236,48 @@
         }, 50);
       }
 
-      if (++attempts < 5) setTimeout(tryAttach, 500);
-      // If the observer gets set by something else while we're waiting (e.g. Torn
-      // re-renders the chain bar on Firebase connect), cancel the next retry so we
-      // don't fire a synthetic hover on a page that already has the element.
+      if (++attempts < 15) setTimeout(tryAttach, 500);
       if (chainTimerObserver) cancelled = true;
     };
     tryAttach();
   }
 
-  // FIX (4.9.8): Cache the last-found timer element so the expensive querySelectorAll("*")
-  // fallback in findChainTimerEl is only reached when the cached reference is stale.
-  // Once found, subsequent calls hit the fast-path document.contains() check and return
-  // immediately — no DOM scan needed during Torn's ~10s attack-log rerenders.
-  let _cachedTimerEl = null;
-
-  function findChainTimerEl() {
-    // Fast path: return cached element if it's still in the DOM and still readable.
-    if (_cachedTimerEl && document.contains(_cachedTimerEl) && parseTimerText(_cachedTimerEl.textContent) !== null) {
-      return _cachedTimerEl;
-    }
-    _cachedTimerEl = null;  // stale — clear and re-scan
-
-    const sels = [
-      // Top-bar tooltip timer — present on ALL Torn pages (mobile and desktop).
-      // The tooltip div is always in the DOM; only its opacity is toggled on hover.
-      // class suffix is CSS-module-hashed so we match on the stable prefix only.
-      '[class*="bar-timeleft"]',
-      '[class*="chainTimer"] [class*="counter"]',
-      '[class*="chain-timer"]',
-      '[class*="chainInfo"] [class*="timer"]',
-      '[class*="chain"] [class*="time"]:not(#chain-panel *)',
-    ];
-    for (const sel of sels) {
-      try { const el=document.querySelector(sel); if(el&&parseTimerText(el.textContent)!==null) { _cachedTimerEl = el; return el; } } catch {/**/ }
-    }
-    // Expensive fallback: walk every child of the chain widget looking for a
-    // leaf node whose text parses as a timer. Guard with a chain-widget presence
-    // check first — if the chain bar itself isn't in the DOM (e.g. user is not
-    // in a chain, or Torn is mid-DOM-replacement) we bail immediately rather than
-    // scanning hundreds of nodes on every watcher callback invocation.
-    const cw = document.querySelector('[class*="chain-bar"]:not(#chain-panel *)')
-             || document.querySelector('[class*="chain"]:not(#chain-panel *)');
-    if (!cw) return null;
-    for (const el of cw.querySelectorAll("*")) {
-      if (el.children.length > 0) continue;
-      if (parseTimerText(el.textContent) !== null) { _cachedTimerEl = el; return el; }
-    }
-    return null;
-  }
-
-  function onDomTimerUpdate(rawSecs) {
-    if (rawSecs === null) {
-      liveChainSecs = null; lastTimerReadAt = null;
-    } else if (rawSecs === 0) {
-      liveChainSecs = null; lastTimerReadAt = null;
-      if (chainSessionId) {
-        if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
-        onChainEnd();
-      }
-    } else {
-      liveChainSecs   = Math.max(0, rawSecs - TIMER_FUDGE_SEC);
-      lastTimerReadAt = performance.now();
-      // Keep the API fallback timer calibrated to the DOM reading.
-      // If we later lose the observer (navigation) the fallback will start
-      // from the last known-good DOM value rather than a stale API value.
-      apiTimerSecs   = liveChainSecs;
-      apiTimerReadAt = lastTimerReadAt;
-    }
-    updateChainTimerUI();
-  }
-
-  // FIX #2: startChainTimerObserver — also clears the fallback retry interval
-  // once a timer element is found.
   function startChainTimerObserver() {
     if (chainTimerObserver) { chainTimerObserver.disconnect(); chainTimerObserver = null; }
-    _cachedTimerEl = null;  // FIX (4.9.8): invalidate cache so findChainTimerEl re-scans fresh
+    _cachedTimerEl = null;
     const timerEl = findChainTimerEl();
-    if (!timerEl) return false;  // return false so caller knows we failed
-
-    // Found it — cancel the fallback retry interval
+    if (!timerEl) return false;
     if (timerRetryInterval) { clearInterval(timerRetryInterval); timerRetryInterval = null; }
-
     onDomTimerUpdate(parseTimerText(timerEl.textContent));
     chainTimerObserver = new MutationObserver(() => {
       const secs = parseTimerText(timerEl.textContent);
       if (secs === null) {
-        onDomTimerUpdate(null);
         chainTimerObserver.disconnect(); chainTimerObserver = null;
-        _cachedTimerEl = null;  // FIX (4.9.8): element left DOM — clear cache so next scan is fresh
-        // FIX #2: restart fallback retry when observer loses the element
+        _cachedTimerEl = null;
         startTimerRetryLoop();
-      } else { onDomTimerUpdate(secs); }
+      } else {
+        onDomTimerUpdate(secs);
+      }
     });
-    chainTimerObserver.observe(timerEl, { characterData:true, childList:true, subtree:true });
+    chainTimerObserver.observe(timerEl, { characterData: true, childList: true, subtree: true });
     return true;
   }
 
-  // FIX #2: independent 2s retry loop — works even without a MutationObserver trigger
   function startTimerRetryLoop() {
-    if (timerRetryInterval) return;  // already running
+    if (timerRetryInterval) return;
     timerRetryInterval = setInterval(() => {
       if (chainTimerObserver) { clearInterval(timerRetryInterval); timerRetryInterval = null; return; }
       startChainTimerObserver();
     }, 2000);
   }
 
-  // Observe the Torn content area (not body) for chain timer element appearance.
-  // The retry loop (startTimerRetryLoop) handles the case where the element isn't
-  // present yet — the observer here is just a fast-path trigger when it appears.
-  // Skip on TornPDA — WebView DOM layout differs and causes freezes on faction page.
-  // FIX: The original observer was immortal with subtree:true, firing hundreds of
-  // times during Torn's ~10s attack-log DOM replacement and freezing the event loop.
-  // Now it disconnects itself once both observers are live, and a 5s interval
-  // re-arms it only if an observer dies (element leaves DOM).
+  // Boot: try to attach immediately, then rely on timerRetryInterval (2s) to keep
+  // retrying.  We deliberately avoid a subtree:true MutationObserver on document.body
+  // — on dynamic pages like loader.php (attack) that fires hundreds of times per second
+  // and blocks GM_xmlhttpRequest callbacks, breaking all API features.
   if (!isTornPDA) {
-    (function setupTimerObserver() {
-      const tornRoot = document.getElementById("mainContainer")
-        || document.getElementById("torn-app")
-        || document.querySelector('[class*="mainContainer"]')
-        || document.body;
-
-      let watcherObs = null;
-
-      function startWatcher() {
-        if (watcherObs) return;
-        // Debounce: Torn's attack-log replaces large DOM chunks every ~10 s,
-        // firing hundreds of rapid mutations. Without debouncing, each one
-        // synchronously invokes findChainTimerEl (expensive scan) and freezes
-        // the event loop for the duration of the burst.
-        // We collapse the entire burst into a single deferred scan using a
-        // 150 ms trailing debounce — any re-appearance of the timer element
-        // will be caught well within the next poll cycle.
-        let _watcherDebounceTimer = null;
-        watcherObs = new MutationObserver(() => {
-          if (_watcherDebounceTimer) return;  // burst already in flight
-          _watcherDebounceTimer = setTimeout(() => {
-            _watcherDebounceTimer = null;
-            // Re-check: another path (retry loop, tooltip trigger) may have
-            // already reconnected both observers during the debounce window.
-            const timerDead = !chainTimerObserver;
-            const countDead = !chainCountObserver;
-            if (timerDead) startChainTimerObserver();
-            if (countDead) startChainCountObserver();
-            // Both observers are live — disconnect until one dies.
-            if (!chainTimerObserver && !chainCountObserver) {
-              // Neither came back (elements genuinely absent) — keep watching.
-              return;
-            }
-            if (chainTimerObserver && chainCountObserver) {
-              watcherObs.disconnect();
-              watcherObs = null;
-            }
-            // One came back, one didn't — stay connected to catch the other.
-          }, 150);
-        });
-        watcherObs.observe(tornRoot, { childList: true, subtree: true });
-      }
-
-      // Boot: try to attach both immediately; only start DOM watcher if either is missing.
-      startChainTimerObserver();
-      startChainCountObserver();
-      if (!chainTimerObserver || !chainCountObserver) startWatcher();
-
-      // Re-arm watcher at 5s cadence if either observer has died (element left DOM).
-      // Runs far less often than every mutation — negligible overhead.
-      setInterval(() => {
-        if (!chainCountObserver || !chainTimerObserver) startWatcher();
-      }, 5000);
-    })();
-
-    // Start retry loop for timer immediately on boot
+    startChainTimerObserver();
     startTimerRetryLoop();
-    // Trigger chain bar tooltip render so bar-timeleft enters the DOM without user tap
     scheduleTooltipTrigger();
   }
 
@@ -3792,11 +4287,17 @@
   function pollFactionChain() {
     if (!tornApiKey || !factionId) return;
     GM_xmlhttpRequest({
-      method:"GET",
-      url:`https://api.torn.com/faction/${factionId}?selections=chain&key=${encodeURIComponent(tornApiKey)}`,
-      timeout:8000,
-      onload(r) { try { const d=JSON.parse(r.responseText); if(d&&!d.error) onChainApiData(d.chain||{}); } catch {/**/ } },
-      onerror(){}, ontimeout(){},
+      method: "GET",
+      url: `https://api.torn.com/v2/faction/chain?key=${encodeURIComponent(tornApiKey)}`,
+      timeout: 8000,
+      onload(r) {
+        try {
+          const d = JSON.parse(r.responseText);
+          if (d && !d.error && d.chain) onChainApiData(d.chain);
+        } catch { /**/ }
+      },
+      onerror()  { },
+      ontimeout(){ },
     });
   }
 
@@ -3818,14 +4319,23 @@
       chainCooldownReadAt = null;
     }
 
-    // ── API timer capture — used as fallback when DOM observer unavailable ──
+    // ── API timer — scheduling math ONLY, NEVER written to display vars ────
+    // The API chain.timeout is a coarse integer that lags by 1-30s.
+    // Writing it to any display variable causes the visible timer to jump
+    // backward on every poll. liveChainSecs/lastTimerReadAt (DOM only) are
+    // the SOLE display source and are never touched here.
     if (newTimeout > 0) {
       apiTimerSecs   = newTimeout;
       apiTimerReadAt = performance.now();
     } else if (newTimeout === 0 && newCount === 0) {
-      // Chain ended — clear API timer too
-      apiTimerSecs   = null;
-      apiTimerReadAt = null;
+      // Chain confirmed dead — clear scheduling state AND display state.
+      apiTimerSecs    = null;
+      apiTimerReadAt  = null;
+      liveChainSecs   = null;
+      lastTimerReadAt = null;
+      liveChainCount  = null;
+      lastKnownCount  = null;
+      updateChainTimerUI();
     }
 
     if (newTimeout === 0 && chainSessionId) {
@@ -3862,8 +4372,8 @@
         setTimeout(() => onChainStart(apiStartMs), 500);
         return;
       }
-      // FIX #2: try to find the timer element if we don't have it yet
-      if (!chainTimerObserver) startChainTimerObserver();
+      // Chain active but no DOM observer — try to trigger tooltip render
+      if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
     } else {
       if (chainSessionId && !chainEndDebounce) {
         chainEndDebounce = setTimeout(onChainEnd, CHAIN_END_DEBOUNCE);
@@ -3879,7 +4389,8 @@
   function updateChainTimerUI() {
     const count = liveChainCount;
     const pillCount = document.getElementById("chain-pill-count");
-    // UI display uses DOM observer only — API timer is too imprecise (1–30s off)
+    // Timer source: DOM observer ONLY (liveChainSecs/lastTimerReadAt).
+    // apiTimerSecs is NEVER used for display — it is coarse and causes jumps.
     const hasDomTimer = liveChainSecs !== null && lastTimerReadAt !== null;
 
     // Determine if cooldown is active before deciding pill state
@@ -3936,215 +4447,171 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Recent attacks scraper
+  //  Faction attacks API poll — replaces DOM scraper
+  //  Requires "Limited access" API key (faction/attacks endpoint).
+  //  On error code 7 (limited access required) shows a banner and disables
+  //  the interval so we don't spam the API with unauthorized requests.
   // ══════════════════════════════════════════════════════════════════════════
-  let _scraperContainer = null;   // cached container element
-  let _scraperRows      = [];     // cached row list
-  let _scraperRowCount  = 0;      // last known row count — re-scan only when it changes
-  let _lastScrapeAt     = 0;      // timestamp of last scrapeRecentAttacks call (throttle)
+  function pollFactionAttacks() {
+    if (!tornApiKey || !factionId || !chainStartTime) return;
 
-  function scrapeRecentAttacks() {
-    if (!chainStartTime) return;
+    // Build URL — use `from` param to only fetch attacks since chain start,
+    // and `to` to cap at now. This avoids processing attacks from old chains.
+    // The API returns attacks in descending order by ended timestamp.
+    const fromTs = Math.floor(chainStartTime / 1000);
+    const toTs   = Math.floor(Date.now() / 1000);
 
-    // Re-find container only if we don't have one (or it left the DOM)
-    if (!_scraperContainer || !document.contains(_scraperContainer)) {
-      _scraperContainer = null; _scraperRows = []; _scraperRowCount = 0;
-      const containerSels = ['[class*="recentAttacks"]','[class*="recent-attacks"]','[class*="attackLog"]','[class*="attack-log"]'];
-      for (const sel of containerSels) { try { _scraperContainer=document.querySelector(sel); if(_scraperContainer)break; } catch {/**/ } }
-      if (!_scraperContainer) return;
-    }
+    GM_xmlhttpRequest({
+      method: "GET",
+      url: `https://api.torn.com/v2/faction/attacks?limit=100&from=${fromTs}&to=${toTs}&key=${encodeURIComponent(tornApiKey)}`,
+      timeout: 10000,
+      onload(r) {
+        try {
+          const d = JSON.parse(r.responseText);
 
-    // Re-scan rows only when count changes (new hit appeared)
-    const currentCount = _scraperContainer.children.length;
-    if (currentCount !== _scraperRowCount) {
-      _scraperRowCount = currentCount;
-      const rowSels = ['[class*="attackLogRow"]','[class*="attack-log-row"]','[class*="log-row"]','li[class*="attack"]','li'];
-      _scraperRows = [];
-      for (const sel of rowSels) { try { _scraperRows=Array.from(_scraperContainer.querySelectorAll(sel)); if(_scraperRows.length)break; } catch {/**/ } }
-    }
-    if (!_scraperRows.length) return;
+          // ── Handle API errors ──────────────────────────────────────────
+          if (d && d.error) {
+            // Error code 7 = Limited access required
+            if (d.error.code === 7 || d.error.code === 2) {
+              hasLimitedKey = false;
+              showBanner("chain-banner-limitedkey", true);
+              // Stop polling — no point retrying without a key upgrade
+              if (attackPollInterval) { clearInterval(attackPollInterval); attackPollInterval = null; }
+            }
+            return;
+          }
 
-    const rows   = _scraperRows;
-    const now      = Date.now();
-    const apiCount = liveChainCount || 0;
+          // ── Confirmed limited key works ────────────────────────────────
+          if (hasLimitedKey === false) {
+            hasLimitedKey = true;
+            showBanner("chain-banner-limitedkey", false);
+          }
+          hasLimitedKey = true;
+
+          const attacks = d.attacks || [];
+          if (!attacks.length || !chainStartTime) return;
+
+          onFactionAttacksData(attacks);
+        } catch { /**/ }
+      },
+      onerror()  { },
+      ontimeout(){ },
+    });
+  }
+
+  function onFactionAttacksData(attacks) {
+    // attacks[] from v2 — each entry has:
+    //   id, started (epoch), ended (epoch), chain (hit number in chain),
+    //   attacker: { id, name, faction: { id } },
+    //   defender: { id, name },
+    //   result, respect_gain, is_stealthed
+    //
+    // Filter to only attacks by our faction within the current chain session.
+    // chain.start from /faction/chain gives us the epoch the chain began.
+    // We use chainStartTime (ms) already stored in state — convert to seconds.
+
+    const chainStartSec = Math.floor(chainStartTime / 1000);
+    const apiCount      = liveChainCount || 0;
+
+    // Track the highest attack id seen for future incremental polling
+    let maxId = lastAttackId || 0;
+
     let earliestHitTime = chainHit1Time;
 
-    // ── Step 1: parse all DOM rows ───────────────────────────────────────────
-    const rawCandidates = [];
-    for (const row of rows) {
-      const chainNumEl = (() => {
-        // TreeWalker visits only text nodes — avoids querySelectorAll("*") element flood
-        const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-        let node;
-        while ((node = walker.nextNode())) {
-          if (/^#\d+$/.test(node.textContent.trim())) return node.parentElement;
-        }
-        return null;
-      })();
-      if (!chainNumEl) continue;
-      const chainHitNum = parseInt(chainNumEl.textContent.trim().replace("#",""));
-      if (isNaN(chainHitNum) || chainHitNum < 1) continue;
-      if (apiCount > 0 && chainHitNum > apiCount) continue;  // strict: API count is the ceiling
+    for (const atk of attacks) {
+      // Only our faction's attacks
+      if (!atk.attacker || !atk.attacker.faction || String(atk.attacker.faction.id) !== String(factionId)) continue;
 
-      const profileLinks = row.querySelectorAll('a[href*="profiles.php?XID="]');
-      if (profileLinks.length < 2) continue;
-      const targetProfileA = profileLinks[profileLinks.length-1];
-      const targetIdMatch  = (targetProfileA.href||"").match(/XID=(\d+)/i);
-      if (!targetIdMatch) continue;
+      // Must have a chain number (chain: 0 means not part of a chain)
+      const chainHitNum = atk.chain;
+      if (!chainHitNum || chainHitNum < 1) continue;
 
-      // Parse Torn time display: "Xs", "Xm", "Xh"
-      const sMatch = (row.textContent||"").match(/(\d+)\s*s\b/);
-      const tMatch = (row.textContent||"").match(/(\d+)\s*m\b/);
-      const hMatch = (row.textContent||"").match(/(\d+)\s*h\b/);
-      let secsAgo = 0;
-      if      (sMatch && !tMatch && !hMatch) secsAgo = parseInt(sMatch[1]);
-      else if (tMatch && !hMatch)            secsAgo = parseInt(tMatch[1]) * 60;
-      else if (hMatch)                       secsAgo = parseInt(hMatch[1]) * 3600 + (tMatch ? parseInt(tMatch[1]) * 60 : 0);
-      const attackTime = now - secsAgo * 1000;
+      // Must be within current session time window
+      if (atk.ended < chainStartSec) continue;
 
-      // Pre-filter: more than 10 min before session start is definitely old
-      if (attackTime < chainStartTime - 10 * 60000) continue;
+      // API count is the ceiling — don't accept hits beyond what chain confirms
+      if (apiCount > 0 && chainHitNum > apiCount) continue;
 
-      rawCandidates.push({
-        chainHitNum, secsAgo, attackTime,
-        targetId:    targetIdMatch[1],
-        targetName:  (targetProfileA.textContent||"").trim() || "Player #" + targetIdMatch[1],
-        attackerName:(profileLinks[0].textContent||"").trim() || "Unknown",
-        attackUrl:   "https://www.torn.com/loader.php?sid=attack&user2ID=" + targetIdMatch[1],
-      });
-    }
-    if (!rawCandidates.length) return;
+      // Track highest id
+      if (atk.id > maxId) maxId = atk.id;
 
-    // ── Step 2: ONE hit per chain slot ───────────────────────────────────────
-    // A chain can only have ONE hit at position #N. The DOM may show two hits
-    // with the same number from consecutive chains (e.g. old #3 and new #3).
-    // Pick the MOST RECENT hit that is on or after chainStartTime.
-    // If both are before chainStartTime, pick the one closest to it.
-    const byHitNum = new Map();
-    for (const c of rawCandidates) {
-      const ex = byHitNum.get(c.chainHitNum);
-      if (!ex) { byHitNum.set(c.chainHitNum, c); continue; }
-      const cAfter = c.attackTime  >= chainStartTime;
-      const eAfter = ex.attackTime >= chainStartTime;
-      if      (cAfter && !eAfter)  byHitNum.set(c.chainHitNum, c);             // c is in session, ex isn't
-      else if (cAfter &&  eAfter && c.secsAgo < ex.secsAgo) byHitNum.set(c.chainHitNum, c); // both in session, c is newer
-      else if (!cAfter && !eAfter) {                                            // both before session
-        if (Math.abs(c.attackTime - chainStartTime) < Math.abs(ex.attackTime - chainStartTime))
-          byHitNum.set(c.chainHitNum, c);
-      }
-    }
+      const attackTime  = atk.ended * 1000;
+      const targetId    = String(atk.defender.id);
+      const targetName  = atk.defender.name || `Player #${targetId}`;
+      const attackerName= atk.attacker.name || "Unknown";
+      const attackUrl   = `https://www.torn.com/loader.php?sid=attack&user2ID=${targetId}`;
 
-    // ── Step 3: sorted candidate list, monotonic time filter ────────────────
-    // In a real chain, hit numbers increase as time progresses:
-    //   #1 (oldest) → #2 → #3 → #4 (most recent)
-    // So attackTime must INCREASE as chainHitNum increases.
-    // If hit #4 is older than hit #3, hit #4 is from a previous chain.
-    //
-    // Walk ascending by chainHitNum. Track the most recent attackTime seen.
-    // Any hit whose attackTime is more than 120s older than the previous
-    // valid hit is rejected (120s slack for Torn's minute rounding).
-    const sorted = [...byHitNum.values()].sort((a,b) => a.chainHitNum - b.chainHitNum);
-    const candidates = [];
-    let prevAttackTime = 0;
-    for (const c of sorted) {
-      if (candidates.length === 0) {
-        // First hit — accept unconditionally
-        candidates.push(c);
-        prevAttackTime = c.attackTime;
-      } else if (c.attackTime >= prevAttackTime - 120000) {
-        // This hit is newer than (or within 120s of) the previous — valid
-        candidates.push(c);
-        prevAttackTime = Math.max(prevAttackTime, c.attackTime);
-      }
-      // else: this hit is more than 120s older than the previous — old chain, skip
-    }
-
-    // ── Step 4: establish session anchor ─────────────────────────────────────
-    // sessionMinHitNum = lowest hit in the consecutive run that ends at
-    // liveChainCount. Hits below this belong to a previous chain.
-    if (sessionMinHitNum === null) {
-      const hitNums = new Set(candidates.map(c => c.chainHitNum));
-      // Find highest hit that is confirmed to be in this session
-      let top = 0;
-      for (const c of candidates) {
-        if (c.chainHitNum <= apiCount && c.attackTime >= chainStartTime) top = c.chainHitNum;
-      }
-      if (top === 0 && apiCount > 0) top = apiCount; // use API count if no post-start hit found
-      if (top > 0) {
-        let anchor = top;
-        while (anchor > 1 && hitNums.has(anchor - 1)) anchor--;
-        sessionMinHitNum = anchor;
-      } else if (candidates.some(c => c.chainHitNum === 1 && c.attackTime >= chainStartTime)) {
-        sessionMinHitNum = 1;
-      }
-      if (sessionMinHitNum !== null) persistSession();
-    }
-    if (sessionMinHitNum === null) return;
-
-    // ── Step 5: process validated hits ───────────────────────────────────────
-    for (const c of candidates) {
-      if (c.chainHitNum < sessionMinHitNum) continue;
-
-      const dedupKey = (chainSessionId||"nosession") + "_hit_" + c.chainHitNum;
+      const dedupKey = (chainSessionId || "nosession") + "_hit_" + chainHitNum;
       if (scrapedHitIds.has(dedupKey)) continue;
       scrapedHitIds.add(dedupKey);
 
-      if (c.chainHitNum === 1 && (!earliestHitTime || c.attackTime < earliestHitTime))
-        earliestHitTime = c.attackTime;
-      if (c.chainHitNum >= CHAIN_CONFIRM_HITS && earliestHitTime !== null)
-        if (c.attackTime - earliestHitTime <= 5*60000) chainConfirmed = true;
+      // chainConfirmed logic (mirrors old scraper)
+      if (chainHitNum === 1 && (!earliestHitTime || attackTime < earliestHitTime))
+        earliestHitTime = attackTime;
+      if (chainHitNum >= CHAIN_CONFIRM_HITS && earliestHitTime !== null)
+        if (attackTime - earliestHitTime <= 5 * 60000) chainConfirmed = true;
 
-      // Skip entire slot if already marked done — prevents double-writes on repoll
+      // Skip slot if already marked done
       const slotDone = [...hitMap.values()].some(h =>
-        h.status === "done" && (h.chainHitNum === c.chainHitNum || h.hitNumber === c.chainHitNum)
+        h.status === "done" && (h.chainHitNum === chainHitNum || h.hitNumber === chainHitNum)
       );
       if (slotDone) continue;
 
-      const matchedEntry = [...hitMap.entries()].find(([,h]) =>
-        h.status==="pending" && String(h.targetId)===String(c.targetId)
+      // Try to match a pending queued hit by targetId
+      const matchedEntry = [...hitMap.entries()].find(([, h]) =>
+        h.status === "pending" && String(h.targetId) === targetId
       );
-      // Also check for an "Unspecified" outside hit occupying this chain slot number,
-      // BUT only if it was claimed by the same person who made the scraped hit.
-      // An unspecified queued by Sypharius should only be consumed when Sypharius
-      // makes the untracked hit — not when someone else fills the slot.
-      const outsideEntry = !matchedEntry ? [...hitMap.entries()].find(([,h]) =>
-        h.status==="pending" && (h.outside || !h.targetId) &&
-        (h.chainHitNum === c.chainHitNum || h.hitNumber === c.chainHitNum) &&
-        (!h.claimedBy || h.claimedBy === c.attackerName)
-      ) : null;
+
+      // Try to consume an unspecified / outside hit
+      let outsideEntry = null;
+      if (!matchedEntry) {
+        outsideEntry = [...hitMap.entries()].find(([, h]) =>
+          h.status === "pending" && (h.outside || !h.targetId) &&
+          ((h.chainHitNum != null && h.chainHitNum === chainHitNum) ||
+           (h.chainHitNum == null && h.hitNumber === chainHitNum)) &&
+          (!h.claimedBy || h.claimedBy === attackerName)
+        ) || null;
+        if (!outsideEntry) {
+          const oeCandidates = [...hitMap.entries()]
+            .filter(([, h]) => h.status === "pending" && (h.outside || !h.targetId) &&
+              (!h.claimedBy || h.claimedBy === attackerName))
+            .sort((a, b) => (a[1].hitNumber || 0) - (b[1].hitNumber || 0));
+          outsideEntry = oeCandidates[0] || null;
+        }
+      }
+
       if (matchedEntry) {
         fbUpdateHit(matchedEntry[0], {
-          status:"done", doneAt:c.attackTime,
-          hitNumber:c.chainHitNum, chainHitNum:c.chainHitNum,
-          claimedBy:c.attackerName, targetId:c.targetId, targetName:c.targetName,
+          status: "done", doneAt: attackTime,
+          hitNumber: chainHitNum, chainHitNum,
+          claimedBy: attackerName, targetId, targetName,
         });
       } else if (outsideEntry) {
-        // A real hit filled this slot — consume the Unspecified placeholder for that slot
         fbUpdateHit(outsideEntry[0], {
-          status:"done", doneAt:c.attackTime,
-          hitNumber:c.chainHitNum, chainHitNum:c.chainHitNum,
-          claimedBy:c.attackerName, targetId:c.targetId, targetName:c.targetName,
+          status: "done", doneAt: attackTime,
+          hitNumber: chainHitNum, chainHitNum,
+          claimedBy: attackerName, targetId, targetName,
         });
       } else {
-        if (c.attackTime < chainStartTime - 90000) continue; // strict cutoff for untracked
-        const untrackedId = "scraped_" + dedupKey;
-        // Don't write untracked if any done hit already covers this chain slot
+        // Untracked hit — write a scraped done entry
         const slotTaken = [...hitMap.values()].some(h =>
-          h.status === "done" && (h.chainHitNum === c.chainHitNum || h.hitNumber === c.chainHitNum)
+          h.status === "done" && (h.chainHitNum === chainHitNum || h.hitNumber === chainHitNum)
         );
+        const untrackedId = "scraped_" + dedupKey;
         if (!slotTaken && !hitMap.has(untrackedId)) {
           fbWriteHit({
-            id:untrackedId, hitNumber:c.chainHitNum, chainHitNum:c.chainHitNum,
-            targetId:c.targetId, targetName:c.targetName, claimedBy:c.attackerName,
-            claimedAt:c.attackTime, scheduledAt:c.attackTime,
-            hospReleaseAt:null, attackUrl:c.attackUrl,
-            status:"done", doneAt:c.attackTime,
-            untracked:true, scraped:true, sessionId:chainSessionId,
+            id: untrackedId, hitNumber: chainHitNum, chainHitNum,
+            targetId, targetName, claimedBy: attackerName,
+            claimedAt: attackTime, scheduledAt: attackTime,
+            hospReleaseAt: null, attackUrl,
+            status: "done", doneAt: attackTime,
+            untracked: true, scraped: true, sessionId: chainSessionId,
           });
         }
       }
     }
 
+    if (maxId > (lastAttackId || 0)) lastAttackId = maxId;
     chainHit1Time = earliestHitTime;
   }
 
@@ -4198,7 +4665,11 @@
       const showDash = !isWarmupSlot && !hasLiveTimer;
       timerText = showDash ? "—" : showNow ? "NOW" : formatTime(rem);
       tc = showDash ? "wait" : hitTimerClass(showNow ? 0 : rem);
-      rc = showDash ? "waiting" : hitRowClass(showNow ? 0 : rem, hosp, hit.untracked);
+      if (hit.unspecified && !hit.claimedBy) {
+        rc = "unclaimed";  // system gap placeholder
+      } else {
+        rc = showDash ? "waiting" : hitRowClass(showNow ? 0 : rem, hosp, hit.untracked, hit.hospReleaseAt);
+      }
     }
     const isBonus = settShowBonusAlert && BONUS_HITS.has(hit.chainHitNum || hit.hitNumber);
     // "Current" hit = the next hit the chain needs right now.
@@ -4211,7 +4682,7 @@
       ? `<span class="chain-hit-hosp-sub" data-hosp-id="${hit.id}">out in ${formatTime(hit.hospReleaseAt - now)}</span>`
       : "";
     const attackDisabled = isDone || !hit.attackUrl || hit.attackUrl === "#";
-    const isOutside = (hit.outside || !hit.targetId) && !isDone;
+    const isOutside = (hit.outside || !hit.targetId) && !isDone && !hit.unspecified;
     const isWarTarget = !hit.outside && hit.targetId && !isDone &&
       inRankedWar && warOpponentFactionIds.size > 0 &&
       hit.targetFactionId && hit.targetFactionId !== "0" &&
@@ -4330,6 +4801,9 @@
   }
 
   function renderPanel() {
+    // Re-anchor scheduledAt before every render so the initial Firebase-driven
+    // render (before the 1s tick fires) shows correct offsets, not stale ones.
+    syncPendingScheduledAt();
     const inner   = document.getElementById("chain-panel-inner");
     const colHead = document.getElementById("chain-col-header");
     const titleEl = document.getElementById("chain-panel-title");
@@ -4457,15 +4931,68 @@
         for (const hit of doneHits) html += hitRowHtml(hit, -1, now);
       }
 
-      // All pending hits — pos 0 gets sticky-now via hitRowHtml
-      pendingHits.forEach((hit, i) => { html += hitRowHtml(hit, i, now); });
+      // All pending hits — with "Unclaimed" gap rows for any missing slot numbers.
+      // This handles the case where a hosp-unreachable hit lands at e.g. slot 14
+      // while slots 11-13 have no queued hits — they should show as Unclaimed rather
+      // than simply disappearing, so the chain coordinator can see actionable gaps.
+      {
+        const chainWinMs = chainTimerMs();
+        let expectedNum = liveChainCount !== null
+          ? Math.max(liveChainCount + 1, liveChainCount >= CHAIN_CONFIRM_HITS ? CHAIN_CONFIRM_HITS + 1 : 1)
+          : (getHighestDoneHitNum() + 1);
+        // Tracks whether sticky-now has already been assigned to a gap row,
+        // so we don't also assign it to the hit that follows the gap.
+        let stickyGiven = false;
 
-      // Unclaimed placeholder when chain is live but queue is empty
+        pendingHits.forEach((hit, i) => {
+          const hitNum = hit.chainHitNum || hit.hitNumber;
+          // Fill any gap between expectedNum and this hit's slot with Unclaimed rows.
+          // Only fill gaps after chain is confirmed (hit 10+) — warmup slots all show
+          // NOW so gaps there are normal (hits claimed out of order is fine early on).
+          if (hitNum > expectedNum && liveChainCount !== null && liveChainCount >= CHAIN_CONFIRM_HITS - 1) {
+            for (let gap = expectedNum; gap < hitNum; gap++) {
+              const isFirstRow = !stickyGiven && i === 0 && gap === expectedNum;
+              const currentHitNumForGap = liveChainCount + 1;
+              const offset = Math.max(0, gap - currentHitNumForGap);
+              const gapMs = chainWinMs > 0 ? Math.max(0, chainWinMs + offset * HIT_INTERVAL) : 0;
+              const gapSec = Math.round(gapMs / 1000);
+              const gapTxt = gapMs <= 0 ? "NOW" : `${Math.floor(gapSec/60)}:${String(gapSec%60).padStart(2,"0")}`;
+              const gapCls = gapMs <= 0 ? "due" : gapMs <= 90000 ? "soon" : "wait";
+              if (isFirstRow) stickyGiven = true;
+              // Slot ≤ liveChainCount means the hit already happened — show "Waiting for Data".
+              // Slot > liveChainCount means it hasn't happened yet — show "Unclaimed".
+              const gapIsHit = liveChainCount !== null && gap <= liveChainCount;
+              const gapLabel = gapIsHit ? "Waiting for Data" : "Unclaimed";
+              const gapRowCls = gapIsHit ? "waiting" : "unclaimed";
+              html += `<div class="chain-hit-row ${gapRowCls}${isFirstRow ? " sticky-now" : ""}" data-hit-id="" data-queue-pos="-1">` +
+                `<span class="chain-hit-num">${gap}</span>` +
+                `<span class="chain-hit-claimer">—</span>` +
+                `<span class="chain-hit-target" style="${gapIsHit ? "color:#445;font-style:italic" : ""}">${gapLabel}</span>` +
+                `<span class="chain-hit-timer ${gapIsHit ? "wait" : gapCls}">${gapIsHit ? "—" : (liveChainSecs !== null ? gapTxt : "—")}</span>` +
+                `<span></span><span></span></div>`;
+            }
+          }
+          // If a gap row already claimed sticky-now, shift this hit's queuePos by 1
+          // so hitRowHtml won't also mark it sticky-now (queuePos===0 triggers that).
+          const adjustedPos = stickyGiven && i === 0 ? 1 : i;
+          html += hitRowHtml(hit, adjustedPos, now);
+          expectedNum = hitNum + 1;
+        });
+      }
+
+      // Placeholder when chain is live but queue is empty.
+      // nextSlot ≤ liveChainCount: hit already happened → "Waiting for Data"
+      // nextSlot > liveChainCount: not yet happened → "Unclaimed"
       if (pendingHits.length === 0 && allDoneBySlot.size === 0 && liveChainCount !== null) {
         const nextSlot = getHighestDoneHitNum() + 1;
+        const slotIsHit = nextSlot <= liveChainCount;
         const disp = Math.round(chainTimerMs() / 1000);
         const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-        html += `<div class="chain-hit-row unclaimed sticky-now"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target">Unclaimed</span><span class="chain-hit-timer ${disp<=30?"due":disp<=90?"soon":"wait"}">${t}</span><span></span><span></span></div>`;
+        const slotLabel = slotIsHit ? "Waiting for Data" : "Unclaimed";
+        const slotRowCls = slotIsHit ? "waiting" : "unclaimed";
+        const slotTimer = slotIsHit ? "—" : t;
+        const slotTimerCls = slotIsHit ? "wait" : (disp<=30?"due":disp<=90?"soon":"wait");
+        html += `<div class="chain-hit-row ${slotRowCls} sticky-now"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target" style="${slotIsHit ? "color:#445;font-style:italic" : ""}">${slotLabel}</span><span class="chain-hit-timer ${slotTimerCls}">${slotTimer}</span><span></span><span></span></div>`;
       }
 
       const prevScroll = inner.scrollTop;
@@ -4487,6 +5014,7 @@
   //  1-second tick
   // ══════════════════════════════════════════════════════════════════════════
   let _lastTickSecs = null;  // deduplicate updateChainTimerUI calls in tick
+  let _timerRetryCount = 0;  // rapid-retry counter when chain active but no timer
   setInterval(() => {
     const now = Date.now();
 
@@ -4501,18 +5029,28 @@
       updateChainTimerUI();
     }
 
-    // Scrape whenever a chain session is active — including warmup (hits 1-9).
-    // chainConfirmed only becomes true at hit 10, so we must not gate on it here.
-    // Throttled to every 2s: hits are deduplicated via scrapedHitIds so no data
-    // is lost, and halving the scrape rate cuts the per-tick DOM walk cost in half.
-    if (chainStartTime && !isTornPDA && (now - _lastScrapeAt) >= 2000) {
-      _lastScrapeAt = now;
-      scrapeRecentAttacks();
-    }
-
     // Re-anchor pending hit scheduledAt values to the live DOM timer so that
     // pendingCountdownMs() ticks smoothly at 1s rather than in Firebase poll steps.
     syncPendingScheduledAt();
+
+    // Rapid-retry: if a chain session is active but apiTimerSecs hasn't loaded yet
+    // (e.g. first page load before CHAIN_POLL_MS fires), poll immediately every tick
+    // for the first 15s, then back off.  Also fires on the attack page where the user
+    // just made a hit and the timer just reset.
+    // Rapid-retry only fires when chain is active but timer hasn't loaded yet.
+    // Once apiTimerSecs is set we stop — the normal CHAIN_POLL_MS interval takes over.
+    // The drift-guard in onChainApiData prevents subsequent polls from resetting the timer.
+    // Rapid-retry fires until the DOM observer attaches (liveChainSecs set).
+    if (chainStartTime && liveChainSecs === null && tornApiKey && factionId) {
+      _timerRetryCount++;
+      if (_timerRetryCount <= 15) {
+        pollFactionChain();
+      }
+    } else if (liveChainSecs !== null && _timerRetryCount > 0) {
+      // Timer just loaded — stop rapid-retry and trigger a render so gap rows appear.
+      _timerRetryCount = 0;
+      scheduleRender();
+    }
 
     // Patch timer cells — only when panel is fully visible (view-full).
     // In icon/mini mode the rows are display:none so writes are wasted work.
@@ -4521,7 +5059,7 @@
       const sortedPending = [...hitMap.values()]
         .filter(h => h.status === "pending")
         .sort((a, b) => a.hitNumber - b.hitNumber);
-      const currentHitNum = liveChainCount !== null ? liveChainCount + 1 : getHighestDoneHitNum() + 1;
+      const currentHitNum = liveChainCount !== null ? Math.max(liveChainCount + 1, liveChainCount >= CHAIN_CONFIRM_HITS ? CHAIN_CONFIRM_HITS + 1 : 1) : getHighestDoneHitNum() + 1;
       // Use the cached panel inner reference to scope querySelector — avoids scanning the whole document
       const _panelInner = document.getElementById("chain-panel-inner");
       if (_panelInner) {
@@ -4550,7 +5088,7 @@
         if (cell.className   !== newClass) cell.className  = newClass;
         const row = cell.closest(".chain-hit-row");
         if (row) {
-          const newRc   = showDash ? "waiting" : hitRowClass(dispRem, hosp, hit?.untracked || false);
+          const newRc   = showDash ? "waiting" : hitRowClass(dispRem, hosp, hit?.untracked || false, hit?.hospReleaseAt || null);
           const isBonus = settShowBonusAlert && BONUS_HITS.has(hitNum);
           const isNow   = isCurrent && hasLiveTimer;
           const newRowClass = `chain-hit-row ${newRc}${isBonus?" bonus":""}${isNow?" sticky-now":""}`;
@@ -4630,11 +5168,44 @@
 
     const activeHits = [...hitMap.values()].filter(h=>h.status!=="done").sort((a,b)=>a.scheduledAt-b.scheduledAt);
 
-    // Always append to the end of the queue — gap-fitting caused re-queued hits
-    // to reclaim their old slot instead of going to the back of the line.
-    const insertSlot = activeHits.length
-      ? activeHits[activeHits.length - 1].scheduledAt + HIT_INTERVAL
-      : Math.max(now, earliest);
+    // Determine where to insert the new hit.
+    //
+    // Default: always append to the end of the queue.
+    //
+    // Exception: if the target is in hosp, find the earliest existing slot where
+    // slotTime >= hospReleaseMs, insert there, and shift all hits from that point
+    // onward back by one HIT_INTERVAL so valid targets move up to fill the gap.
+    //
+    // Non-hosp targets always go to the end — we never pull them forward past
+    // existing hits (that would displace people who queued earlier).
+
+    let insertSlot;
+    let insertIdx; // position in activeHits before which the new hit is inserted
+
+    if (!activeHits.length) {
+      insertSlot = Math.max(now, earliest);
+      insertIdx  = 0;
+    } else {
+      const lastSlot   = activeHits[activeHits.length - 1].scheduledAt;
+      const appendSlot = lastSlot + HIT_INTERVAL;
+
+      if (!isInHosp) {
+        // Not in hosp — always append at the end, no reordering needed.
+        insertSlot = appendSlot;
+        insertIdx  = activeHits.length;
+      } else {
+        // In hosp — append at the end, but push the slot out further if the
+        // append slot doesn't clear the hosp window yet.  Never insert before
+        // existing hits — hosp targets cannot skip the line.
+        if (appendSlot >= hospReleaseMs) {
+          insertSlot = appendSlot;
+        } else {
+          const extraIntervals = Math.ceil((hospReleaseMs - appendSlot) / HIT_INTERVAL);
+          insertSlot = appendSlot + extraIntervals * HIT_INTERVAL;
+        }
+        insertIdx = activeHits.length; // always append — no shifting of existing hits
+      }
+    }
 
     const newHit = {
       id:            `hit_${now}_${Math.random().toString(36).slice(2)}`,
@@ -4650,6 +5221,20 @@
       status:        "pending",
       sessionId:     chainSessionId,
     };
+
+    // Non-hosp hits fill the earliest unspecified gap before appending to end.
+    if (!isInHosp) {
+      const gaps = [...hitMap.values()]
+        .filter(h => h.unspecified && h.status === "pending")
+        .sort((a, b) => a.scheduledAt - b.scheduledAt);
+      if (gaps.length > 0) {
+        const gap = gaps[0];
+        newHit.scheduledAt = gap.scheduledAt;
+        _deletedHitIds.add(gap.id);
+        fbDelete(P.hit(gap.id));
+        hitMap.delete(gap.id);
+      }
+    }
 
     // Add to hitMap first, THEN reNumber so hitNumber is correct before write.
     // Pass skipWrite=true to reNumberPending: existing hits already have the right
@@ -4726,6 +5311,8 @@
   const IS_LIST_PAGE       = /page\.php/.test(window.location.pathname) &&
                              /sid=list/.test(window.location.search);
   const IS_PROFILE_PAGE    = /profiles\.php/.test(window.location.pathname);
+  const IS_ATTACK_PAGE     = /loader\.php/.test(window.location.pathname) &&
+                             /sid=attack/.test(window.location.search);
   const IS_ANY_TORN_PAGE   = /torn\.com/.test(window.location.hostname);
 
   function isInsideWarList(el) {
@@ -5100,36 +5687,46 @@
   function fetchFactionBasic() {
     if (!factionId || !tornApiKey) return;
     GM_xmlhttpRequest({
-      method:"GET",
-      url:`https://api.torn.com/faction/${factionId}?selections=basic&key=${encodeURIComponent(tornApiKey)}`,
-      timeout:15000,
+      method: "GET",
+      // v2: combine basic + members + rankedwars in one round-trip
+      url: `https://api.torn.com/v2/faction?selections=basic,members,rankedwars&key=${encodeURIComponent(tornApiKey)}`,
+      timeout: 15000,
       onload(r) {
         try {
-          const d=JSON.parse(r.responseText);
-          if(!d||d.error) return;
-          factionLeader   = String(d.leader||"");
-          factionCoLeader = String(d["co-leader"]||"0");
-          factionMembers  = {};
-          if(d.members) Object.entries(d.members).forEach(([uid,m])=>{factionMembers[uid]=m.name;});
-          isLeaderOrCoLeader=(ownId===factionLeader)||(factionCoLeader!=="0"&&ownId===factionCoLeader);
-          // Parse active ranked wars — collect opponent faction IDs
+          const d = JSON.parse(r.responseText);
+          if (!d || d.error) return;
+
+          // ── basic ──────────────────────────────────────────────────────
+          // v2 basic: leader_id, co_leader_id (not "co-leader")
+          factionLeader   = String(d.basic?.leader_id   || d.leader_id   || "");
+          factionCoLeader = String(d.basic?.co_leader_id || d.co_leader_id || "0");
+          isLeaderOrCoLeader = (ownId === factionLeader) ||
+            (factionCoLeader !== "0" && ownId === factionCoLeader);
+
+          // ── members ────────────────────────────────────────────────────
+          // v2 members: array of { id, name, ... }
+          factionMembers = {};
+          const membersArr = d.members || [];
+          membersArr.forEach(m => { if (m.id && m.name) factionMembers[String(m.id)] = m.name; });
+
+          // ── rankedwars ─────────────────────────────────────────────────
+          // v2 rankedwars: array, active wars have no `winner` yet
           warOpponentFactionIds.clear();
           inRankedWar = false;
-          if (d.ranked_wars && typeof d.ranked_wars === "object") {
-            Object.values(d.ranked_wars).forEach(w => {
-              if (!w || !w.war || w.war.end !== 0) return; // skip finished wars
-              inRankedWar = true;
-              if (w.factions) Object.keys(w.factions).forEach(fid => {
-                if (String(fid) !== String(factionId)) warOpponentFactionIds.add(String(fid));
-              });
+          const wars = d.rankedwars || [];
+          wars.forEach(w => {
+            if (w.winner) return;  // finished — skip
+            inRankedWar = true;
+            if (w.factions) w.factions.forEach(f => {
+              if (String(f.id) !== String(factionId)) warOpponentFactionIds.add(String(f.id));
             });
-          }
+          });
+
           updateClearBtn();
-        } catch {/**/ }
+        } catch { /**/ }
       },
     });
   }
-
   function fetchOwnProfile() {
     if (!tornApiKey) { showBanner("chain-banner-nokey",true); return; }
     // Clear any existing intervals before re-running boot — prevents accumulation
@@ -5164,8 +5761,10 @@
 
           fetchFactionBasic();
 
-          // FIX #2: try the timer observer as soon as profile loads
-          startChainTimerObserver();
+          // Poll chain immediately so the timer appears without waiting for the
+          // full Firebase lobby round-trip.  Safe to fire before fbToken exists —
+          // pollFactionChain only needs tornApiKey + factionId (both set above).
+          pollFactionChain();
 
           fbSignInAnon((token,uid)=>{
             fbToken = token;
@@ -5216,10 +5815,17 @@
                         fbStartMainListener();
                         pollFactionChain();
                         if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_MS);
+                        if (!attackPollInterval)  attackPollInterval  = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
+                        // clearAllIntervals() killed the timer observer loop; restart it now.
+                        if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
+                        if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
+                        // On the attack page the user just made (or is about to make) a hit —
+                        // schedule a second chain poll 2s later to catch the timer reset quickly.
+                        if (IS_ATTACK_PAGE) setTimeout(pollFactionChain, 2000);
                       });
                     },
-                    onerror()  { showBanner("chain-banner-status", false); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
-                    ontimeout(){ showBanner("chain-banner-status", false); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    onerror()  { showBanner("chain-banner-status", false); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);if(!attackPollInterval)attackPollInterval=setInterval(pollFactionAttacks,ATTACKS_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    ontimeout(){ showBanner("chain-banner-status", false); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);if(!attackPollInterval)attackPollInterval=setInterval(pollFactionAttacks,ATTACKS_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
                   });
                 } else {
                   setSyncDot("error");
@@ -5324,6 +5930,54 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Boot
   // ══════════════════════════════════════════════════════════════════════════
+  // ── Attack page: detect fight result → trigger immediate chain polls ─────
+  // When the user Leaves, Mugs, or Hospitalizes an opponent, Torn adds a new
+  // row to the action log table.  We watch for it and immediately fire both
+  // polls so the timer resets and the attack is recorded as fast as possible.
+  if (IS_ATTACK_PAGE) {
+    (function watchAttackResult() {
+      let _resultFired = false;
+      const RESULT_RE = /\b(leave|left|mug|mugged|hospitali[sz]e[ds]?)\b/i;
+
+      function checkRow(row) {
+        if (_resultFired) return;
+        if (!RESULT_RE.test(row.textContent || '')) return;
+        _resultFired = true;
+        // Immediate: refresh timer + attack log
+        setTimeout(() => { pollFactionChain(); pollFactionAttacks(); }, 300);
+        // Second pass 2.5s later to catch the timer reset from the API
+        setTimeout(() => { pollFactionChain(); }, 2500);
+      }
+
+      function attachToActionLog() {
+        const tbody = document.querySelector(
+          'table[class*="action"] tbody, [class*="actionLog"] tbody, ' +
+          '[class*="action-log"] tbody, [class*="log-wrap"] tbody, ' +
+          '.action-log tbody, #log-list tbody'
+        );
+        if (!tbody) return false;
+        // Check any rows already present
+        tbody.querySelectorAll('tr').forEach(checkRow);
+        if (_resultFired) return true;
+        new MutationObserver(mutations => {
+          for (const m of mutations) {
+            for (const node of m.addedNodes) {
+              if (node.nodeType === 1) checkRow(node);
+            }
+          }
+        }).observe(tbody, { childList: true });
+        return true;
+      }
+
+      if (!attachToActionLog()) {
+        const retryObs = new MutationObserver(() => {
+          if (attachToActionLog()) retryObs.disconnect();
+        });
+        retryObs.observe(document.body, { childList: true, subtree: true });
+      }
+    })();
+  }
+
   renderPanel();
   fetchOwnProfile();
   if (!isTornPDA) injectTargetButtons();
