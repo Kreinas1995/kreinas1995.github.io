@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.1.5
+// @version      5.2.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -50,6 +50,131 @@
     recordPoll:       null,   // assigned by wireSettings() once the function exists
   };
 
+  // ── Always-on background diagnostics (persisted across page loads) ─────────
+  // Runs unconditionally from boot — zero UI, ~0.01ms overhead per frame.
+  // Counters are saved to localStorage on every freeze event and XHR error,
+  // and on a 10s flush interval, so data survives page navigation.
+  // TornPDA blocks localStorage — skipped there, falls back to session-only.
+  const BG_FREEZE_MS  = 150;   // gap threshold to count as a freeze
+  const BG_LOG_MAX    = 60;    // ring buffer depth
+  const BG_LS_KEY     = "tcc_diag_v1";  // localStorage persistence key
+  // isTornPDA is declared later in the script — inline the check here to avoid TDZ
+  const _bgIsPDA = (typeof navigator !== "undefined" && (
+    navigator.userAgent.includes("TornPDA") || navigator.userAgent.includes("torn_pda") ||
+    navigator.userAgent.includes("Dart")
+  )) || (typeof document !== "undefined" && document.documentElement.dataset.tornpda === "true");
+
+  function _bgLoadPersisted() {
+    if (_bgIsPDA) return null;
+    try {
+      const raw = localStorage.getItem(BG_LS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch(_) { return null; }
+  }
+  function _bgSavePersisted() {
+    if (_bgIsPDA) return;
+    try {
+      localStorage.setItem(BG_LS_KEY, JSON.stringify({
+        freezeCount: _bg.freezeCount,
+        freezeLog:   _bg.freezeLog.slice(0, BG_LOG_MAX),
+        xhrTotal:    _bg.xhrTotal,
+        xhrErr:      _bg.xhrErr,
+        firstSeen:   _bg.firstSeen,
+      }));
+    } catch(_) {}
+  }
+
+  // Load persisted data from previous page loads
+  const _bgPrev = _bgLoadPersisted();
+  const _bg = {
+    startTime:   Date.now(),                               // this page load start
+    firstSeen:   _bgPrev ? _bgPrev.firstSeen : Date.now(),// first ever load (persisted)
+    freezeCount: _bgPrev ? _bgPrev.freezeCount : 0,       // cumulative across loads
+    freezeLog:   _bgPrev ? _bgPrev.freezeLog   : [],      // persisted freeze events
+    xhrTotal:    _bgPrev ? _bgPrev.xhrTotal    : 0,       // cumulative XHR calls
+    xhrErr:      _bgPrev ? _bgPrev.xhrErr      : 0,       // cumulative XHR errors
+    lastRafTime: 0,
+    rafActive:   true,
+    _flushTimer: null,
+  };
+
+  (function _bgRafBoot() {
+    function _bgRafLoop(now) {
+      if (!_bg.rafActive) return;
+      const gap = now - _bg.lastRafTime;
+      if (_bg.lastRafTime > 0 && gap > BG_FREEZE_MS) {
+        _bg.freezeCount++;
+        _bg.freezeLog.unshift({ time: new Date().toLocaleTimeString(), gap: Math.round(gap) });
+        if (_bg.freezeLog.length > BG_LOG_MAX) _bg.freezeLog.pop();
+        _bgSavePersisted();  // save immediately on every freeze
+      }
+      _bg.lastRafTime = now;
+      requestAnimationFrame(_bgRafLoop);
+    }
+    requestAnimationFrame(_bgRafLoop);
+    // Periodic flush every 10s so XHR counts survive navigation even without a freeze
+    _bg._flushTimer = setInterval(_bgSavePersisted, 10000);
+  })();
+
+  function _bgResetPersisted() {
+    _bg.freezeCount = 0; _bg.freezeLog = [];
+    _bg.xhrTotal = 0; _bg.xhrErr = 0;
+    _bg.firstSeen = Date.now();
+    _bgSavePersisted();
+  }
+
+  function _bgGenerateReport() {
+    const now     = Date.now();
+    const pageMs  = now - _bg.startTime;
+    const totalMs = now - _bg.firstSeen;
+    const pageMin = Math.floor(pageMs / 60000);
+    const pageSec = Math.floor((pageMs % 60000) / 1000);
+    const totMin  = Math.floor(totalMs / 60000);
+    const totSec  = Math.floor((totalMs % 60000) / 1000);
+    const lines = [
+      `=== TCC Freeze Report v${CURRENT_VERSION} ===`,
+      `Time:          ${new Date().toLocaleString()}`,
+      `Page uptime:   ${pageMin}m ${pageSec}s`,
+      `Total tracked: ${totMin}m ${totSec}s (across page loads)`,
+      `Browser:       ${navigator.userAgent}`,
+      `Page:          ${window.location.pathname}${window.location.search}`,
+      ``,
+      `--- Performance (cumulative, survives page navigation) ---`,
+      `Freezes (>${BG_FREEZE_MS}ms): ${_bg.freezeCount}`,
+      `XHR calls:   ${_bg.xhrTotal}`,
+      `XHR errors:  ${_bg.xhrErr}`,
+      `XHR/min:     ${totalMs > 0 ? Math.round(_bg.xhrTotal / (totalMs / 60000)) : 0}`,
+      ``,
+      `--- Chain State ---`,
+      `Chain active: ${!!chainStartTime}`,
+      `Chain count:  ${liveChainCount ?? "—"}`,
+      `Hits in map:  ${hitMap.size}`,
+      `Faction:      ${factionId ?? "—"}`,
+      ``,
+      `--- Last 20 Freezes ---`,
+    ];
+    _bg.freezeLog.slice(0, 20).forEach((f, i) => {
+      lines.push(`  ${i+1}. ${f.time}  ${f.gap}ms`);
+    });
+    if (!_bg.freezeLog.length) lines.push("  (none recorded)");
+    return lines.join("\n");
+  }
+
+
+  // ── XHR instrumentation wrapper ──────────────────────────────────────────
+  // Intercepts every GM_xmlhttpRequest call to count calls and errors for the
+  // freeze report. Zero overhead: increments a counter, delegates immediately.
+  const _rawGMXhr = (typeof GM_xmlhttpRequest !== "undefined") ? GM_xmlhttpRequest : null;
+  function _xhrTracked(details) {
+    _bg.xhrTotal++;
+    const origErr     = details.onerror;
+    const origTimeout = details.ontimeout;
+    details.onerror   = function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); };
+    details.ontimeout = function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origTimeout) origTimeout.apply(this, a); };
+    if (_rawGMXhr) _rawGMXhr(details);
+  }
+
+
   // ╔══════════════════════════════════════════════════════════════════════════╗
   // ║  CONFIG                                                                  ║
   // ╚══════════════════════════════════════════════════════════════════════════╝
@@ -58,7 +183,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.1.5";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "5.2.0";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -1813,36 +1938,46 @@
           `<span style="color:#778">Session</span><span style="color:#aaa;font-size:8px">${chainSessionId ? chainSessionId.slice(0,14)+"…" : "none"}</span>` +
           `<span style="color:#778">Hits</span><span style="color:#aaa">${hitMap.size}</span>` +
           `<span style="color:#778">FB polls</span><span style="color:#aaa">${_dbgPollCount}</span>` +
-          `<span style="color:#778">Freezes</span><span style="color:${_dbgTotalFreezes > 0 ? "#ff8888" : "#44ff88"}">${_dbgTotalFreezes}</span>` +
           `<span style="color:#778">Faction</span><span style="color:#aaa">${factionId || "—"}</span>` +
           `<span style="color:#778">Auth uid</span><span style="color:#aaa;font-size:9px">${fbUid ? fbUid.slice(0,8)+"…" : "—"}</span>`;
       }
 
-      // ── Log pane (last 10 entries, auto-scroll) ──
+      // ── Freeze log pane ──
+      const freezeLogDiv = document.getElementById("tcc-dbg-freezelog");
+      if (freezeLogDiv) {
+        const now2 = Date.now();
+        const totalMs2 = now2 - _bg.firstSeen;
+        const totMin2  = Math.floor(totalMs2 / 60000);
+        const totSec2  = Math.floor((totalMs2 % 60000) / 1000);
+        let fhtml = `<span style="color:#445">Tracked ${totMin2}m${totSec2}s | ` +
+          `<span style="color:${_bg.freezeCount>0?"#ff8888":"#44ff88"}">${_bg.freezeCount} freeze${_bg.freezeCount!==1?"s":""}</span> | ` +
+          `XHR ${_bg.xhrTotal} (${_bg.xhrErr} err)</span><br>`;
+        if (_bg.freezeLog.length) {
+          _bg.freezeLog.slice(0, 8).forEach(f => {
+            fhtml += `<span style="color:#445">${f.time}</span> <span style="color:#ff8888">⚠ ${f.gap}ms</span><br>`;
+          });
+          if (_bg.freezeLog.length > 8) {
+            fhtml += `<span style="color:#334">…${_bg.freezeLog.length - 8} more — copy report for full list</span>`;
+          }
+        } else {
+          fhtml += `<span style="color:#334">No freezes recorded yet</span>`;
+        }
+        freezeLogDiv.innerHTML = fhtml;
+      }
+
+      // ── Log pane: console output only (freezes are in the freeze log section) ──
       const logDiv = document.getElementById("tcc-dbg-log");
       if (logDiv) {
         const wasAtBottom = logDiv.scrollHeight - logDiv.scrollTop - logDiv.clientHeight < 30;
-        // Merge freezes + console entries into one chronological feed, newest last
-        const allEntries = [];
-        _dbgFreezeLog.slice().reverse().forEach(f => {
-          allEntries.push({ _type: "freeze", ...f });
-        });
-        _dbgConsoleLogs.forEach(e => allEntries.push({ _type: "log", ...e }));
-        // Sort by raw insertion time isn't available, so freezes go first then logs —
-        // already newest-last since _dbgFreezeLog is unshifted and we reversed it.
-        const visible = allEntries.slice(-10);
+        const visible = _dbgConsoleLogs.slice(-20);
         let html = "";
         if (!visible.length) {
-          html = `<div style="color:#334;padding:4px 0">No events yet.</div>`;
+          html = `<div style="color:#334;padding:4px 0">No log entries yet.</div>`;
         }
         visible.forEach(e => {
-          if (e._type === "freeze") {
-            html += `<div style="color:#ff8888"><span style="color:#445">${e.time}</span> ⚠ FREEZE <b>${e.gap}ms</b></div>`;
-          } else {
-            const col = e.level === "error" ? "#ff8888" : e.level === "warn" ? "#ffcc66" : "#aaa";
-            const lbl = e.level === "error" ? "ERR" : e.level === "warn" ? "WRN" : "LOG";
-            html += `<div style="color:${col};word-break:break-all"><span style="color:#445">${e.time}</span> <b>${lbl}</b> ${_escHtml(e.msg)}</div>`;
-          }
+          const col = e.level === "error" ? "#ff8888" : e.level === "warn" ? "#ffcc66" : "#aaa";
+          const lbl = e.level === "error" ? "ERR" : e.level === "warn" ? "WRN" : "LOG";
+          html += `<div style="color:${col};word-break:break-all"><span style="color:#445">${e.time}</span> <b>${lbl}</b> ${_escHtml(e.msg)}</div>`;
         });
         logDiv.innerHTML = html;
         if (wasAtBottom) logDiv.scrollTop = logDiv.scrollHeight;
@@ -1881,7 +2016,7 @@
         if (body) body.style.display = "";
         _dbgPanel.style.width = "340px";
         _dbgPanel.style.minWidth = "";
-        _dbgPanel.style.maxHeight = "480px";
+        _dbgPanel.style.maxHeight = "520px";
         _dbgPanel.style.overflow = "hidden";
         if (minBtn) minBtn.textContent = "▼";
       }
@@ -1911,7 +2046,7 @@
         width: "340px", userSelect: "text", lineHeight: "1.5",
         boxShadow: "0 4px 24px rgba(0,0,0,.7)",
         display: "flex", flexDirection: "column",
-        maxHeight: "480px", overflow: "hidden",
+        maxHeight: "520px", overflow: "hidden",
       });
       if (_dbgInitLeft) _dbgPanel.style.left = _dbgInitLeft;
 
@@ -1944,46 +2079,68 @@
       });
       bodyWrap.appendChild(statsDiv);
 
-      // ── Console log area ──
-      const logDiv = document.createElement("div");
-      logDiv.id = "tcc-dbg-log";
-      Object.assign(logDiv.style, {
-        overflowY: "auto", padding: "4px 6px",
+      // ── Freeze log section ──
+      // Header: label + Reset button. Body: XHR counts + persisted freeze events.
+      const freezeHdr = document.createElement("div");
+      Object.assign(freezeHdr.style, {
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "3px 10px 1px", flexShrink: "0",
+      });
+      freezeHdr.innerHTML =
+        `<span style="font-size:9px;font-weight:700;color:#66ccff;letter-spacing:.4px;text-transform:uppercase">📋 Freeze Log (persisted)</span>` +
+        `<button id="tcc-dbg-freeze-reset" style="font-size:9px;padding:1px 6px;border-radius:4px;cursor:pointer;border:1px solid rgba(255,80,80,.3);background:rgba(255,60,60,.1);color:#ff8888">Reset</button>`;
+      bodyWrap.appendChild(freezeHdr);
+      const freezeDiv = document.createElement("div");
+      freezeDiv.id = "tcc-dbg-freezelog";
+      Object.assign(freezeDiv.style, {
+        overflowY: "auto", padding: "2px 10px 4px",
         fontSize: "10px", fontFamily: "monospace",
-        height: "150px", flexShrink: "0",
+        height: "78px", flexShrink: "0",
         borderBottom: "1px solid rgba(255,255,255,.06)",
+        color: "#aaa",
       });
-      bodyWrap.appendChild(logDiv);
+      bodyWrap.appendChild(freezeDiv);
 
-      // ── Footer buttons ──
-      const footer = document.createElement("div");
-      Object.assign(footer.style, {
-        display: "flex", gap: "5px", padding: "5px 10px 7px",
-        borderTop: "1px solid rgba(255,255,255,.06)", flexShrink: "0",
-      });
-      footer.innerHTML =
-        `<button id="tcc-dbg-copy" style="flex:1;background:rgba(100,160,255,.15);border:1px solid rgba(100,160,255,.3);color:#88bbff;border-radius:4px;padding:2px 0;font-size:10px;cursor:pointer;font-family:monospace">Copy report</button>` +
-        `<button id="tcc-dbg-clear" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff8888;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;font-family:monospace">Clear</button>`;
-      bodyWrap.appendChild(footer);
-
-      // ── Verbose toggles ──
+      // ── Verbose toggles (above console log so footer is always last) ──
       const verboseDiv = document.createElement("div");
       verboseDiv.id = "tcc-dbg-verbose";
       Object.assign(verboseDiv.style, {
-        display: "flex", gap: "12px", padding: "4px 10px 5px",
+        display: "flex", gap: "10px", padding: "3px 10px",
         borderTop: "1px solid rgba(255,255,255,.06)", flexShrink: "0",
         fontSize: "10px", color: "#556",
       });
       verboseDiv.innerHTML =
         `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none">` +
           `<input type="checkbox" id="tcc-dbg-verbose-poll" style="cursor:pointer" ${_dbg.verbosePoll ? "checked" : ""}>` +
-          `<span>Verbose FB polls</span>` +
+          `<span>Verbose polls</span>` +
         `</label>` +
         `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none">` +
           `<input type="checkbox" id="tcc-dbg-verbose-mo" style="cursor:pointer" ${_dbg.verboseMutations ? "checked" : ""}>` +
-          `<span>Verbose mutations</span>` +
+          `<span>Verbose MO</span>` +
         `</label>`;
       bodyWrap.appendChild(verboseDiv);
+
+      // ── Console log area ──
+      const logDiv = document.createElement("div");
+      logDiv.id = "tcc-dbg-log";
+      Object.assign(logDiv.style, {
+        overflowY: "auto", padding: "4px 6px",
+        fontSize: "10px", fontFamily: "monospace",
+        flex: "1", minHeight: "60px",
+        borderBottom: "1px solid rgba(255,255,255,.06)",
+      });
+      bodyWrap.appendChild(logDiv);
+
+      // ── Footer buttons — always last, always visible ──
+      const footer = document.createElement("div");
+      Object.assign(footer.style, {
+        display: "flex", gap: "5px", padding: "5px 10px 7px",
+        flexShrink: "0",
+      });
+      footer.innerHTML =
+        `<button id="tcc-dbg-copy" style="flex:1;background:rgba(100,160,255,.15);border:1px solid rgba(100,160,255,.3);color:#88bbff;border-radius:4px;padding:3px 0;font-size:10px;cursor:pointer;font-family:monospace">Copy report</button>` +
+        `<button id="tcc-dbg-clear" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff8888;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-family:monospace">Clear</button>`;
+      bodyWrap.appendChild(footer);
       _dbgPanel.appendChild(bodyWrap);
 
       document.body.appendChild(_dbgPanel);
@@ -2003,6 +2160,18 @@
         _closeBtn.addEventListener("click", e => { e.stopPropagation(); toggleDebugConsole(); });
       }
 
+      // Wire freeze log reset button
+      const _freezeResetBtn = document.getElementById("tcc-dbg-freeze-reset");
+      if (_freezeResetBtn) {
+        _freezeResetBtn.addEventListener("click", e => {
+          e.stopPropagation();
+          if (confirm("Reset all persisted freeze/XHR counters? This clears data accumulated across all page loads.")) {
+            _bgResetPersisted();
+            _dbgRender();
+          }
+        });
+      }
+
       // Wire footer buttons
       document.getElementById("tcc-dbg-copy").onclick = () => {
         const chainSecs = liveChainSecs !== null && lastTimerReadAt !== null
@@ -2013,7 +2182,10 @@
           `Version: ${CURRENT_VERSION}`,
           `Browser: ${navigator.userAgent}`,
           `Chain timer: ${chainStr} | count: ${liveChainCount ?? "—"} | hits: ${hitMap.size}`,
-          `Total freezes: ${_dbgTotalFreezes} | Polls: ${_dbgPollCount}`,
+          `Freezes (debug console): ${_dbgTotalFreezes} | Freezes (background): ${_bg.freezeCount}`,
+          `XHR total: ${_bg.xhrTotal} | XHR errors: ${_bg.xhrErr} | FB polls: ${_dbgPollCount}`,
+          ``,
+          _bgGenerateReport(),
           ``,
           `Console log:`,
           ..._dbgConsoleLogs.map(e => `  [${e.level}] ${e.time} ${e.msg}`),
@@ -2027,6 +2199,8 @@
         if (btn) { btn.textContent = "Copied!"; setTimeout(() => { if (btn) btn.textContent = "Copy report"; }, 1500); }
       };
       document.getElementById("tcc-dbg-clear").onclick = () => {
+        // "Clear log" only clears the console log — freeze data is persisted
+        // separately and requires the Reset button in the freeze log section.
         _dbgConsoleLogs = []; _dbgFreezeLog = []; _dbgPollLog = [];
         _dbgTotalFreezes = 0; _dbgPollCount = 0; _dbgLastPollTime = 0;
         _dbgRender();
@@ -2456,7 +2630,7 @@
         whitelistList.appendChild(row);
         // Fetch faction name from Torn API
         if (tornApiKey) {
-          GM_xmlhttpRequest({
+          _xhrTracked({
             method: "GET",
             url: `https://api.torn.com/faction/${fid}?selections=basic&key=${encodeURIComponent(tornApiKey)}`,
             timeout: 8000,
@@ -2660,7 +2834,7 @@
 
     function doSubmit(token) {
       const url = `${FIREBASE_DB_URL}/bugs/${bugId}.json${token ? "?auth="+token : ""}`;
-      GM_xmlhttpRequest({
+      _xhrTracked({
         method: "PUT", url,
         headers: { "Content-Type": "application/json" },
         data: JSON.stringify(report),
@@ -2708,7 +2882,7 @@
     // Admin inbox: only shown if isOwner was confirmed by the boot probe (fbProbeOwner).
     // loadAdminInbox handles its own ownerProbeResult guard — safe to call always.
     if (ownerProbeResult === true) loadAdminInbox();
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method: "GET", url: publicUrl, timeout: 10000,
       onload(r) {
         try {
@@ -2755,7 +2929,7 @@
                   const entryId = btn.dataset.entryId;
                   if (!entryId || !fbToken) return;
                   const url = `${FIREBASE_DB_URL}/bugTracker/${entryId}.json?auth=${fbToken}`;
-                  GM_xmlhttpRequest({
+                  _xhrTracked({
                     method: "DELETE", url, timeout: 8000,
                     onload(r) {
                       if (r.status >= 200 && r.status < 300) {
@@ -2802,7 +2976,7 @@
     // rules change — /bugTracker write requires tornId === '2348580' server-side.
     const sentinelKey = `_ownerProbe_${fbUid}`;
     const sentinelUrl = `${FIREBASE_DB_URL}/bugTracker/${sentinelKey}.json?auth=${fbToken}`;
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method: "PUT", url: sentinelUrl,
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify(1),
@@ -2810,7 +2984,7 @@
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
           // Confirmed owner — clean up sentinel immediately
-          GM_xmlhttpRequest({ method: "DELETE", url: sentinelUrl, timeout: 5000,
+          _xhrTracked({ method: "DELETE", url: sentinelUrl, timeout: 5000,
             onload(){}, onerror(){}, ontimeout(){} });
           ownerProbeResult = true;
           isOwner = true;
@@ -2837,7 +3011,7 @@
       // NOTE: /bugs root read requires ".read" at the /bugs level in Firebase rules.
       // If this returns 401, update rules to add: "bugs": { ".read": "<owner check>" }
       const url = `${FIREBASE_DB_URL}/bugs.json${token ? "?auth="+token : ""}`;
-      GM_xmlhttpRequest({
+      _xhrTracked({
         method: "GET", url, timeout: 12000,
         onload(r) {
           adminInbox.innerHTML = "";
@@ -2974,7 +3148,7 @@
         }
         ensureLobbyThenLoad._retries = 0;
         const lobbyUrl = `${FIREBASE_DB_URL}/lobby/${uid}.json?auth=${token}`;
-        GM_xmlhttpRequest({
+        _xhrTracked({
           method: "PUT", url: lobbyUrl,
           headers: { "Content-Type": "application/json" },
           data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId||"", lastSeen: Date.now() }),
@@ -3368,7 +3542,7 @@
   function fbPut(url, data, onDone) {
     if (!fbConfigured()) return;
     setSyncDot("syncing");
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method:"PUT", url,
       headers:{"Content-Type":"application/json"},
       data: data===null ? "null" : JSON.stringify(data),
@@ -3394,7 +3568,7 @@
 
   function fbDelete(url, onDone) {
     if (!fbConfigured()) return;
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method:"DELETE", url,
       timeout:10000,
       onload(r) { if(r.status>=200&&r.status<300&&onDone)onDone(); },
@@ -3404,7 +3578,7 @@
 
   function fbGet(url, onData) {
     if (!fbConfigured()) return;
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method:"GET", url, timeout:10000,
       onload(r) {
         try { if(r.status>=200&&r.status<300) onData(JSON.parse(r.responseText)); } catch { /**/ }
@@ -3417,7 +3591,7 @@
   //  Firebase anonymous auth
   // ══════════════════════════════════════════════════════════════════════════
   function fbSignInAnon(cb) {
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method:"POST",
       url:`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`,
       headers:{"Content-Type":"application/json"},
@@ -3446,7 +3620,7 @@
 
   function fbRefreshIdToken() {
     if (!fbRefreshToken) return;
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method:"POST",
       url:`https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`,
       headers:{"Content-Type":"application/json"},
@@ -3509,15 +3683,33 @@
     if (!lobbyUrl) return;
     fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() });
     // Member record keyed by torn_{tornId} — stable across page loads, no dedup needed.
-    // Only overwrite version if ours is newer or equal — prevents an older device's
-    // heartbeat from clobbering a newer version written by another device.
+    // One-time GET at boot to check if a newer-version peer has written a version
+    // we should preserve. After this read, _memberVersionToWrite is set and
+    // fbHeartbeat() uses it directly — no more GET on every heartbeat.
     fbGet(P.memberMe(), existing => {
       const storedVer = existing && existing.version ? existing.version : null;
-      const shouldWriteVer = !storedVer || !isNewerVersion(storedVer, CURRENT_VERSION);
-      fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: shouldWriteVer ? CURRENT_VERSION : storedVer });
+      if (storedVer && isNewerVersion(storedVer, CURRENT_VERSION)) {
+        // Another device has written a newer version — preserve it in heartbeats
+        _memberVersionToWrite = storedVer;
+      } else {
+        _memberVersionToWrite = CURRENT_VERSION;
+      }
+      _memberVersionConfirmed = true;
+      fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: _memberVersionToWrite });
     });
     fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
   }
+
+  // FIX A (v5.2.0): Eliminated nested fbGet inside fbHeartbeat.
+  // Previously: PUT lobby → GET memberMe → PUT memberMe + PUT clientVersion
+  //             = 4 GM XHR calls/15s = 960/hr accumulating nested closures.
+  // Now:        PUT lobby → PUT memberMe + PUT clientVersion
+  //             = 3 GM XHR calls/15s, no nesting.
+  // Version protection: _memberVersionConfirmed tracks whether we've seen a
+  // newer version stored by another device. Once confirmed we write that version
+  // instead of CURRENT_VERSION so we never downgrade a peer's newer write.
+  let _memberVersionConfirmed = false;
+  let _memberVersionToWrite   = CURRENT_VERSION;  // safe default: our own version
 
   function fbHeartbeat() {
     if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
@@ -3526,8 +3718,8 @@
     if (!lobbyUrl) return;
 
     // Write lobby first — member write is authorized by rules reading lobby.factionId.
-    // Chain: only write member/version after lobby confirms success.
-    GM_xmlhttpRequest({
+    // No nested GET needed — version is cached in _memberVersionToWrite.
+    _xhrTracked({
       method: "PUT", url: lobbyUrl,
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: now }),
@@ -3535,13 +3727,10 @@
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
           heartbeatFailCount = 0;
-          // Only write our version if it's >= what's stored — prevents an older
-          // device from clobbering the newest version written by another device.
-          fbGet(P.memberMe(), existing => {
-            const storedVer = existing && existing.version ? existing.version : null;
-            const shouldWriteVer = !storedVer || !isNewerVersion(storedVer, CURRENT_VERSION);
-            fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: shouldWriteVer ? CURRENT_VERSION : storedVer });
-          });
+          // Write member record using cached version — no inner GET needed.
+          // _memberVersionToWrite starts as CURRENT_VERSION and is only updated
+          // if fbRegisterMember() reads a newer version stored by another device.
+          fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: _memberVersionToWrite });
           fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
         } else {
           heartbeatFailCount++;
@@ -3694,7 +3883,7 @@
     if (!factionId || !fbConfigured()) return;
     if (pollInFlight) return;  // skip if previous poll hasn't returned yet
     pollInFlight = true;
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method: "GET",
       url: P.root(),
       headers: { "Cache-Control": "no-cache" },
@@ -4164,13 +4353,21 @@
   // Mobile Torn conditionally renders the chain bar tooltip only on tap/hover.
   // We dispatch a synthetic pointerenter to force-render the element, hiding
   // the visual flash via a portal watcher. Ported verbatim from v4.9.17.
+  //
+  // FIX B (v5.2.0): Singleton guard — only one trigger sequence can run at a time.
+  // Previously, every onChainApiData call (every 5.3s when chainTimerObserver was
+  // absent) created a new independent set of 50ms intervals that overlapped with
+  // prior generations. After ~2hrs this could yield dozens of stacked 50ms intervals.
+  let _tooltipTriggerActive = false;
   function scheduleTooltipTrigger() {
+    if (_tooltipTriggerActive) return;   // FIX B: skip if already running
+    _tooltipTriggerActive = true;
     let attempts = 0;
     let cancelled = false;
     const tryAttach = () => {
-      if (cancelled) return;
-      if (chainTimerObserver) return;
-      if (startChainTimerObserver()) return;
+      if (cancelled) { _tooltipTriggerActive = false; return; }
+      if (chainTimerObserver) { _tooltipTriggerActive = false; return; }
+      if (startChainTimerObserver()) { _tooltipTriggerActive = false; return; }
 
       const chainBar = document.querySelector('[class*="chain-bar"]:not(#chain-panel *)');
       // On pages without a chain-bar (attack page), still retry via the loop.
@@ -4218,6 +4415,7 @@
             nodeWatcher.disconnect();
             hiddenPortals.forEach(n => n.style.removeProperty('visibility'));
             hiddenPortals.clear();
+            _tooltipTriggerActive = false;  // FIX B: release lock after cleanup
           }, 300);
         };
 
@@ -4234,10 +4432,13 @@
             dismissAndRestore();
           }
         }, 50);
+      } else {
+        // No chain-bar found this attempt — release if out of retries
+        if (attempts >= 14) _tooltipTriggerActive = false;
       }
 
       if (++attempts < 15) setTimeout(tryAttach, 500);
-      if (chainTimerObserver) cancelled = true;
+      if (chainTimerObserver) { cancelled = true; _tooltipTriggerActive = false; }
     };
     tryAttach();
   }
@@ -4286,7 +4487,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   function pollFactionChain() {
     if (!tornApiKey || !factionId) return;
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method: "GET",
       url: `https://api.torn.com/v2/faction/chain?key=${encodeURIComponent(tornApiKey)}`,
       timeout: 8000,
@@ -4461,7 +4662,7 @@
     const fromTs = Math.floor(chainStartTime / 1000);
     const toTs   = Math.floor(Date.now() / 1000);
 
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method: "GET",
       url: `https://api.torn.com/v2/faction/attacks?limit=100&from=${fromTs}&to=${toTs}&key=${encodeURIComponent(tornApiKey)}`,
       timeout: 10000,
@@ -5271,7 +5472,7 @@
 
     btn.disabled=true; btn.classList.add("loading"); btn.textContent="⏳";
 
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method:"GET",
       url:`https://api.torn.com/user/${encodeURIComponent(targetId)}?selections=profile&key=${encodeURIComponent(tornApiKey)}`,
       timeout:15000,
@@ -5686,7 +5887,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   function fetchFactionBasic() {
     if (!factionId || !tornApiKey) return;
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method: "GET",
       // v2: combine basic + members + rankedwars in one round-trip
       url: `https://api.torn.com/v2/faction?selections=basic,members,rankedwars&key=${encodeURIComponent(tornApiKey)}`,
@@ -5736,7 +5937,7 @@
     showBanner("chain-banner-nokey",false);
     showBanner("chain-banner-status",true,"Connecting…");
 
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method:"GET",
       url:`https://api.torn.com/user/?selections=profile&key=${encodeURIComponent(tornApiKey)}`,
       timeout:15000,
@@ -5787,7 +5988,7 @@
             // Lobby check-in runs silently — keep the "Connecting…" status banner visible
             // (already shown by fetchOwnProfile) and only surface debug info on error.
             showBanner("chain-banner-status", true, "Connecting…");
-            GM_xmlhttpRequest({
+            _xhrTracked({
               method:"PUT", url: lobbyBootstrapUrl,
               headers:{"Content-Type":"application/json"},
               data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() }),
@@ -5796,7 +5997,7 @@
                 if (r.status>=200 && r.status<300) {
                   setSyncDot("live");
                   // Read back to confirm committed in rules engine before proceeding
-                  GM_xmlhttpRequest({
+                  _xhrTracked({
                     method: "GET", url: lobbyBootstrapUrl, timeout: 8000,
                     onload(rr) {
                       showBanner("chain-banner-status", false);
@@ -5866,7 +6067,7 @@
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
   function checkForUpdate() {
-    GM_xmlhttpRequest({
+    _xhrTracked({
       method: "GET",
       url: SCRIPT_RAW_URL + "?nocache=" + Date.now(),
       timeout: 10000,
@@ -5883,7 +6084,7 @@
         if (fbConfigured() && fbUid) {
           const lvUrl = P.latestVersion();
           if (lvUrl) {
-            GM_xmlhttpRequest({
+            _xhrTracked({
               method: "PUT", url: lvUrl,
               headers: { "Content-Type": "application/json" },
               data: JSON.stringify({ version: latest, updatedAt: Date.now() }),
