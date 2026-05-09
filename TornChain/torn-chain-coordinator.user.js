@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.2.2
+// @version      5.2.5
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -210,7 +210,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.2.2";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "5.2.5";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -271,6 +271,37 @@
   const isTornPDA = _ua.includes("TornPDA") || _ua.includes("torn_pda") ||
     _ua.includes("Dart") || document.documentElement.dataset.tornpda === "true";
 
+  // ── localStorage-mirrored GM storage ────────────────────────────────────────
+  // Opera GX + Violentmonkey has a known bug where GM_setValue data doesn't
+  // survive page navigation when the script was installed by pasting (new UUID
+  // each install wipes stored values). Mirror all settings to localStorage as a
+  // fallback so they survive regardless. TornPDA blocks localStorage — skipped there.
+  // Read priority: GM_getValue first (correct value), fall back to localStorage.
+  // Write: always writes both so they stay in sync.
+  const LS_SETT_PREFIX = "tcc_sett_";
+  function _gmGet(key, def) {
+    const gmVal = GM_getValue(key, null);
+    if (gmVal !== null && gmVal !== undefined) return gmVal;
+    if (!isTornPDA) {
+      try {
+        const raw = localStorage.getItem(LS_SETT_PREFIX + key);
+        if (raw !== null) {
+          const parsed = JSON.parse(raw);
+          // Write back to GM storage so future reads hit GM first
+          GM_setValue(key, parsed);
+          return parsed;
+        }
+      } catch(_) {}
+    }
+    return def;
+  }
+  function _gmSet(key, val) {
+    GM_setValue(key, val);
+    if (!isTornPDA) {
+      try { localStorage.setItem(LS_SETT_PREFIX + key, JSON.stringify(val)); } catch(_) {}
+    }
+  }
+
   let tornApiKey = "";
   if (!isTornPDA) {
     try { tornApiKey = (localStorage.getItem("tcc_api_key") || "").trim(); } catch { /**/ }
@@ -280,24 +311,24 @@
     if (!isTornPDA) { try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ } }
     GM_setValue(SK_API_KEY, tornApiKey);
   }
-  let panelW        = GM_getValue(SK_PANEL_W, 380);
+  let panelW        = _gmGet(SK_PANEL_W, 380);
   // Enforce minimum width in case a narrower value was saved previously
-  if (panelW < 360) { panelW = 380; GM_setValue(SK_PANEL_W, panelW); }
-  let panelH        = GM_getValue(SK_PANEL_H, null);
-  let viewMode      = isTornPDA ? 0 : GM_getValue(SK_VIEW_MODE, 1);
+  if (panelW < 360) { panelW = 380; _gmSet(SK_PANEL_W, panelW); }
+  let panelH        = _gmGet(SK_PANEL_H, null);
+  let viewMode      = isTornPDA ? 0 : _gmGet(SK_VIEW_MODE, 1);
 
   // ─── User settings state ──────────────────────────────────────────────────
-  let settShowDoneHits   = GM_getValue(SK_SHOW_DONE_HITS,   true);
-  let settCompactMode    = GM_getValue(SK_COMPACT_MODE,     false);
-  let settNotifySound    = GM_getValue(SK_NOTIFY_SOUND,     false);
-  let settTimerFudge     = GM_getValue(SK_TIMER_FUDGE_USR,  0);
-  let settPanelOpacity   = GM_getValue(SK_PANEL_OPACITY,    0.96);
-  let settWarnThreshold  = GM_getValue(SK_WARN_THRESHOLD,   90);
-  let settDangerThreshold= GM_getValue(SK_DANGER_THRESHOLD, 30);
-  let settShowBonusAlert = GM_getValue(SK_SHOW_BONUS_ALERT, true);
-  let settMiniShowCount  = GM_getValue(SK_MINI_SHOW_COUNT,  true);
-  let settAutoExpandDue  = GM_getValue(SK_AUTO_EXPAND_DUE,  false);
-  let settDebugConsole   = GM_getValue(SK_DEBUG_CONSOLE,    false);
+  let settShowDoneHits   = _gmGet(SK_SHOW_DONE_HITS,   true);
+  let settCompactMode    = _gmGet(SK_COMPACT_MODE,     false);
+  let settNotifySound    = _gmGet(SK_NOTIFY_SOUND,     false);
+  let settTimerFudge     = _gmGet(SK_TIMER_FUDGE_USR,  0);
+  let settPanelOpacity   = _gmGet(SK_PANEL_OPACITY,    0.96);
+  let settWarnThreshold  = _gmGet(SK_WARN_THRESHOLD,   90);
+  let settDangerThreshold= _gmGet(SK_DANGER_THRESHOLD, 30);
+  let settShowBonusAlert = _gmGet(SK_SHOW_BONUS_ALERT, true);
+  let settMiniShowCount  = _gmGet(SK_MINI_SHOW_COUNT,  true);
+  let settAutoExpandDue  = _gmGet(SK_AUTO_EXPAND_DUE,  false);
+  let settDebugConsole   = _gmGet(SK_DEBUG_CONSOLE,    false);
   // Notification sound (AudioContext, created lazily)
   let _notifyAudioCtx    = null;
   function playDueSound() {
@@ -1523,7 +1554,7 @@
   viewBtn.onclick = e => {
     e.stopPropagation();
     viewMode = (viewMode + 1) % 3;
-    GM_setValue(SK_VIEW_MODE, viewMode);
+    _gmSet(SK_VIEW_MODE, viewMode);
     applyViewMode();
   };
 
@@ -1533,7 +1564,7 @@
     if (e.target === viewBtn || e.target.closest("#chain-panel-header button")) return;
     if (panel.dataset.justDragged === "1") { delete panel.dataset.justDragged; return; }
     viewMode = 2;
-    GM_setValue(SK_VIEW_MODE, viewMode);
+    _gmSet(SK_VIEW_MODE, viewMode);
     applyViewMode();
   });
 
@@ -1670,7 +1701,7 @@
     function end(){
       if(!resizing)return; resizing=false; document.body.style.cursor="";
       panelW=panel.offsetWidth; panelH=panel.offsetHeight;
-      GM_setValue(SK_PANEL_W,panelW); GM_setValue(SK_PANEL_H,panelH);
+      _gmSet(SK_PANEL_W,panelW); _gmSet(SK_PANEL_H,panelH);
       // Clamp position so resize can't push the panel off screen
       const cx = Math.max(0, Math.min(window.innerWidth  - panelW, parseInt(panel.style.left)||0));
       const cy = Math.max(0, Math.min(window.innerHeight - panelH, parseInt(panel.style.top)||0));
@@ -1715,7 +1746,7 @@
       if (e.touches.length < 2) {
         pinching=false;
         panelW=panel.offsetWidth; panelH=panel.offsetHeight;
-        GM_setValue(SK_PANEL_W,panelW); GM_setValue(SK_PANEL_H,panelH);
+        _gmSet(SK_PANEL_W,panelW); _gmSet(SK_PANEL_H,panelH);
         // Clamp position after pinch resize
         const maxX=Math.max(0,window.innerWidth-panelW), maxY=Math.max(0,window.innerHeight-panelH);
         const cx=Math.max(0,Math.min(maxX,parseInt(panel.style.left)||0));
@@ -2024,11 +2055,11 @@
 
     // toggleDebugConsole: opens the debug window. State persists across page loads.
     // Minimize collapses to title bar only; close removes and saves closed state.
-    let _dbgMinimized = GM_getValue(SK_DBG_MINIMIZED, false);
+    let _dbgMinimized = _gmGet(SK_DBG_MINIMIZED, false);
 
     function _dbgApplyMinimized(val) {
       _dbgMinimized = val;
-      GM_setValue(SK_DBG_MINIMIZED, val);
+      _gmSet(SK_DBG_MINIMIZED, val);
       if (!_dbgPanel) return;
       const body = _dbgPanel.querySelector(".tcc-dbg-body");
       const minBtn = document.getElementById("tcc-dbg-min");
@@ -2055,10 +2086,10 @@
         _dbgPanel.remove(); _dbgPanel = null;
         _dbgRafActive = false;
         if (_dbgRenderInterval) { clearInterval(_dbgRenderInterval); _dbgRenderInterval = null; }
-        GM_setValue(SK_DBG_OPEN, false);
+        _gmSet(SK_DBG_OPEN, false);
         return;
       }
-      GM_setValue(SK_DBG_OPEN, true);
+      _gmSet(SK_DBG_OPEN, true);
       _dbgPanel = document.createElement("div");
       _dbgPanel.id = "tcc-debug-panel";
       const _dbgSavedX = GM_getValue(SK_DBG_POS_X, null);
@@ -2345,53 +2376,53 @@
 
     // Toggle handlers
     document.getElementById("sett-show-done")?.addEventListener("change", e => {
-      settShowDoneHits = e.target.checked; GM_setValue(SK_SHOW_DONE_HITS, settShowDoneHits);
+      settShowDoneHits = e.target.checked; _gmSet(SK_SHOW_DONE_HITS, settShowDoneHits);
       scheduleRender();
     });
     document.getElementById("sett-compact")?.addEventListener("change", e => {
-      settCompactMode = e.target.checked; GM_setValue(SK_COMPACT_MODE, settCompactMode);
+      settCompactMode = e.target.checked; _gmSet(SK_COMPACT_MODE, settCompactMode);
       applyCompactMode(settCompactMode);
     });
     document.getElementById("sett-bonus-alert")?.addEventListener("change", e => {
-      settShowBonusAlert = e.target.checked; GM_setValue(SK_SHOW_BONUS_ALERT, settShowBonusAlert);
+      settShowBonusAlert = e.target.checked; _gmSet(SK_SHOW_BONUS_ALERT, settShowBonusAlert);
       scheduleRender();
     });
     document.getElementById("sett-mini-count")?.addEventListener("change", e => {
-      settMiniShowCount = e.target.checked; GM_setValue(SK_MINI_SHOW_COUNT, settMiniShowCount);
+      settMiniShowCount = e.target.checked; _gmSet(SK_MINI_SHOW_COUNT, settMiniShowCount);
       applyMiniCountVisibility(settMiniShowCount);
     });
     document.getElementById("sett-sound")?.addEventListener("change", e => {
-      settNotifySound = e.target.checked; GM_setValue(SK_NOTIFY_SOUND, settNotifySound);
+      settNotifySound = e.target.checked; _gmSet(SK_NOTIFY_SOUND, settNotifySound);
       if (settNotifySound) playDueSound();  // preview sound on enable
     });
     document.getElementById("sett-auto-expand")?.addEventListener("change", e => {
-      settAutoExpandDue = e.target.checked; GM_setValue(SK_AUTO_EXPAND_DUE, settAutoExpandDue);
+      settAutoExpandDue = e.target.checked; _gmSet(SK_AUTO_EXPAND_DUE, settAutoExpandDue);
     });
     document.getElementById("sett-debug-console")?.addEventListener("change", e => {
-      settDebugConsole = e.target.checked; GM_setValue(SK_DEBUG_CONSOLE, settDebugConsole);
+      settDebugConsole = e.target.checked; _gmSet(SK_DEBUG_CONSOLE, settDebugConsole);
       applyDebugConsole(settDebugConsole);
     });
 
     // Slider handlers
     document.getElementById("sett-opacity")?.addEventListener("input", e => {
       const v = parseInt(e.target.value) / 100;
-      settPanelOpacity = v; GM_setValue(SK_PANEL_OPACITY, v);
+      settPanelOpacity = v; _gmSet(SK_PANEL_OPACITY, v);
       applyPanelOpacity(v);
       const sopv = document.getElementById("sett-opacity-val");
       if (sopv) sopv.textContent = Math.round(v * 100) + "%";
     });
     document.getElementById("sett-warn")?.addEventListener("input", e => {
-      settWarnThreshold = parseInt(e.target.value); GM_setValue(SK_WARN_THRESHOLD, settWarnThreshold);
+      settWarnThreshold = parseInt(e.target.value); _gmSet(SK_WARN_THRESHOLD, settWarnThreshold);
       const swv = document.getElementById("sett-warn-val");
       if (swv) swv.textContent = settWarnThreshold + "s";
     });
     document.getElementById("sett-danger")?.addEventListener("input", e => {
-      settDangerThreshold = parseInt(e.target.value); GM_setValue(SK_DANGER_THRESHOLD, settDangerThreshold);
+      settDangerThreshold = parseInt(e.target.value); _gmSet(SK_DANGER_THRESHOLD, settDangerThreshold);
       const sdgv = document.getElementById("sett-danger-val");
       if (sdgv) sdgv.textContent = settDangerThreshold + "s";
     });
     document.getElementById("sett-fudge")?.addEventListener("input", e => {
-      settTimerFudge = parseInt(e.target.value); GM_setValue(SK_TIMER_FUDGE_USR, settTimerFudge);
+      settTimerFudge = parseInt(e.target.value); _gmSet(SK_TIMER_FUDGE_USR, settTimerFudge);
       const sfv = document.getElementById("sett-fudge-val");
       if (sfv) sfv.textContent = (settTimerFudge >= 0 ? "+" : "") + settTimerFudge + "s";
     });
@@ -2405,7 +2436,7 @@
     });
     document.getElementById("sett-reset-size")?.addEventListener("click", () => {
       panelW = 380; panelH = null;
-      GM_setValue(SK_PANEL_W, panelW); GM_setValue(SK_PANEL_H, null);
+      _gmSet(SK_PANEL_W, panelW); _gmSet(SK_PANEL_H, null);
       panel.style.width = panelW + "px"; panel.style.height = "";
       settStatusMsg("Size reset ✓");
     });
@@ -2415,7 +2446,7 @@
        SK_PANEL_OPACITY, SK_WARN_THRESHOLD, SK_DANGER_THRESHOLD, SK_SHOW_BONUS_ALERT,
        SK_MINI_SHOW_COUNT, SK_AUTO_EXPAND_DUE, SK_DEBUG_CONSOLE, SK_PANEL_W, SK_PANEL_H,
        SK_POS_X_FULL, SK_POS_Y_FULL, SK_POS_X_ICON, SK_POS_Y_ICON, SK_POS_X_MINI, SK_POS_Y_MINI
-      ].forEach(k => GM_setValue(k, null));
+      ].forEach(k => _gmSet(k, null));
       settShowDoneHits = true; settCompactMode = false; settNotifySound = false;
       settTimerFudge = 0; settPanelOpacity = 0.96; settWarnThreshold = 90;
       settDangerThreshold = 30; settShowBonusAlert = true; settMiniShowCount = true;
@@ -2435,7 +2466,7 @@
     applyDebugConsole(settDebugConsole);
 
     // Auto-restore debug console if it was open during the last session
-    if (GM_getValue(SK_DBG_OPEN, false) && settDebugConsole) {
+    if (_gmGet(SK_DBG_OPEN, false) && settDebugConsole) {
       setTimeout(toggleDebugConsole, 800);
     }
 
@@ -2773,7 +2804,7 @@
     if (!handle || !inbox) return;
     const MIN_H = 80, MAX_H = 600;
     // Restore saved height
-    const savedH = GM_getValue(SK_ADMIN_H, 200);
+    const savedH = _gmGet(SK_ADMIN_H, 200);
     inbox.style.height = Math.min(MAX_H, Math.max(MIN_H, savedH)) + "px";
 
     let resizing=false, startY=0, startH=0;
@@ -2781,7 +2812,7 @@
     function onMove(cy)  { if(!resizing) return;
       // Handle is ABOVE the inbox. Drag down = shrink, drag up = grow.
       inbox.style.height = Math.min(MAX_H, Math.max(MIN_H, startH-(cy-startY)))+"px"; }
-    function onEnd()     { if(!resizing) return; resizing=false; document.body.style.userSelect=""; GM_setValue(SK_ADMIN_H, inbox.offsetHeight); }
+    function onEnd()     { if(!resizing) return; resizing=false; document.body.style.userSelect=""; _gmSet(SK_ADMIN_H, inbox.offsetHeight); }
 
     handle.addEventListener("mousedown",  e => {
       e.preventDefault(); e.stopPropagation(); onStart(e.clientY);
@@ -2806,7 +2837,7 @@
     const MIN_H = 200, MAX_H = Math.round(window.innerHeight * 0.85);
     let resizing=false, startY=0, startH=0;
     // Restore saved height
-    const savedH = GM_getValue(SK_TRACKER_H, 440);
+    const savedH = _gmGet(SK_TRACKER_H, 440);
     trackerPopover.style.height = Math.min(MAX_H, Math.max(MIN_H, savedH)) + "px";
 
     function onStart(cy) {
@@ -2821,7 +2852,7 @@
     function onEnd() {
       if (!resizing) return; resizing=false;
       document.body.style.userSelect="";
-      GM_setValue(SK_TRACKER_H, trackerPopover.offsetHeight);
+      _gmSet(SK_TRACKER_H, trackerPopover.offsetHeight);
     }
     handle.addEventListener("mousedown",  e => {
       e.preventDefault(); e.stopPropagation(); onStart(e.clientY);
@@ -3384,9 +3415,19 @@
   function getPendingHits() {
     return [...hitMap.values()].filter(h=>h.status!=="done").sort((a,b)=>a.hitNumber-b.hitNumber);
   }
-  // Sort done hits ascending by chainHitNum, deduplicated — one entry per slot
+  // Sort done hits ascending by chainHitNum, deduplicated — one entry per slot.
+  // Only shows hits belonging to the current chain session so stale done hits
+  // from a previous chain don't bleed into a new chain's board while Firebase
+  // propagates the /hits delete.
   function getDoneHits() {
-    const all = [...hitMap.values()].filter(h=>h.status==="done");
+    const all = [...hitMap.values()].filter(h => {
+      if (h.status !== "done") return false;
+      // If a sessionId is recorded on the hit, only show it when it matches
+      // the current session. Hits without sessionId (pre-5.x) are shown always
+      // to avoid breaking backwards compatibility.
+      if (h.sessionId && chainSessionId && h.sessionId !== chainSessionId) return false;
+      return true;
+    });
     // Deduplicate by chainHitNum: prefer non-untracked (user-queued) over scraped
     const byNum = new Map();
     for (const h of all) {
@@ -3400,7 +3441,10 @@
     return [...byNum.values()].sort((a,b)=>(a.chainHitNum||0)-(b.chainHitNum||0));
   }
   function getHighestDoneHitNum() {
-    return [...hitMap.values()].filter(h=>h.status==="done"&&h.chainHitNum).reduce((m,h)=>Math.max(m,h.chainHitNum),0);
+    return [...hitMap.values()].filter(h =>
+      h.status === "done" && h.chainHitNum &&
+      (!h.sessionId || !chainSessionId || h.sessionId === chainSessionId)
+    ).reduce((m,h)=>Math.max(m,h.chainHitNum),0);
   }
 
   // reNumberPending: assigns correct hitNumbers locally and syncs to Firebase.
@@ -4376,10 +4420,18 @@
 
   function onDomTimerUpdate(rawSecs) {
     if (rawSecs === null || rawSecs === 0) return;
+    const prevSecs = liveChainSecs;
     // DOM observer is the SOLE authoritative source for display.
     liveChainSecs   = rawSecs;
     lastTimerReadAt = performance.now();
     updateChainTimerUI();
+    // Detect timer reset: timer jumped UP by more than 60s — a hit just landed and
+    // the chain window reset to ~5:00. Fire immediate chain API polls to sync the
+    // count and re-anchor all scheduled hits before the next regular poll fires.
+    if (prevSecs !== null && rawSecs > prevSecs + 60) {
+      pollFactionChain();
+      setTimeout(pollFactionChain, 1500);  // second pass for API propagation lag
+    }
   }
 
   // Mobile Torn conditionally renders the chain bar tooltip only on tap/hover.
@@ -5125,6 +5177,8 @@
       const allDoneBySlot = new Map();
       for (const h of hitMap.values()) {
         if (h.status !== "done") continue;
+        // Skip hits from a different session — stale data from a previous chain
+        if (h.sessionId && chainSessionId && h.sessionId !== chainSessionId) continue;
         const slot = h.chainHitNum || h.hitNumber;
         if (!slot) continue;
         const ex = allDoneBySlot.get(slot);
@@ -5194,7 +5248,11 @@
               if (isFirstRow) stickyGiven = true;
               // Slot ≤ liveChainCount means the hit already happened — show "Waiting for Data".
               // Slot > liveChainCount means it hasn't happened yet — show "Unclaimed".
-              const gapIsHit = liveChainCount !== null && gap <= liveChainCount;
+              // +1 buffer: the API count lags by up to 5s after a hit lands, so a slot
+              // one ahead of liveChainCount may already have happened. Prefer "Waiting
+              // for Data" over "Unclaimed" when ambiguous — false negatives are less
+              // confusing than a slot falsely showing as unclaimed for several seconds.
+              const gapIsHit = liveChainCount !== null && gap <= liveChainCount + 1;
               const gapLabel = gapIsHit ? "Waiting for Data" : "Unclaimed";
               const gapRowCls = gapIsHit ? "waiting" : "unclaimed";
               html += `<div class="chain-hit-row ${gapRowCls}${isFirstRow ? " sticky-now" : ""}" data-hit-id="" data-queue-pos="-1">` +
@@ -5218,7 +5276,8 @@
       // nextSlot > liveChainCount: not yet happened → "Unclaimed"
       if (pendingHits.length === 0 && allDoneBySlot.size === 0 && liveChainCount !== null) {
         const nextSlot = getHighestDoneHitNum() + 1;
-        const slotIsHit = nextSlot <= liveChainCount;
+        // +1 buffer for API lag — same as gap row logic above
+        const slotIsHit = nextSlot <= liveChainCount + 1;
         const disp = Math.round(chainTimerMs() / 1000);
         const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
         const slotLabel = slotIsHit ? "Waiting for Data" : "Unclaimed";
@@ -5370,7 +5429,7 @@
           if (pageVisible) {
             playDueSound();
             if (settAutoExpandDue && viewMode !== 0) {
-              viewMode = 0; GM_setValue(SK_VIEW_MODE, viewMode); applyViewMode();
+              viewMode = 0; _gmSet(SK_VIEW_MODE, viewMode); applyViewMode();
             }
           }
         } else if (rem > 5000) {
