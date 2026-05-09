@@ -4181,7 +4181,11 @@
             }
           }
         }
-        if (data.session) handleRemoteSession(data.session);
+        // Handle both session present and session explicitly null.
+        // Previously `if (data.session)` skipped the null case, so when onChainEnd()
+        // deleted /session the root poll never fired handleRemoteSession(null),
+        // leaving stale done hits on the board indefinitely for users on root polls.
+        if ("session" in data) handleRemoteSession(data.session || null);
         permissions = (data.permissions && typeof data.permissions==="object") ? data.permissions : {};
         presenceMap.clear();
         if (data.members && typeof data.members==="object") {
