@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.2.0
+// @version      5.2.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -71,17 +71,41 @@
       return raw ? JSON.parse(raw) : null;
     } catch(_) { return null; }
   }
+
+  // _bgSavePersisted: NEVER call synchronously from rAF or hot paths.
+  // localStorage.setItem on Firefox Android blocks the main thread (synchronous
+  // IndexedDB bridge), and calling it from within a freeze-detection callback
+  // creates a feedback loop: freeze → save → blocks → freeze → save → blocks…
+  // This was causing the cascading 1000ms+ freeze clusters seen in production.
+  //
+  // Solution: all saves are debounced through a setTimeout(0) so they run in
+  // a future task, never inside the current rAF/timer callback. A dirty flag
+  // prevents scheduling redundant save tasks. Minimum 2s between actual writes.
+  let _bgSaveDirty  = false;
+  let _bgLastSaveAt = 0;
+  let _bgSaveQueued = false;
   function _bgSavePersisted() {
     if (_bgIsPDA) return;
-    try {
-      localStorage.setItem(BG_LS_KEY, JSON.stringify({
-        freezeCount: _bg.freezeCount,
-        freezeLog:   _bg.freezeLog.slice(0, BG_LOG_MAX),
-        xhrTotal:    _bg.xhrTotal,
-        xhrErr:      _bg.xhrErr,
-        firstSeen:   _bg.firstSeen,
-      }));
-    } catch(_) {}
+    _bgSaveDirty = true;
+    if (_bgSaveQueued) return;  // already a save task pending
+    const now = Date.now();
+    const delay = Math.max(0, 2000 - (now - _bgLastSaveAt));  // min 2s between writes
+    _bgSaveQueued = true;
+    setTimeout(() => {
+      _bgSaveQueued = false;
+      if (!_bgSaveDirty) return;
+      _bgSaveDirty = false;
+      _bgLastSaveAt = Date.now();
+      try {
+        localStorage.setItem(BG_LS_KEY, JSON.stringify({
+          freezeCount: _bg.freezeCount,
+          freezeLog:   _bg.freezeLog.slice(0, BG_LOG_MAX),
+          xhrTotal:    _bg.xhrTotal,
+          xhrErr:      _bg.xhrErr,
+          firstSeen:   _bg.firstSeen,
+        }));
+      } catch(_) {}
+    }, delay);
   }
 
   // Load persisted data from previous page loads
@@ -95,7 +119,6 @@
     xhrErr:      _bgPrev ? _bgPrev.xhrErr      : 0,       // cumulative XHR errors
     lastRafTime: 0,
     rafActive:   true,
-    _flushTimer: null,
   };
 
   (function _bgRafBoot() {
@@ -106,14 +129,17 @@
         _bg.freezeCount++;
         _bg.freezeLog.unshift({ time: new Date().toLocaleTimeString(), gap: Math.round(gap) });
         if (_bg.freezeLog.length > BG_LOG_MAX) _bg.freezeLog.pop();
-        _bgSavePersisted();  // save immediately on every freeze
+        // Do NOT call _bgSavePersisted() here — it goes through setTimeout(debounce)
+        // but even queuing a setTimeout inside rAF can contribute to jank under stress.
+        // The XHR-triggered save (every ~3s) is sufficient to preserve freeze events.
+        _bgSaveDirty = true;  // mark dirty; next XHR-triggered save will flush it
       }
       _bg.lastRafTime = now;
       requestAnimationFrame(_bgRafLoop);
     }
     requestAnimationFrame(_bgRafLoop);
-    // Periodic flush every 10s so XHR counts survive navigation even without a freeze
-    _bg._flushTimer = setInterval(_bgSavePersisted, 10000);
+    // No setInterval flush needed — _bgSavePersisted is called from _xhrTracked
+    // on every XHR call (debounced, min 2s between writes) so counts are saved continuously.
   })();
 
   function _bgResetPersisted() {
@@ -167,6 +193,7 @@
   const _rawGMXhr = (typeof GM_xmlhttpRequest !== "undefined") ? GM_xmlhttpRequest : null;
   function _xhrTracked(details) {
     _bg.xhrTotal++;
+    _bgSavePersisted();  // debounced (min 2s between writes) — safe to call on every XHR
     const origErr     = details.onerror;
     const origTimeout = details.ontimeout;
     details.onerror   = function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); };
@@ -183,7 +210,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.2.0";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "5.2.1";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -2016,7 +2043,8 @@
         if (body) body.style.display = "";
         _dbgPanel.style.width = "340px";
         _dbgPanel.style.minWidth = "";
-        _dbgPanel.style.maxHeight = "520px";
+        _dbgPanel.style.height = "500px";
+        _dbgPanel.style.maxHeight = "90vh";
         _dbgPanel.style.overflow = "hidden";
         if (minBtn) minBtn.textContent = "▼";
       }
@@ -2046,7 +2074,7 @@
         width: "340px", userSelect: "text", lineHeight: "1.5",
         boxShadow: "0 4px 24px rgba(0,0,0,.7)",
         display: "flex", flexDirection: "column",
-        maxHeight: "520px", overflow: "hidden",
+        height: "500px", maxHeight: "90vh", overflow: "hidden",
       });
       if (_dbgInitLeft) _dbgPanel.style.left = _dbgInitLeft;
 
@@ -5928,6 +5956,30 @@
       },
     });
   }
+  // Safety-net timer handle — clears "Connecting…" if it hangs beyond 30s.
+  // Opera GX / some Chromium builds can silently drop GM_xmlhttpRequest callbacks
+  // (no onerror, no ontimeout) leaving the banner stuck forever.
+  let _connectWatchdog = null;
+  function _startConnectWatchdog() {
+    if (_connectWatchdog) clearTimeout(_connectWatchdog);
+    _connectWatchdog = setTimeout(() => {
+      _connectWatchdog = null;
+      // If still showing "Connecting…" after 30s, something got silently dropped.
+      const statusBanner = document.getElementById("chain-banner-status");
+      if (statusBanner && statusBanner.style.display !== "none" &&
+          statusBanner.textContent.includes("Connecting")) {
+        showBanner("chain-banner-status", false);
+        showBanner("chain-banner-debug", true,
+          "⚠ Connection timed out after 30s. Check: (1) API key is valid, " +
+          "(2) googleapis.com and firebaseio.com are reachable from this browser, " +
+          "(3) no VPN/adblocker blocking Firebase. Try reloading the page.");
+      }
+    }, 30000);
+  }
+  function _clearConnectWatchdog() {
+    if (_connectWatchdog) { clearTimeout(_connectWatchdog); _connectWatchdog = null; }
+  }
+
   function fetchOwnProfile() {
     if (!tornApiKey) { showBanner("chain-banner-nokey",true); return; }
     // Clear any existing intervals before re-running boot — prevents accumulation
@@ -5936,6 +5988,7 @@
     lastPollResponse = null;  // force a fresh applyPatch on next poll
     showBanner("chain-banner-nokey",false);
     showBanner("chain-banner-status",true,"Connecting…");
+    _startConnectWatchdog();  // safety-net: clears banner if connection hangs silently
 
     _xhrTracked({
       method:"GET",
@@ -5975,7 +6028,7 @@
               // FIX E: Clear the generic "Connecting…" banner so it doesn't hang
               // forever when Firebase auth can't complete (e.g. on TornPDA where
               // googleapis.com may be unreachable from the WebView sandbox).
-              showBanner("chain-banner-status", false);
+              showBanner("chain-banner-status", false); _clearConnectWatchdog();
               const pdaNote = isTornPDA ? " (TornPDA: Firebase auth may be blocked — check @connect in script header)" : "";
               showBanner("chain-banner-debug", true, "⚠ Firebase auth failed — anonymous sign-in returned no token." + pdaNote);
               return;
@@ -6000,7 +6053,7 @@
                   _xhrTracked({
                     method: "GET", url: lobbyBootstrapUrl, timeout: 8000,
                     onload(rr) {
-                      showBanner("chain-banner-status", false);
+                      showBanner("chain-banner-status", false); _clearConnectWatchdog();
                       fbCleanOwnLobbyEntries();
                       fbRegisterMember();
                       fbProbeOwner();   // silent boot-time owner check — sets isOwner + gear menu
@@ -6025,20 +6078,20 @@
                         if (IS_ATTACK_PAGE) setTimeout(pollFactionChain, 2000);
                       });
                     },
-                    onerror()  { showBanner("chain-banner-status", false); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);if(!attackPollInterval)attackPollInterval=setInterval(pollFactionAttacks,ATTACKS_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
-                    ontimeout(){ showBanner("chain-banner-status", false); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);if(!attackPollInterval)attackPollInterval=setInterval(pollFactionAttacks,ATTACKS_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    onerror()  { showBanner("chain-banner-status", false); _clearConnectWatchdog(); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);if(!attackPollInterval)attackPollInterval=setInterval(pollFactionAttacks,ATTACKS_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                    ontimeout(){ showBanner("chain-banner-status", false); _clearConnectWatchdog(); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);if(!attackPollInterval)attackPollInterval=setInterval(pollFactionAttacks,ATTACKS_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
                   });
                 } else {
                   setSyncDot("error");
-                  showBanner("chain-banner-status", false);
+                  showBanner("chain-banner-status", false); _clearConnectWatchdog();
                   let msg = r.responseText;
                   try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
                   showBanner("chain-banner-debug", true, "❌ Lobby check-in failed "+r.status+": "+msg+" | url: "+lobbyBootstrapUrl.replace(/auth=[^&]+/,"auth=***"));
                   console.warn("[ChainCoord] Lobby check-in failed", r.status, r.responseText, lobbyUrl);
                 }
               },
-              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-status", false); showBanner("chain-banner-debug", true, "❌ Lobby check-in network error — check @connect firebaseio.com"); },
-              ontimeout() { setSyncDot("error"); showBanner("chain-banner-status", false); showBanner("chain-banner-debug", true, "❌ Lobby check-in timed out"); },
+              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-status", false); _clearConnectWatchdog(); showBanner("chain-banner-debug", true, "❌ Lobby check-in network error — check @connect firebaseio.com"); },
+              ontimeout() { setSyncDot("error"); showBanner("chain-banner-status", false); _clearConnectWatchdog(); showBanner("chain-banner-debug", true, "❌ Lobby check-in timed out"); },
             });
 
             if (!heartbeatInterval) heartbeatInterval = setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
