@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.4.4
+// @version      5.4.5
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -277,7 +277,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.4.4";
+  const CURRENT_VERSION  = "5.4.5";
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -5495,13 +5495,20 @@
               // for Data" over "Unclaimed" when ambiguous — false negatives are less
               // confusing than a slot falsely showing as unclaimed for several seconds.
               const gapIsHit = liveChainCount !== null && gap <= liveChainCount + 1;
-              const gapLabel = gapIsHit ? "Waiting for Data" : "Unclaimed";
-              const gapRowCls = gapIsHit ? "waiting" : "unclaimed";
-              html += `<div class="chain-hit-row ${gapRowCls}${isFirstRow ? " sticky-now" : ""}" data-hit-id="" data-queue-pos="-1">` +
+              // If Firebase already has a scraped entry for this slot, show its data
+              // instead of "Waiting for Data" — hitNumber tells us which slot it belongs to.
+              const scrapedGap = allDoneBySlot.get(gap);
+              const gapLabel = scrapedGap ? escHtml(scrapedGap.targetName || "—") : (gapIsHit ? "Waiting for Data" : "Unclaimed");
+              const gapClaimer = scrapedGap ? escHtml(scrapedGap.claimedBy || "—") : "—";
+              const gapRowCls = scrapedGap ? "untracked" : (gapIsHit ? "waiting" : "unclaimed");
+              const gapTargetStyle = (!scrapedGap && gapIsHit) ? "color:#445;font-style:italic" : "";
+              const gapTimerText = scrapedGap ? "Done" : (gapIsHit ? "—" : (liveChainSecs !== null ? gapTxt : "—"));
+              const gapTimerCls = scrapedGap ? "done" : (gapIsHit ? "wait" : gapCls);
+              html += `<div class="chain-hit-row ${gapRowCls}${isFirstRow ? " sticky-now" : ""}" data-hit-id="${scrapedGap ? scrapedGap.id : ""}" data-queue-pos="-1">` +
                 `<span class="chain-hit-num">${gap}</span>` +
-                `<span class="chain-hit-claimer">—</span>` +
-                `<span class="chain-hit-target" style="${gapIsHit ? "color:#445;font-style:italic" : ""}">${gapLabel}</span>` +
-                `<span class="chain-hit-timer ${gapIsHit ? "wait" : gapCls}">${gapIsHit ? "—" : (liveChainSecs !== null ? gapTxt : "—")}</span>` +
+                `<span class="chain-hit-claimer">${scrapedGap ? "✓ " : ""}${gapClaimer}</span>` +
+                `<span class="chain-hit-target" style="${gapTargetStyle}">${gapLabel}</span>` +
+                `<span class="chain-hit-timer ${gapTimerCls}">${gapTimerText}</span>` +
                 `<span></span><span></span></div>`;
             }
           }
@@ -5522,11 +5529,15 @@
         const slotIsHit = nextSlot <= liveChainCount + 1;
         const disp = Math.round(chainTimerMs() / 1000);
         const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-        const slotLabel = slotIsHit ? "Waiting for Data" : "Unclaimed";
-        const slotRowCls = slotIsHit ? "waiting" : "unclaimed";
-        const slotTimer = slotIsHit ? "—" : t;
-        const slotTimerCls = slotIsHit ? "wait" : (disp<=30?"due":disp<=90?"soon":"wait");
-        html += `<div class="chain-hit-row ${slotRowCls} sticky-now"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target" style="${slotIsHit ? "color:#445;font-style:italic" : ""}">${slotLabel}</span><span class="chain-hit-timer ${slotTimerCls}">${slotTimer}</span><span></span><span></span></div>`;
+        // Check if Firebase has a scraped entry for this slot
+        const scrapedSlot = allDoneBySlot.get(nextSlot);
+        const slotLabel = scrapedSlot ? escHtml(scrapedSlot.targetName || "—") : (slotIsHit ? "Waiting for Data" : "Unclaimed");
+        const slotClaimer = scrapedSlot ? ("✓ " + escHtml(scrapedSlot.claimedBy || "—")) : "—";
+        const slotRowCls = scrapedSlot ? "untracked" : (slotIsHit ? "waiting" : "unclaimed");
+        const slotTargetStyle = (!scrapedSlot && slotIsHit) ? "color:#445;font-style:italic" : "";
+        const slotTimer = scrapedSlot ? "Done" : (slotIsHit ? "—" : t);
+        const slotTimerCls = scrapedSlot ? "done" : (slotIsHit ? "wait" : (disp<=30?"due":disp<=90?"soon":"wait"));
+        html += `<div class="chain-hit-row ${slotRowCls} sticky-now"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">${slotClaimer}</span><span class="chain-hit-target" style="${slotTargetStyle}">${slotLabel}</span><span class="chain-hit-timer ${slotTimerCls}">${slotTimer}</span><span></span><span></span></div>`;
       }
 
       const prevScroll = inner.scrollTop;
