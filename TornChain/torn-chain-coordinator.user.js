@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.4.5
+// @version      5.6.7
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -25,9 +25,14 @@
 // @grant        GM_addStyle
 // @connect      api.torn.com
 // @connect      firebaseio.com
+// @connect      syph-s-war-overhaul-default-rtdb.firebaseio.com
 // @connect      googleapis.com
 // @connect      securetoken.googleapis.com
 // @connect      identitytoolkit.googleapis.com
+// @connect      cloudfunctions.net
+// @connect      us-central1-syph-s-war-overhaul.cloudfunctions.net
+// @connect      run.app
+// @connect      lobbywrite-mic6zyuycq-uc.a.run.app
 // @connect      raw.githubusercontent.com
 // @updateURL    https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js
@@ -252,18 +257,86 @@
     GM_xmlhttpRequest(wrapped);
   }
 
-  // TornPDA's GM_xmlhttpRequest bridge only supports GET and POST — PUT and DELETE
-  // cause an immediate network error. Firebase REST supports x-http-method-override
-  // to work around this. On all other platforms, this is a transparent pass-through.
+
+  // ── TornPDA universal Firebase proxy ────────────────────────────────────────
+  // TornPDA's GM bridge: PUT/DELETE silently fail; GET callbacks are dropped for
+  // non-api.torn.com domains. When TCC_PROXY_URL is set, ALL Firebase operations
+  // (GET, PUT, DELETE) go through the tccProxy Cloud Function via POST.
+  // On desktop browsers everything goes directly to Firebase REST as before.
+
+  // Extract the DB path from a full Firebase REST URL, stripping .json and auth param.
+  function _fbUrlToPath(url) {
+    try {
+      const u = new URL(url);
+      return u.pathname.replace(/\.json$/, "");
+    } catch { return null; }
+  }
+
+  // Core proxy helper — POSTs to tccProxy and calls back like a normal XHR response.
+  function _tccProxy(method, url, data, onload, onerror, ontimeout, timeout) {
+    if (!TCC_PROXY_URL || !fbToken || !fbUid) { console.warn("[ChainCoord] _tccProxy skipped: no proxy/token/uid"); if (onerror) onerror({}); return; }
+    const path = _fbUrlToPath(url);
+    if (!path) { console.warn("[ChainCoord] _tccProxy bad url:", url); if (onerror) onerror({}); return; }
+    let _settled = false;
+    _xhrTracked({
+      method: "POST",
+      url: TCC_PROXY_URL,
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({ token: fbToken, uid: fbUid, method, path, data: data !== undefined ? data : null }),
+      timeout: timeout || 10000,
+      onload(r) {
+        if (_settled) return; _settled = true;
+        if (r && r.status >= 200 && r.status < 300) {
+          if (method === "GET") {
+            // fbGet calls onData(JSON.parse(r.responseText)) — rewrap proxy's {data:...}
+            let inner; try { inner = JSON.parse(r.responseText); } catch { inner = {}; }
+            if (onload) onload({ status: 200, responseText: JSON.stringify(inner.data !== undefined ? inner.data : null) });
+          } else {
+            if (onload) onload({ status: 200, responseText: r.responseText });
+          }
+        } else {
+          if (onload) onload(r || { status: 500, responseText: "" });
+        }
+      },
+      onerror(e)  { if (_settled) return; _settled = true; if (onerror)  onerror(e||{}); },
+      ontimeout(e){ if (_settled) return; _settled = true; if (ontimeout) ontimeout(e); },
+    });
+  }
+
+  // fbRequest: used by fbPut/fbDelete via legacy path, and boot lobby write directly.
+  // On TornPDA with TCC_PROXY_URL, routes PUT/DELETE through _tccProxy.
+  // Legacy fallback: LOBBY_PROXY_URL for lobby PUTs only (pre-tccProxy era).
   function fbRequest(details) {
     const method = (details.method || "GET").toUpperCase();
     if (isTornPDA && (method === "PUT" || method === "DELETE")) {
-      const sep = details.url.includes("?") ? "&" : "?";
-      return _xhrTracked(Object.assign({}, details, {
-        method: "POST",
-        url: details.url + sep + "x-http-method-override=" + method,
-        headers: Object.assign({ "Content-Type": "application/json" }, details.headers || {}),
-      }));
+      if (TCC_PROXY_URL) {
+        let payload; try { payload = details.data ? JSON.parse(details.data) : null; } catch { payload = null; }
+        _tccProxy(method, details.url, payload,
+          details.onload, details.onerror, details.ontimeout, details.timeout);
+        return;
+      }
+      // Legacy fallback: lobby PUT only via LOBBY_PROXY_URL
+      if (method === "PUT" && details.url && details.url.includes("/lobby/")) {
+        const urlObj = new URL(details.url);
+        const authParam = urlObj.searchParams.get("auth");
+        let payload; try { payload = JSON.parse(details.data); } catch { payload = {}; }
+        let _s = false;
+        return _xhrTracked({
+          method: "POST", url: LOBBY_PROXY_URL,
+          headers: { "Content-Type": "application/json" },
+          data: JSON.stringify({ token: authParam, uid: fbUid, data: payload }),
+          timeout: details.timeout || 10000,
+          onload(r) {
+            if (_s) return; _s = true;
+            console.log("[ChainCoord] lobbyProxy onload status=" + (r && r.status));
+            if (details.onload) details.onload(r);
+          },
+          onerror(e) { if (_s) return; _s = true; if (details.onerror) details.onerror(e); },
+          ontimeout(e){ if (_s) return; _s = true; if (details.ontimeout) details.ontimeout(e); },
+        });
+      }
+      console.log("[ChainCoord] fbRequest TornPDA: " + method + " skipped (no proxy)");
+      return;
     }
     return _xhrTracked(details);
   }
@@ -277,7 +350,17 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.4.5";
+  const CURRENT_VERSION  = "5.6.7";
+  // Cloud Function proxy for TornPDA lobby writes — TornPDA's GM bridge only
+  // supports GET/POST; this function accepts a POST and writes /lobby/{uid}
+  // via Admin SDK. Set to null to disable (falls back to direct PUT, desktop only).
+  // Deploy functions/index.js to your Firebase project, then paste the URL here.
+  const LOBBY_PROXY_URL  = "https://lobbywrite-mic6zyuycq-uc.a.run.app";
+  // Universal Firebase proxy for TornPDA — handles all GET/PUT/DELETE operations.
+  // Deploy functions/index.js (tccProxy), add the URL here, then paste into TornPDA.
+  const TCC_PROXY_URL    = "https://us-central1-syph-s-war-overhaul.cloudfunctions.net/tccProxy";
+  const SCRIPT_RAW_URL     = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
+  const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -335,8 +418,12 @@
   // paste-install), fall back to GM storage (works with proper TM auto-updates).
   // TornPDA blocks localStorage — detected early so we skip it on PDA.
   const _ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+  // TornPDA's UA varies by version — check multiple known signals.
+  // Falls back to dataset attribute set by some TornPDA builds.
   const isTornPDA = _ua.includes("TornPDA") || _ua.includes("torn_pda") ||
-    _ua.includes("Dart") || document.documentElement.dataset.tornpda === "true";
+    _ua.includes("Dart") || _ua.includes("tornpda") ||
+    document.documentElement.dataset.tornpda === "true" ||
+    typeof window.tornpda !== "undefined";
 
   // ── localStorage-mirrored GM storage ────────────────────────────────────────
   // Opera GX + Violentmonkey has a known bug where GM_setValue data doesn't
@@ -375,9 +462,15 @@
     try { tornApiKey = (localStorage.getItem("tcc_api_key") || "").trim(); } catch { /**/ }
   }
   if (!tornApiKey) tornApiKey = (GM_getValue(SK_API_KEY, "") || "").trim();
+  // TornPDA: GM storage is wiped on each paste (new UUID). localStorage is blocked.
+  // sessionStorage survives page navigation within a TornPDA session — use as fallback.
+  if (!tornApiKey && isTornPDA) {
+    try { tornApiKey = (sessionStorage.getItem("tcc_api_key") || "").trim(); } catch { /**/ }
+  }
   if (tornApiKey) {
     if (!isTornPDA) { try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ } }
     GM_setValue(SK_API_KEY, tornApiKey);
+    if (isTornPDA) { try { sessionStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ } }
   }
   let panelW        = _gmGet(SK_PANEL_W, 380);
   // Enforce minimum width in case a narrower value was saved previously
@@ -1866,6 +1959,7 @@
     if (!val) { apiStatus.textContent="Please enter a key."; apiStatus.style.color="#ff8888"; return; }
     tornApiKey = val; GM_setValue(SK_API_KEY, tornApiKey);
     if (!isTornPDA) { try { localStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ } }
+    if (isTornPDA)  { try { sessionStorage.setItem("tcc_api_key", tornApiKey); } catch { /**/ } }
     apiStatus.textContent="Saved — connecting…"; apiStatus.style.color="#ffcc66";
     updateApiBtn(); setTimeout(closeAllPopovers, 700); fetchOwnProfile();
   };
@@ -2096,7 +2190,9 @@
           `<span style="color:#778">Hits</span><span style="color:#aaa">${hitMap.size}</span>` +
           `<span style="color:#778">FB polls</span><span style="color:#aaa">${_dbgPollCount}</span>` +
           `<span style="color:#778">Faction</span><span style="color:#aaa">${factionId || "—"}</span>` +
-          `<span style="color:#778">Auth uid</span><span style="color:#aaa;font-size:9px">${fbUid ? fbUid.slice(0,8)+"…" : "—"}</span>`;
+          `<span style="color:#778">Auth uid</span><span style="color:#aaa;font-size:9px">${fbUid ? fbUid.slice(0,8)+"…" : "—"}</span>` +
+          `<span style="color:#778">TornPDA</span><span style="color:${isTornPDA ? "#44ff88" : "#556"}">${isTornPDA ? "yes ✓" : "no"}</span>` +
+          `<span style="color:#778">Key stored</span><span style="color:${tornApiKey ? "#44ff88" : "#ff8844"}">${tornApiKey ? "yes ✓" : "missing ✗"}</span>`;
       }
 
       // ── Freeze log pane ──
@@ -2166,6 +2262,7 @@
         if (body) body.style.display = "none";
         _dbgPanel.style.width = "auto";
         _dbgPanel.style.minWidth = "180px";
+        _dbgPanel.style.height = "auto";
         _dbgPanel.style.maxHeight = "";
         _dbgPanel.style.overflow = "visible";
         if (minBtn) minBtn.textContent = "▲";
@@ -2173,7 +2270,7 @@
         if (body) body.style.display = "";
         _dbgPanel.style.width = "340px";
         _dbgPanel.style.minWidth = "";
-        _dbgPanel.style.height = "500px";
+        _dbgPanel.style.height = "auto";
         _dbgPanel.style.maxHeight = "90vh";
         _dbgPanel.style.overflow = "hidden";
         if (minBtn) minBtn.textContent = "▼";
@@ -2204,7 +2301,7 @@
         width: "340px", userSelect: "text", lineHeight: "1.5",
         boxShadow: "0 4px 24px rgba(0,0,0,.7)",
         display: "flex", flexDirection: "column",
-        height: "500px", maxHeight: "90vh", overflow: "hidden",
+        height: "auto", maxHeight: "90vh", overflow: "hidden",
       });
       if (_dbgInitLeft) _dbgPanel.style.left = _dbgInitLeft;
 
@@ -2275,7 +2372,10 @@
         `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none">` +
           `<input type="checkbox" id="tcc-dbg-verbose-mo" style="cursor:pointer" ${_dbg.verboseMutations ? "checked" : ""}>` +
           `<span>Verbose MO</span>` +
-        `</label>`;
+        `</label>` +
+        `<span style="flex:1"></span>` +
+        `<button id="tcc-dbg-copy" style="background:rgba(100,160,255,.15);border:1px solid rgba(100,160,255,.3);color:#88bbff;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;font-family:monospace">Copy</button>` +
+        `<button id="tcc-dbg-clear" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff8888;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;font-family:monospace">Clear</button>`;
       bodyWrap.appendChild(verboseDiv);
 
       // ── Console log area ──
@@ -2284,21 +2384,10 @@
       Object.assign(logDiv.style, {
         overflowY: "auto", padding: "4px 6px",
         fontSize: "10px", fontFamily: "monospace",
-        flex: "1", minHeight: "60px",
+        flex: "1", minHeight: "60px", maxHeight: "180px",
         borderBottom: "1px solid rgba(255,255,255,.06)",
       });
       bodyWrap.appendChild(logDiv);
-
-      // ── Footer buttons — always last, always visible ──
-      const footer = document.createElement("div");
-      Object.assign(footer.style, {
-        display: "flex", gap: "5px", padding: "5px 10px 7px",
-        flexShrink: "0",
-      });
-      footer.innerHTML =
-        `<button id="tcc-dbg-copy" style="flex:1;background:rgba(100,160,255,.15);border:1px solid rgba(100,160,255,.3);color:#88bbff;border-radius:4px;padding:3px 0;font-size:10px;cursor:pointer;font-family:monospace">Copy report</button>` +
-        `<button id="tcc-dbg-clear" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff8888;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-family:monospace">Clear</button>`;
-      bodyWrap.appendChild(footer);
       _dbgPanel.appendChild(bodyWrap);
 
       document.body.appendChild(_dbgPanel);
@@ -2735,7 +2824,8 @@
         row.className = "chain-presence-row";
         const isMe = (m.tornId && m.tornId === ownId) || m.name === ownName;
         const ver  = m.version || clientVersionMap.get(uid) || null;
-        row.innerHTML = `<span class="chain-presence-dot"></span><span class="chain-presence-name">${escHtml(m.name)}${isMe?" (you)":""}</span>${versionBadgeHtml(ver)}`;
+        const platTag = m.platform === "TornPDA" ? `<span style="font-size:9px;color:#778;margin-left:3px">[PDA]</span>` : "";
+        row.innerHTML = `<span class="chain-presence-dot"></span><span class="chain-presence-name">${escHtml(m.name)}${isMe?" (you)":""}${platTag}</span>${versionBadgeHtml(ver)}`;
         presenceList.appendChild(row);
       });
     }
@@ -3318,7 +3408,7 @@
         fbRequest({
           method: "PUT", url: lobbyUrl,
           headers: { "Content-Type": "application/json" },
-          data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId||"", lastSeen: Date.now() }),
+          data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId||"", lastSeen: Date.now(), platform: isTornPDA ? "TornPDA" : "Browser" }),
           timeout: 8000,
           onload(r) {
             if (r.status >= 200 && r.status < 300) {
@@ -3766,7 +3856,7 @@
           } catch { syncDot.title="Sync error "+r.status; showErrorBanner("❌ Firebase error "+r.status+": "+r.responseText); }
         }
       },
-      onerror(e)  { setSyncDot("error"); showErrorBanner("❌ Network error reaching Firebase. Check @connect firebaseio.com in script header."); console.warn("[ChainCoord] Firebase PUT network error",e); },
+      onerror(e)  { setSyncDot("error"); showErrorBanner("❌ Network error reaching Firebase. Check @connect firebaseio.com in script header."); console.warn("[ChainCoord] Firebase PUT network error", e && e.status, e && e.statusText); },
       ontimeout(){ setSyncDot("error"); showErrorBanner("❌ Firebase PUT timed out — DB may be unreachable."); console.warn("[ChainCoord] Firebase PUT timeout"); },
     });
   }
@@ -3783,12 +3873,23 @@
 
   function fbGet(url, onData) {
     if (!fbConfigured()) return;
+    if (isTornPDA && TCC_PROXY_URL) {
+      _tccProxy("GET", url, null,
+        (r) => { try { if (r.status >= 200 && r.status < 300) onData(JSON.parse(r.responseText)); } catch(e) { console.warn("[ChainCoord] fbGet proxy parse error", e); } },
+        () => { console.warn("[ChainCoord] fbGet proxy onerror", url.replace(/auth=[^&]+/,"auth=***").slice(0,60)); },
+        () => { console.warn("[ChainCoord] fbGet proxy timeout", url.replace(/auth=[^&]+/,"auth=***").slice(0,60)); },
+        10000
+      );
+      return;
+    }
     _xhrTracked({
       method:"GET", url, timeout:10000,
       onload(r) {
-        try { if(r.status>=200&&r.status<300) onData(JSON.parse(r.responseText)); } catch { /**/ }
+        try { if(r.status>=200&&r.status<300) onData(JSON.parse(r.responseText)); }
+        catch(e) { console.warn("[ChainCoord] fbGet parse error", e, r && r.responseText && r.responseText.slice(0,80)); }
       },
-      onerror(){}, ontimeout(){},
+      onerror()  { console.warn("[ChainCoord] fbGet onerror", url && url.replace(/auth=[^&]+/,"auth=***").slice(0,80)); },
+      ontimeout(){ console.warn("[ChainCoord] fbGet timeout", url && url.replace(/auth=[^&]+/,"auth=***").slice(0,80)); },
     });
   }
 
@@ -3796,6 +3897,7 @@
   //  Firebase anonymous auth
   // ══════════════════════════════════════════════════════════════════════════
   function fbSignInAnon(cb) {
+    let _settled = false;
     _xhrTracked({
       method:"POST",
       url:`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`,
@@ -3803,6 +3905,8 @@
       data:JSON.stringify({returnSecureToken:true}),
       timeout:10000,
       onload(r) {
+        if (_settled) { console.log("[ChainCoord] fbSignInAnon onload ignored (settled)"); return; }
+        _settled = true;
         try {
           const d = JSON.parse(r.responseText);
           if (!d.idToken) {
@@ -3811,20 +3915,28 @@
           }
           if (d.refreshToken) {
             fbRefreshToken = d.refreshToken;
-            // Proactively refresh 5 minutes before the 1-hour expiry
             const expiresIn = parseInt(d.expiresIn || 3600);
             setTimeout(fbRefreshIdToken, (expiresIn - 300) * 1000);
           }
           cb(d.idToken||null, d.localId||null);
         } catch(e) { console.warn("[ChainCoord] Firebase auth parse error",e); cb(null,null); }
       },
-      onerror(e)  { console.warn("[ChainCoord] Firebase auth network error",e); cb(null,null); },
-      ontimeout(){ console.warn("[ChainCoord] Firebase auth timeout"); cb(null,null); },
+      onerror(e)  {
+        if (_settled) { console.log("[ChainCoord] fbSignInAnon onerror ignored (settled)"); return; }
+        _settled = true;
+        console.warn("[ChainCoord] Firebase auth network error",e); cb(null,null);
+      },
+      ontimeout(){
+        if (_settled) return;
+        _settled = true;
+        console.warn("[ChainCoord] Firebase auth timeout"); cb(null,null);
+      },
     });
   }
 
   function fbRefreshIdToken() {
     if (!fbRefreshToken) return;
+    let _settled = false;
     _xhrTracked({
       method:"POST",
       url:`https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`,
@@ -3832,6 +3944,7 @@
       data:JSON.stringify({ grant_type:"refresh_token", refresh_token:fbRefreshToken }),
       timeout:10000,
       onload(r) {
+        if (_settled) return; _settled = true;
         try {
           const d = JSON.parse(r.responseText);
           if (d.id_token) {
@@ -3842,12 +3955,14 @@
             console.log("[ChainCoord] Firebase token refreshed OK");
           } else {
             console.warn("[ChainCoord] Token refresh failed:", r.responseText);
-            // Fall back to full re-auth
             fbSignInAnon((token, uid) => { if (token) fbToken = token; });
           }
         } catch(e) { console.warn("[ChainCoord] Token refresh parse error",e); }
       },
-      onerror()  { console.warn("[ChainCoord] Token refresh network error — will retry"); setTimeout(fbRefreshIdToken, 30000); },
+      onerror()  {
+        if (_settled) return; _settled = true;
+        console.warn("[ChainCoord] Token refresh network error — will retry"); setTimeout(fbRefreshIdToken, 30000);
+      },
       ontimeout(){ console.warn("[ChainCoord] Token refresh timeout — will retry"); setTimeout(fbRefreshIdToken, 30000); },
     });
   }
@@ -3886,7 +4001,8 @@
     if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
     const lobbyUrl = P.lobbyMe();
     if (!lobbyUrl) return;
-    fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() });
+    // TornPDA: lobby write goes through _tccProxy via fbPut → fbRequest
+    if (!isTornPDA) fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now(), platform: isTornPDA ? "TornPDA" : "Browser" });
     // Member record keyed by torn_{tornId} — stable across page loads, no dedup needed.
     // One-time GET at boot to check if a newer-version peer has written a version
     // we should preserve. After this read, _memberVersionToWrite is set and
@@ -3924,10 +4040,11 @@
 
     // Write lobby first — member write is authorized by rules reading lobby.factionId.
     // No nested GET needed — version is cached in _memberVersionToWrite.
+    // TornPDA: fbRequest routes this PUT through _tccProxy automatically.
     fbRequest({
       method: "PUT", url: lobbyUrl,
       headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: now }),
+      data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: now, platform: isTornPDA ? "TornPDA" : "Browser" }),
       timeout: 8000,
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
@@ -4089,6 +4206,34 @@
     if (!factionId || !fbConfigured()) return;
     if (pollInFlight) return;  // skip if previous poll hasn't returned yet
     pollInFlight = true;
+
+    // TornPDA: Firebase GETs have silent callbacks — route through proxy
+    if (isTornPDA && TCC_PROXY_URL) {
+      _tccProxy("GET", P.root(), null,
+        (r) => {
+          pollInFlight = false;
+          if (r && r.status >= 200 && r.status < 300) {
+            try {
+              if (r.responseText === lastPollResponse) { setSyncDot("live"); return; }
+              lastPollResponse = r.responseText;
+              const data = JSON.parse(r.responseText);
+              queuePatch("/", data);
+              if (_dbg.recordPoll) _dbg.recordPoll();
+              setSyncDot("live");
+              showBanner("chain-banner-debug", false);
+            } catch(e) { console.warn("[ChainCoord] Poll parse error", e); }
+          } else {
+            setSyncDot("error");
+            console.warn("[ChainCoord] Poll failed", r && r.status);
+          }
+        },
+        () => { pollInFlight = false; setSyncDot("error"); },
+        () => { pollInFlight = false; setSyncDot("error"); },
+        8000
+      );
+      return;
+    }
+
     _xhrTracked({
       method: "GET",
       url: P.root(),
@@ -5495,20 +5640,13 @@
               // for Data" over "Unclaimed" when ambiguous — false negatives are less
               // confusing than a slot falsely showing as unclaimed for several seconds.
               const gapIsHit = liveChainCount !== null && gap <= liveChainCount + 1;
-              // If Firebase already has a scraped entry for this slot, show its data
-              // instead of "Waiting for Data" — hitNumber tells us which slot it belongs to.
-              const scrapedGap = allDoneBySlot.get(gap);
-              const gapLabel = scrapedGap ? escHtml(scrapedGap.targetName || "—") : (gapIsHit ? "Waiting for Data" : "Unclaimed");
-              const gapClaimer = scrapedGap ? escHtml(scrapedGap.claimedBy || "—") : "—";
-              const gapRowCls = scrapedGap ? "untracked" : (gapIsHit ? "waiting" : "unclaimed");
-              const gapTargetStyle = (!scrapedGap && gapIsHit) ? "color:#445;font-style:italic" : "";
-              const gapTimerText = scrapedGap ? "Done" : (gapIsHit ? "—" : (liveChainSecs !== null ? gapTxt : "—"));
-              const gapTimerCls = scrapedGap ? "done" : (gapIsHit ? "wait" : gapCls);
-              html += `<div class="chain-hit-row ${gapRowCls}${isFirstRow ? " sticky-now" : ""}" data-hit-id="${scrapedGap ? scrapedGap.id : ""}" data-queue-pos="-1">` +
+              const gapLabel = gapIsHit ? "Waiting for Data" : "Unclaimed";
+              const gapRowCls = gapIsHit ? "waiting" : "unclaimed";
+              html += `<div class="chain-hit-row ${gapRowCls}${isFirstRow ? " sticky-now" : ""}" data-hit-id="" data-queue-pos="-1">` +
                 `<span class="chain-hit-num">${gap}</span>` +
-                `<span class="chain-hit-claimer">${scrapedGap ? "✓ " : ""}${gapClaimer}</span>` +
-                `<span class="chain-hit-target" style="${gapTargetStyle}">${gapLabel}</span>` +
-                `<span class="chain-hit-timer ${gapTimerCls}">${gapTimerText}</span>` +
+                `<span class="chain-hit-claimer">—</span>` +
+                `<span class="chain-hit-target" style="${gapIsHit ? "color:#445;font-style:italic" : ""}">${gapLabel}</span>` +
+                `<span class="chain-hit-timer ${gapIsHit ? "wait" : gapCls}">${gapIsHit ? "—" : (liveChainSecs !== null ? gapTxt : "—")}</span>` +
                 `<span></span><span></span></div>`;
             }
           }
@@ -5529,15 +5667,11 @@
         const slotIsHit = nextSlot <= liveChainCount + 1;
         const disp = Math.round(chainTimerMs() / 1000);
         const t = liveChainSecs !== null ? `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}` : "—";
-        // Check if Firebase has a scraped entry for this slot
-        const scrapedSlot = allDoneBySlot.get(nextSlot);
-        const slotLabel = scrapedSlot ? escHtml(scrapedSlot.targetName || "—") : (slotIsHit ? "Waiting for Data" : "Unclaimed");
-        const slotClaimer = scrapedSlot ? ("✓ " + escHtml(scrapedSlot.claimedBy || "—")) : "—";
-        const slotRowCls = scrapedSlot ? "untracked" : (slotIsHit ? "waiting" : "unclaimed");
-        const slotTargetStyle = (!scrapedSlot && slotIsHit) ? "color:#445;font-style:italic" : "";
-        const slotTimer = scrapedSlot ? "Done" : (slotIsHit ? "—" : t);
-        const slotTimerCls = scrapedSlot ? "done" : (slotIsHit ? "wait" : (disp<=30?"due":disp<=90?"soon":"wait"));
-        html += `<div class="chain-hit-row ${slotRowCls} sticky-now"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">${slotClaimer}</span><span class="chain-hit-target" style="${slotTargetStyle}">${slotLabel}</span><span class="chain-hit-timer ${slotTimerCls}">${slotTimer}</span><span></span><span></span></div>`;
+        const slotLabel = slotIsHit ? "Waiting for Data" : "Unclaimed";
+        const slotRowCls = slotIsHit ? "waiting" : "unclaimed";
+        const slotTimer = slotIsHit ? "—" : t;
+        const slotTimerCls = slotIsHit ? "wait" : (disp<=30?"due":disp<=90?"soon":"wait");
+        html += `<div class="chain-hit-row ${slotRowCls} sticky-now"><span class="chain-hit-num">${nextSlot}</span><span class="chain-hit-claimer">—</span><span class="chain-hit-target" style="${slotIsHit ? "color:#445;font-style:italic" : ""}">${slotLabel}</span><span class="chain-hit-timer ${slotTimerCls}">${slotTimer}</span><span></span><span></span></div>`;
       }
 
       const prevScroll = inner.scrollTop;
@@ -6404,7 +6538,7 @@
             fbRequest({
               method:"PUT", url: lobbyBootstrapUrl,
               headers:{"Content-Type":"application/json"},
-              data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() }),
+              data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now(), platform: isTornPDA ? "TornPDA" : "Browser" }),
               timeout:10000,
               onload(r) {
                 if (r.status>=200 && r.status<300) {
@@ -6435,11 +6569,11 @@
                   showBanner("chain-banner-status", false); _clearConnectWatchdog();
                   let msg = r.responseText;
                   try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
-                  showBanner("chain-banner-debug", true, "❌ Lobby check-in failed "+r.status+": "+msg+" | url: "+lobbyBootstrapUrl.replace(/auth=[^&]+/,"auth=***"));
+                  showBanner("chain-banner-debug", true, "❌ Lobby check-in failed "+r.status+": "+msg);
                   console.warn("[ChainCoord] Lobby check-in failed", r.status, r.responseText);
                 }
               },
-              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-status", false); _clearConnectWatchdog(); showBanner("chain-banner-debug", true, "❌ Lobby check-in network error — check @connect firebaseio.com"); },
+              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-status", false); _clearConnectWatchdog(); showBanner("chain-banner-debug", true, "❌ Lobby check-in network error | err=" + JSON.stringify(e||{})); },
               ontimeout() { setSyncDot("error"); showBanner("chain-banner-status", false); _clearConnectWatchdog(); showBanner("chain-banner-debug", true, "❌ Lobby check-in timed out"); },
             });
 
@@ -6464,9 +6598,6 @@
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
   // CURRENT_VERSION is declared at the top of the IIFE (needed for panel HTML template).
-  const SCRIPT_RAW_URL  = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
-  const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
-
   function checkForUpdate() {
     _xhrTracked({
       method: "GET",
@@ -6585,6 +6716,12 @@
   }
 
   renderPanel();
+  console.log(`[ChainCoord] Boot: isTornPDA=${isTornPDA}, hasKey=${!!tornApiKey}, ua=${_ua}`);
+  if (isTornPDA && !tornApiKey) {
+    // On TornPDA, GM storage is wiped on each paste-install. Show a clearer prompt.
+    const noKeyBanner = document.getElementById("chain-banner-nokey");
+    if (noKeyBanner) noKeyBanner.textContent = "⚠ No API key — tap the API button to enter your key (TornPDA: key must be re-entered after each script update).";
+  }
   fetchOwnProfile();
   if (!isTornPDA) injectTargetButtons();
   updateVersionUI();   // set initial badge state before Firebase connects
