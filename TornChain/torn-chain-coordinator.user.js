@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.3.0
+// @version      5.4.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -226,7 +226,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.3.0";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "5.4.0";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -346,6 +346,26 @@
   let settMiniShowCount  = _gmGet(SK_MINI_SHOW_COUNT,  true);
   let settAutoExpandDue  = _gmGet(SK_AUTO_EXPAND_DUE,  false);
   let settDebugConsole   = _gmGet(SK_DEBUG_CONSOLE,    false);
+
+  // Boot-time resync: force-write all settings back to both GM and localStorage.
+  // On Opera GX with Violentmonkey, paste-installing creates a new UUID namespace
+  // so GM storage appears empty on page load. The localStorage mirror catches this,
+  // but only if the previous session wrote to the same LS key. By re-writing every
+  // setting on every boot we ensure both stores are fresh regardless of which one
+  // was authoritative this load — so the *next* navigation always has a valid fallback.
+  (function _resyncSettings() {
+    _gmSet(SK_SHOW_DONE_HITS,   settShowDoneHits);
+    _gmSet(SK_COMPACT_MODE,     settCompactMode);
+    _gmSet(SK_NOTIFY_SOUND,     settNotifySound);
+    _gmSet(SK_TIMER_FUDGE_USR,  settTimerFudge);
+    _gmSet(SK_PANEL_OPACITY,    settPanelOpacity);
+    _gmSet(SK_WARN_THRESHOLD,   settWarnThreshold);
+    _gmSet(SK_DANGER_THRESHOLD, settDangerThreshold);
+    _gmSet(SK_SHOW_BONUS_ALERT, settShowBonusAlert);
+    _gmSet(SK_MINI_SHOW_COUNT,  settMiniShowCount);
+    _gmSet(SK_AUTO_EXPAND_DUE,  settAutoExpandDue);
+    _gmSet(SK_DEBUG_CONSOLE,    settDebugConsole);
+  })();
   // Notification sound (AudioContext, created lazily)
   let _notifyAudioCtx    = null;
   function playDueSound() {
@@ -419,7 +439,10 @@
   const _bootGraceUntil = Date.now() + 10000;
   let lastAttackId         = null;  // highest attack id seen — used for incremental polling
   let attackPollInterval   = null;  // handle for pollFactionAttacks interval
+  let _hospRecheckInterval = null;  // handle for periodic hospital status re-poll
   let hasLimitedKey        = null;  // null=unknown, true=confirmed, false=insufficient
+  let _attackBackoffSkips  = 0;     // polls to skip after error 5 (too many requests)
+  let _attackBackoffLevel  = 0;     // exponential level — resets after successful poll
 
   // Session is restored from Firebase on first poll — do not restore from
   // GM storage as stale chainStartTime causes the scraper to accept hits
@@ -3972,6 +3995,7 @@
     if (versionPollInterval)  { clearInterval(versionPollInterval);  versionPollInterval  = null; }
     if (ownerCleanupInterval) { clearInterval(ownerCleanupInterval); ownerCleanupInterval = null; }
     if (ssePollInterval)      { clearInterval(ssePollInterval);      ssePollInterval      = null; }
+    if (_hospRecheckInterval) { clearInterval(_hospRecheckInterval); _hospRecheckInterval = null; }
     // Disconnect DOM timer observer — re-attaches when setupTimerObserver retry fires
     if (chainTimerObserver)   { chainTimerObserver.disconnect();     chainTimerObserver   = null; }
     if (timerRetryInterval)   { clearInterval(timerRetryInterval);   timerRetryInterval   = null; }
@@ -4643,9 +4667,21 @@
     // ── Cooldown detection ──────────────────────────────────────────────────
     // cooldown is non-zero when a confirmed chain (≥10 hits) has ended and is
     // in its cooldown window. We show the icy blue banner during this period.
+    // The Torn API documents cooldown as "seconds remaining" but in practice
+    // returns a Unix epoch timestamp. Detect epoch values (> 1 year in seconds)
+    // and convert to a remaining-seconds duration.
     if (newCooldown > 0) {
-      chainCooldownSecs   = newCooldown;
-      chainCooldownReadAt = performance.now();
+      const EPOCH_THRESHOLD = 86400 * 365; // > 1yr of seconds must be an epoch
+      const cooldownRemaining = newCooldown > EPOCH_THRESHOLD
+        ? Math.max(0, newCooldown - Math.floor(Date.now() / 1000))
+        : newCooldown;
+      if (cooldownRemaining > 0) {
+        chainCooldownSecs   = cooldownRemaining;
+        chainCooldownReadAt = performance.now();
+      } else {
+        chainCooldownSecs   = null;
+        chainCooldownReadAt = null;
+      }
     } else if (chainCooldownSecs !== null && newCooldown === 0) {
       // Cooldown just finished
       chainCooldownSecs   = null;
@@ -4736,18 +4772,39 @@
     // apiTimerSecs is NEVER used for display — it is coarse and causes jumps.
     const hasDomTimer = liveChainSecs !== null && lastTimerReadAt !== null;
 
-    // Determine if cooldown is active before deciding pill state
-    const isCoolingDown = chainCooldownSecs !== null && chainCooldownReadAt !== null &&
-      Math.max(0, Math.round(chainCooldownSecs - (performance.now() - chainCooldownReadAt) / 1000)) > 0;
+    // Compute cooldown remaining once — used throughout this function.
+    // Exposed as module-level getter so renderHitList and handleTargetClaim
+    // can query cooldown state without duplicating the math.
+    const cooldownRemaining = (chainCooldownSecs !== null && chainCooldownReadAt !== null)
+      ? Math.max(0, Math.round(chainCooldownSecs - (performance.now() - chainCooldownReadAt) / 1000))
+      : 0;
+    const isCoolingDown = cooldownRemaining > 0;
+
+    // ── Cooldown takes full priority — suppress timer, count badge, warming msg ──
+    // Chain is finished; there is no "next hit". Show only the cooling banner.
+    if (isCoolingDown) {
+      // Full-panel timer area
+      chainTimerVal.textContent = "—"; chainTimerVal.className = "ct-none";
+      // Count badge + warming msg — hide both
+      chainCountBadge.className = "none"; warmingMsg.style.display = "none";
+      // Mini pill — show cooldown text, no count
+      pillTimer.textContent = "Cooling down"; pillTimer.className = "ct-cool";
+      if (pillCount) pillCount.textContent = "";
+      // Cooling banner with live countdown
+      const mm = Math.floor(cooldownRemaining / 60);
+      const ss = String(cooldownRemaining % 60).padStart(2, "0");
+      if (cooldownTimer) cooldownTimer.textContent = `${mm}:${ss}`;
+      coolingMsg.style.display = "";
+      return;
+    }
+
+    // ── Normal chain-active / no-chain display ─────────────────────────────
+    coolingMsg.style.display = "none";
 
     if (!hasDomTimer) {
       chainTimerVal.textContent="—"; chainTimerVal.className="ct-none";
       chainCountBadge.className="none"; warmingMsg.style.display="none";
-      if (isCoolingDown) {
-        pillTimer.textContent="Cooling down"; pillTimer.className="ct-cool";
-      } else {
-        pillTimer.textContent="No Chain"; pillTimer.className="ct-none";
-      }
+      pillTimer.textContent="No Chain"; pillTimer.className="ct-none";
       if (pillCount) pillCount.textContent = "";
     } else {
       const ms   = chainTimerMs();
@@ -4770,23 +4827,13 @@
       chainCountBadge.className="none"; warmingMsg.style.display="none";
       if (pillCount) pillCount.textContent = "";
     }
+  }
 
-    // ── Cooldown banner ────────────────────────────────────────────────────
-    if (chainCooldownSecs !== null && chainCooldownReadAt !== null) {
-      const elapsed = (performance.now() - chainCooldownReadAt) / 1000;
-      const remaining = Math.max(0, Math.round(chainCooldownSecs - elapsed));
-      if (remaining > 0) {
-        const mm = Math.floor(remaining / 60);
-        const ss = String(remaining % 60).padStart(2, "0");
-        if (cooldownTimer) cooldownTimer.textContent = `${mm}:${ss}`;
-        coolingMsg.style.display = "";
-      } else {
-        // Cooldown expired locally — hide until next API poll confirms
-        coolingMsg.style.display = "none";
-      }
-    } else {
-      coolingMsg.style.display = "none";
-    }
+  // Returns true if the chain is currently in its post-completion cooldown window.
+  // Used by renderHitList and handleTargetClaim to suppress queue interactions.
+  function isChainCoolingDown() {
+    if (chainCooldownSecs === null || chainCooldownReadAt === null) return false;
+    return Math.max(0, chainCooldownSecs - (performance.now() - chainCooldownReadAt) / 1000) > 0;
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -4812,6 +4859,11 @@
       hasLimitedKey = false;
       showBanner("chain-banner-limitedkey", true);
       if (attackPollInterval) { clearInterval(attackPollInterval); attackPollInterval = null; }
+    } else if (errCode === 5) {
+      // Too many requests — exponential backoff: skip 2^level polls (max 8 = ~56s)
+      _attackBackoffLevel = Math.min(_attackBackoffLevel + 1, 3);
+      _attackBackoffSkips = Math.pow(2, _attackBackoffLevel); // 2, 4, or 8 skipped polls
+      console.warn("[ChainCoord] pollFactionAttacks error 5 — backing off for", _attackBackoffSkips, "polls (~" + (_attackBackoffSkips * 7) + "s)");
     } else {
       console.warn("[ChainCoord] pollFactionAttacks error:", errCode, d.error.error || "");
     }
@@ -4820,6 +4872,8 @@
   function pollFactionAttacks() {
     if (!tornApiKey || !factionId || !chainStartTime) return;
     if (_attackPollInFlight) return;  // don't stack concurrent paginated polls
+    // Backoff: skip this poll tick if we're in a rate-limit cooldown
+    if (_attackBackoffSkips > 0) { _attackBackoffSkips--; return; }
 
     // Incremental: if we've already fetched up to some point in this session,
     // only fetch attacks newer than that cursor. This keeps ongoing polls cheap.
@@ -4860,6 +4914,7 @@
             showBanner("chain-banner-limitedkey", false);
           }
           hasLimitedKey = true;
+          _attackBackoffLevel = 0; // successful poll — reset backoff
 
           const attacks = d.attacks || [];
           if (!attacks.length || !chainStartTime) {
@@ -5239,8 +5294,14 @@
     pillBadge.classList.toggle("visible", pendingHits.length > 0);
     if (iconBadge) { iconBadge.textContent = pendingHits.length; iconBadge.classList.toggle("visible", pendingHits.length > 0); }
     if (pillNext) {
+      // During cooldown the chain is finished — no next hit exists.
+      if (isChainCoolingDown()) {
+        pillNext.textContent = "—";
+        pillNext.style.color = "#7ecfff";
+        pillNext.dataset.attackUrl = "";
+        if (pillSep) pillSep.style.display = "none";
       // liveChainCount = hits already completed. The next hit needed = liveChainCount + 1.
-      if (liveChainCount !== null) {
+      } else if (liveChainCount !== null) {
         // Chain count known — find the pending hit for the next slot
         const nextSlot = liveChainCount + 1;
         const nextUp = pendingHits.find(h => (h.chainHitNum || h.hitNumber) === nextSlot)
@@ -5659,12 +5720,73 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
+  //  Hospital status re-poll
+  //  Runs every 30s. Re-fetches user/basic for each pending hit that has a
+  //  hospReleaseAt set (target was in hospital when queued). Updates the stored
+  //  hospReleaseAt and writes the corrected scheduledAt back to Firebase.
+  //  Also picks up targets that got hospitalized AFTER being queued (hospReleaseAt
+  //  was null at claim time but target is now in hospital).
+  // ══════════════════════════════════════════════════════════════════════════
+  function recheckHospTargets() {
+    if (!tornApiKey || !chainSessionId) return;
+    const toCheck = [...hitMap.values()].filter(h =>
+      h.status === "pending" && h.targetId && h.sessionId === chainSessionId
+    );
+    if (!toCheck.length) return;
+
+    // Stagger requests 500ms apart to avoid hammering the rate limit
+    toCheck.forEach((hit, i) => {
+      setTimeout(() => {
+        if (!hitMap.has(hit.id)) return; // hit was deleted while we waited
+        _xhrTracked({
+          method: "GET",
+          url: `https://api.torn.com/user/${encodeURIComponent(hit.targetId)}?selections=basic&key=${encodeURIComponent(tornApiKey)}`,
+          timeout: 10000,
+          onload(r) {
+            try {
+              const d = JSON.parse(r.responseText);
+              if (!d || d.error) return;
+              const h = hitMap.get(hit.id);
+              if (!h || h.status !== "pending") return;
+
+              const state = (d.status?.state || "").toLowerCase();
+              const hospTs = d.status?.until || 0;
+              const isInHosp = state === "hospital" && hospTs > 0;
+              const newHospMs = isInHosp ? hospTs * 1000 : 0;
+              const oldHospMs = h.hospReleaseAt || 0;
+
+              // Only update if hospital status has actually changed
+              if (newHospMs === oldHospMs) return;
+
+              h.hospReleaseAt = newHospMs || null;
+              // Recalculate scheduledAt: if still in hosp, push slot out to hosp release
+              if (newHospMs > 0 && newHospMs > h.scheduledAt) {
+                h.scheduledAt = newHospMs;
+              } else if (!newHospMs && oldHospMs > 0) {
+                // Target left hospital early — pull slot back to now if it was hosp-extended
+                h.scheduledAt = Math.max(Date.now(), h.scheduledAt - (oldHospMs - newHospMs));
+              }
+              hitMap.set(hit.id, h);
+              fbWriteHit(h);
+              reNumberPending();
+              scheduleRender();
+            } catch(_) {}
+          },
+          onerror()  {},
+          ontimeout() {},
+        });
+      }, i * 500);
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   //  Target claim handler
   // ══════════════════════════════════════════════════════════════════════════
   function handleTargetClaim(btn, targetId, targetName, attackUrl) {
     if (!tornApiKey)    { alert("Click the API button to set your Torn API key first."); return; }
     if (!factionId)     { alert("Could not detect your faction — make sure your API key is set."); return; }
     if (!fbConfigured()){ alert("Firebase is not configured yet — see FIREBASE_SETUP.md."); return; }
+    if (isChainCoolingDown()) { alert("Chain is cooling down — queueing is disabled until the next chain starts."); return; }
 
     const already = [...hitMap.values()].find(h=>h.status==="pending"&&h.targetId===targetId);
     if (already) { alert(`${targetName} is already queued as hit #${already.hitNumber}.`); return; }
@@ -6247,6 +6369,7 @@
                         pollFactionChain();
                         if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_MS);
                         if (!attackPollInterval)  attackPollInterval  = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
+                        if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 30000);
                         // clearAllIntervals() killed the timer observer loop; restart it now.
                         if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
                         if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
