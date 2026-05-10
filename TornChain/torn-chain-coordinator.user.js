@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.4.3
+// @version      5.4.4
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -27,6 +27,7 @@
 // @connect      firebaseio.com
 // @connect      googleapis.com
 // @connect      securetoken.googleapis.com
+// @connect      identitytoolkit.googleapis.com
 // @connect      raw.githubusercontent.com
 // @updateURL    https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js
 // @downloadURL  https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js
@@ -35,6 +36,40 @@
 
 (function () {
   "use strict";
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  DEFENSIVE CODING RULES — READ BEFORE ADDING ANY NEW FEATURE
+  //
+  //  These rules exist because Opera GX / Violentmonkey has caused silent
+  //  script-killing failures that were extremely hard to diagnose. One uncaught
+  //  exception in any synchronous IIFE or module-level block kills ALL code
+  //  that follows — including fetchOwnProfile() and Firebase init.
+  //
+  //  1. ALWAYS wrap browser-API access in try/catch at module level.
+  //     Affected APIs: console patching, localStorage, MutationObserver,
+  //     requestAnimationFrame, navigator.*, document.*, window.*
+  //     Example: console.log = fn  →  throws on Opera (frozen native object)
+  //     Fix that killed the whole script: _patchConsole had no try/catch (v5.4.2→v5.4.3)
+  //
+  //  2. NEVER call .click() on display:none elements programmatically.
+  //     Opera/Violentmonkey silently drops programmatic clicks on hidden elements.
+  //     Always call the target function directly instead.
+  //     Example: bugBtn.click() → use openBugTracker() directly
+  //
+  //  3. ALWAYS use wireCheckbox() for checkbox event listeners, never bare 'change'.
+  //     Opera does not reliably fire 'change' on injected panel checkboxes.
+  //     wireCheckbox() covers change + click + label click with setTimeout(0).
+  //
+  //  4. NEVER nest GM_xmlhttpRequest calls beyond what 4.9.10 already did.
+  //     Deeply nested XHR callbacks can be silently dropped on some Opera builds.
+  //     The removed read-back GET (v5.4.2) was an example of this.
+  //
+  //  5. Any new IIFE at module level MUST be wrapped in try/catch if it touches
+  //     browser APIs that could be frozen, sealed, or restricted in a sandbox.
+  //
+  //  6. Test with Opera GX + Violentmonkey after any non-trivial change.
+  //     Firefox + Tampermonkey is more permissive and will not catch these issues.
+  // ══════════════════════════════════════════════════════════════════════════
 
   // ── Singleton guard ───────────────────────────────────────────────────────
   // Prevents a second panel from spawning if two versions of the script are
@@ -217,6 +252,22 @@
     GM_xmlhttpRequest(wrapped);
   }
 
+  // TornPDA's GM_xmlhttpRequest bridge only supports GET and POST — PUT and DELETE
+  // cause an immediate network error. Firebase REST supports x-http-method-override
+  // to work around this. On all other platforms, this is a transparent pass-through.
+  function fbRequest(details) {
+    const method = (details.method || "GET").toUpperCase();
+    if (isTornPDA && (method === "PUT" || method === "DELETE")) {
+      const sep = details.url.includes("?") ? "&" : "?";
+      return _xhrTracked(Object.assign({}, details, {
+        method: "POST",
+        url: details.url + sep + "x-http-method-override=" + method,
+        headers: Object.assign({ "Content-Type": "application/json" }, details.headers || {}),
+      }));
+    }
+    return _xhrTracked(details);
+  }
+
 
   // ╔══════════════════════════════════════════════════════════════════════════╗
   // ║  CONFIG                                                                  ║
@@ -226,7 +277,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.4.3";
+  const CURRENT_VERSION  = "5.4.4";
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -2950,7 +3001,7 @@
 
     function doSubmit(token) {
       const url = `${FIREBASE_DB_URL}/bugs/${bugId}.json${token ? "?auth="+token : ""}`;
-      _xhrTracked({
+      fbRequest({
         method: "PUT", url,
         headers: { "Content-Type": "application/json" },
         data: JSON.stringify(report),
@@ -3045,7 +3096,7 @@
                   const entryId = btn.dataset.entryId;
                   if (!entryId || !fbToken) return;
                   const url = `${FIREBASE_DB_URL}/bugTracker/${entryId}.json?auth=${fbToken}`;
-                  _xhrTracked({
+                  fbRequest({
                     method: "DELETE", url, timeout: 8000,
                     onload(r) {
                       if (r.status >= 200 && r.status < 300) {
@@ -3092,7 +3143,7 @@
     // rules change — /bugTracker write requires tornId === '2348580' server-side.
     const sentinelKey = `_ownerProbe_${fbUid}`;
     const sentinelUrl = `${FIREBASE_DB_URL}/bugTracker/${sentinelKey}.json?auth=${fbToken}`;
-    _xhrTracked({
+    fbRequest({
       method: "PUT", url: sentinelUrl,
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify(1),
@@ -3100,7 +3151,7 @@
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
           // Confirmed owner — clean up sentinel immediately
-          _xhrTracked({ method: "DELETE", url: sentinelUrl, timeout: 5000,
+          fbRequest({ method: "DELETE", url: sentinelUrl, timeout: 5000,
             onload(){}, onerror(){}, ontimeout(){} });
           ownerProbeResult = true;
           isOwner = true;
@@ -3264,7 +3315,7 @@
         }
         ensureLobbyThenLoad._retries = 0;
         const lobbyUrl = `${FIREBASE_DB_URL}/lobby/${uid}.json?auth=${token}`;
-        _xhrTracked({
+        fbRequest({
           method: "PUT", url: lobbyUrl,
           headers: { "Content-Type": "application/json" },
           data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId||"", lastSeen: Date.now() }),
@@ -3696,7 +3747,7 @@
   function fbPut(url, data, onDone) {
     if (!fbConfigured()) return;
     setSyncDot("syncing");
-    _xhrTracked({
+    fbRequest({
       method:"PUT", url,
       headers:{"Content-Type":"application/json"},
       data: data===null ? "null" : JSON.stringify(data),
@@ -3722,7 +3773,7 @@
 
   function fbDelete(url, onDone) {
     if (!fbConfigured()) return;
-    _xhrTracked({
+    fbRequest({
       method:"DELETE", url,
       timeout:10000,
       onload(r) { if(r.status>=200&&r.status<300&&onDone)onDone(); },
@@ -3873,7 +3924,7 @@
 
     // Write lobby first — member write is authorized by rules reading lobby.factionId.
     // No nested GET needed — version is cached in _memberVersionToWrite.
-    _xhrTracked({
+    fbRequest({
       method: "PUT", url: lobbyUrl,
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: now }),
@@ -6339,7 +6390,7 @@
 
             const lobbyBootstrapUrl = P.lobbyMe();
             showBanner("chain-banner-status", true, "Connecting…");
-            _xhrTracked({
+            fbRequest({
               method:"PUT", url: lobbyBootstrapUrl,
               headers:{"Content-Type":"application/json"},
               data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now() }),
@@ -6423,7 +6474,7 @@
         if (fbConfigured() && fbUid && isOwner) {
           const lvUrl = P.latestVersion();
           if (lvUrl) {
-            _xhrTracked({
+            fbRequest({
               method: "PUT", url: lvUrl,
               headers: { "Content-Type": "application/json" },
               data: JSON.stringify({ version: latest, updatedAt: Date.now() }),
