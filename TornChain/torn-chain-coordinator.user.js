@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.4.2
+// @version      5.4.3
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -226,7 +226,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.3.0";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "5.4.3";
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -1882,7 +1882,7 @@
     const _gWire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
     _gWire("chain-gmenu-bug", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
-      const bb = document.getElementById("chain-bug-btn"); if (bb) bb.click();
+      closeAllPopovers(); closeBugPopovers(); openBugTracker();
     });
     _gWire("chain-gmenu-whitelist", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
@@ -1957,23 +1957,30 @@
 
     // ── Console interception ──
     // Patch console.log/warn/error once so all TCC output is captured in _dbgConsoleLogs.
+    // MUST be wrapped in try/catch: on Opera/Violentmonkey console is a frozen native
+    // object. Assigning console.log = fn throws TypeError, which without this catch
+    // would escape wireSettings() and kill all subsequent module-level code including
+    // fetchOwnProfile() — leaving Firebase permanently disconnected.
     (function _patchConsole() {
-      ["log","warn","error"].forEach(level => {
-        const orig = console[level].bind(console);
-        console[level] = function(...args) {
-          orig(...args);
-          // Only capture messages that look TCC-related, or capture all — your call.
-          // Capturing all is more useful for diagnosing silent failures.
-          const msg = args.map(a => {
-            if (a instanceof Error) return a.message + (a.stack ? "\n" + a.stack.split("\n").slice(1,3).join("\n") : "");
-            try { return (typeof a === "object" && a !== null) ? JSON.stringify(a) : String(a); }
-            catch(_) { return String(a); }
-          }).join(" ");
-          _dbgConsoleLogs.push({ time: new Date().toLocaleTimeString(), level, msg });
-          if (_dbgConsoleLogs.length > DBG_LOG_MAX) _dbgConsoleLogs.shift();
-          if (_dbgPanel) _dbgRender();
-        };
-      });
+      try {
+        ["log","warn","error"].forEach(level => {
+          const orig = console[level].bind(console);
+          console[level] = function(...args) {
+            orig(...args);
+            const msg = args.map(a => {
+              if (a instanceof Error) return a.message + (a.stack ? "\n" + a.stack.split("\n").slice(1,3).join("\n") : "");
+              try { return (typeof a === "object" && a !== null) ? JSON.stringify(a) : String(a); }
+              catch(_) { return String(a); }
+            }).join(" ");
+            _dbgConsoleLogs.push({ time: new Date().toLocaleTimeString(), level, msg });
+            if (_dbgConsoleLogs.length > DBG_LOG_MAX) _dbgConsoleLogs.shift();
+            if (_dbgPanel) _dbgRender();
+          };
+        });
+      } catch(_) {
+        // Console is frozen (Opera/Violentmonkey) — skip patching, debug console
+        // log capture won't work but everything else functions normally.
+      }
     })();
 
     function _dbgRafLoop(now) {
@@ -2419,53 +2426,39 @@
       applyDebugConsole(settDebugConsole);
     }
 
+    // wireCheckbox: confirmed fix from 4.9.10-opera-debug build.
+    // Fires on change, click, and label-click — covers all browser paths.
+    function wireCheckbox(id, fn) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("change", () => fn(el.checked));
+      el.addEventListener("click",  () => setTimeout(() => fn(el.checked), 0));
+      const lbl = el.closest("label");
+      if (lbl) lbl.addEventListener("click", () => setTimeout(() => fn(el.checked), 0));
+    }
+
     // Toggle handlers
-    document.getElementById("sett-show-done")?.addEventListener("change", e => {
-      settShowDoneHits = e.target.checked; _gmSet(SK_SHOW_DONE_HITS, settShowDoneHits);
-      scheduleRender();
+    wireCheckbox("sett-show-done", v => {
+      settShowDoneHits = v; _gmSet(SK_SHOW_DONE_HITS, v); scheduleRender();
     });
-    document.getElementById("sett-compact")?.addEventListener("change", e => {
-      settCompactMode = e.target.checked; _gmSet(SK_COMPACT_MODE, settCompactMode);
-      applyCompactMode(settCompactMode);
+    wireCheckbox("sett-compact", v => {
+      settCompactMode = v; _gmSet(SK_COMPACT_MODE, v); applyCompactMode(v);
     });
-    document.getElementById("sett-bonus-alert")?.addEventListener("change", e => {
-      settShowBonusAlert = e.target.checked; _gmSet(SK_SHOW_BONUS_ALERT, settShowBonusAlert);
-      scheduleRender();
+    wireCheckbox("sett-bonus-alert", v => {
+      settShowBonusAlert = v; _gmSet(SK_SHOW_BONUS_ALERT, v); scheduleRender();
     });
-    document.getElementById("sett-mini-count")?.addEventListener("change", e => {
-      settMiniShowCount = e.target.checked; _gmSet(SK_MINI_SHOW_COUNT, settMiniShowCount);
-      applyMiniCountVisibility(settMiniShowCount);
+    wireCheckbox("sett-mini-count", v => {
+      settMiniShowCount = v; _gmSet(SK_MINI_SHOW_COUNT, v); applyMiniCountVisibility(v);
     });
-    document.getElementById("sett-sound")?.addEventListener("change", e => {
-      settNotifySound = e.target.checked; _gmSet(SK_NOTIFY_SOUND, settNotifySound);
-      if (settNotifySound) playDueSound();  // preview sound on enable
+    wireCheckbox("sett-sound", v => {
+      settNotifySound = v; _gmSet(SK_NOTIFY_SOUND, v); if (v) playDueSound();
     });
-    document.getElementById("sett-auto-expand")?.addEventListener("change", e => {
-      settAutoExpandDue = e.target.checked; _gmSet(SK_AUTO_EXPAND_DUE, settAutoExpandDue);
+    wireCheckbox("sett-auto-expand", v => {
+      settAutoExpandDue = v; _gmSet(SK_AUTO_EXPAND_DUE, v);
     });
-    // Debug console toggle: wire both 'change' (standard) and a click on the
-    // label row as a fallback. Opera/Violentmonkey sometimes swallows 'change'
-    // on checkboxes inside injected panels. Reading checked state after a
-    // setTimeout(0) ensures the browser has committed the visual toggle first.
-    (function wireDebugConsoleToggle() {
-      const sdcInput = document.getElementById("sett-debug-console");
-      const sdcLabel = sdcInput && sdcInput.closest("label");
-      function applyFromCheckbox() {
-        if (!sdcInput) return;
-        settDebugConsole = sdcInput.checked;
-        _gmSet(SK_DEBUG_CONSOLE, settDebugConsole);
-        applyDebugConsole(settDebugConsole);
-      }
-      if (sdcInput) {
-        sdcInput.addEventListener("change", applyFromCheckbox);
-        // Belt-and-suspenders: also fire on click with a tick delay so
-        // the checked state is settled before we read it.
-        sdcInput.addEventListener("click", () => setTimeout(applyFromCheckbox, 0));
-      }
-      if (sdcLabel) {
-        sdcLabel.addEventListener("click", () => setTimeout(applyFromCheckbox, 0));
-      }
-    })();
+    wireCheckbox("sett-debug-console", v => {
+      settDebugConsole = v; _gmSet(SK_DEBUG_CONSOLE, v); applyDebugConsole(v);
+    });
 
     // Slider handlers
     document.getElementById("sett-opacity")?.addEventListener("input", e => {
@@ -6304,13 +6297,11 @@
 
   function fetchOwnProfile() {
     if (!tornApiKey) { showBanner("chain-banner-nokey",true); return; }
-    // Clear any existing intervals before re-running boot — prevents accumulation
-    // when fetchOwnProfile is called again (e.g. after API key save or token refresh).
     clearAllIntervals();
-    lastPollResponse = null;  // force a fresh applyPatch on next poll
+    lastPollResponse = null;
     showBanner("chain-banner-nokey",false);
     showBanner("chain-banner-status",true,"Connecting…");
-    _startConnectWatchdog();  // safety-net: clears banner if connection hangs silently
+    _startConnectWatchdog();
 
     _xhrTracked({
       method:"GET",
@@ -6324,10 +6315,7 @@
           ownId       = String(data.player_id||"");
           factionId   = data.faction?.faction_id ? String(data.faction.faction_id) : null;
           factionName = data.faction?.faction_name||"";
-          // isOwner is determined by a Firebase probe read after auth — not client-side.
-          // whitelistBtn is a hidden proxy; gear menu visibility is handled in updateClearBtn()
           updateApiBtn();
-          // Keep "Connecting…" banner up — lobby check-in will dismiss it.
 
           if(!factionId||factionId==="0"){showBanner("chain-banner-nofact",true);return;}
           showBanner("chain-banner-nofact",false);
@@ -6336,10 +6324,6 @@
           showBanner("chain-banner-nofb",false);
 
           fetchFactionBasic();
-
-          // Poll chain immediately so the timer appears without waiting for the
-          // full Firebase lobby round-trip.  Safe to fire before fbToken exists —
-          // pollFactionChain only needs tornApiKey + factionId (both set above).
           pollFactionChain();
 
           fbSignInAnon((token,uid)=>{
@@ -6347,21 +6331,13 @@
             fbUid   = uid;
 
             if (!token || !uid) {
-              // FIX E: Clear the generic "Connecting…" banner so it doesn't hang
-              // forever when Firebase auth can't complete (e.g. on TornPDA where
-              // googleapis.com may be unreachable from the WebView sandbox).
               showBanner("chain-banner-status", false); _clearConnectWatchdog();
               const pdaNote = isTornPDA ? " (TornPDA: Firebase auth may be blocked — check @connect in script header)" : "";
               showBanner("chain-banner-debug", true, "⚠ Firebase auth failed — anonymous sign-in returned no token." + pdaNote);
               return;
             }
 
-            // Write to /lobby/{fbUid} — auth.uid === $uid always passes, no chicken-and-egg.
-            // fbUid is the only key Firebase rules can reliably look up via auth.uid.
-            // Old fbUid entries from previous sessions are cleaned up by fbCleanOwnLobbyEntries.
             const lobbyBootstrapUrl = P.lobbyMe();
-            // Lobby check-in runs silently — keep the "Connecting…" status banner visible
-            // (already shown by fetchOwnProfile) and only surface debug info on error.
             showBanner("chain-banner-status", true, "Connecting…");
             _xhrTracked({
               method:"PUT", url: lobbyBootstrapUrl,
@@ -6371,9 +6347,6 @@
               onload(r) {
                 if (r.status>=200 && r.status<300) {
                   setSyncDot("live");
-                  // Proceed immediately — the PUT success is sufficient confirmation.
-                  // The previous read-back GET was causing silent failures on Opera/Violentmonkey
-                  // where nested GM_xmlhttpRequest calls from within onload callbacks are dropped.
                   showBanner("chain-banner-status", false); _clearConnectWatchdog();
                   fbCleanOwnLobbyEntries();
                   fbRegisterMember();
@@ -6401,7 +6374,7 @@
                   let msg = r.responseText;
                   try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
                   showBanner("chain-banner-debug", true, "❌ Lobby check-in failed "+r.status+": "+msg+" | url: "+lobbyBootstrapUrl.replace(/auth=[^&]+/,"auth=***"));
-                  console.warn("[ChainCoord] Lobby check-in failed", r.status, r.responseText, lobbyUrl);
+                  console.warn("[ChainCoord] Lobby check-in failed", r.status, r.responseText);
                 }
               },
               onerror(e)  { setSyncDot("error"); showBanner("chain-banner-status", false); _clearConnectWatchdog(); showBanner("chain-banner-debug", true, "❌ Lobby check-in network error — check @connect firebaseio.com"); },
@@ -6409,7 +6382,6 @@
             });
 
             if (!heartbeatInterval) heartbeatInterval = setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
-            // Owner lobby cleanup interval is started inside fbProbeOwner on success.
           });
         } catch { showBanner("chain-banner-status",true,"Failed to parse API response."); }
       },
