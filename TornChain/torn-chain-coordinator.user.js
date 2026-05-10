@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.4.0
+// @version      5.4.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -226,7 +226,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.4.0";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "5.3.0";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -2413,6 +2413,10 @@
       if (sdgv) { sdgv.textContent = settDangerThreshold + "s"; }
       if (sf)   { sf.value   = settTimerFudge; }
       if (sfv)  { sfv.textContent  = (settTimerFudge >= 0 ? "+" : "") + settTimerFudge + "s"; }
+
+      // Re-apply debug console visibility every open — ensures the gear menu
+      // item stays in sync if anything altered it since the last open.
+      applyDebugConsole(settDebugConsole);
     }
 
     // Toggle handlers
@@ -2439,10 +2443,29 @@
     document.getElementById("sett-auto-expand")?.addEventListener("change", e => {
       settAutoExpandDue = e.target.checked; _gmSet(SK_AUTO_EXPAND_DUE, settAutoExpandDue);
     });
-    document.getElementById("sett-debug-console")?.addEventListener("change", e => {
-      settDebugConsole = e.target.checked; _gmSet(SK_DEBUG_CONSOLE, settDebugConsole);
-      applyDebugConsole(settDebugConsole);
-    });
+    // Debug console toggle: wire both 'change' (standard) and a click on the
+    // label row as a fallback. Opera/Violentmonkey sometimes swallows 'change'
+    // on checkboxes inside injected panels. Reading checked state after a
+    // setTimeout(0) ensures the browser has committed the visual toggle first.
+    (function wireDebugConsoleToggle() {
+      const sdcInput = document.getElementById("sett-debug-console");
+      const sdcLabel = sdcInput && sdcInput.closest("label");
+      function applyFromCheckbox() {
+        if (!sdcInput) return;
+        settDebugConsole = sdcInput.checked;
+        _gmSet(SK_DEBUG_CONSOLE, settDebugConsole);
+        applyDebugConsole(settDebugConsole);
+      }
+      if (sdcInput) {
+        sdcInput.addEventListener("change", applyFromCheckbox);
+        // Belt-and-suspenders: also fire on click with a tick delay so
+        // the checked state is settled before we read it.
+        sdcInput.addEventListener("click", () => setTimeout(applyFromCheckbox, 0));
+      }
+      if (sdcLabel) {
+        sdcLabel.addEventListener("click", () => setTimeout(applyFromCheckbox, 0));
+      }
+    })();
 
     // Slider handlers
     document.getElementById("sett-opacity")?.addEventListener("input", e => {
