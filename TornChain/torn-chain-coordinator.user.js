@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.4.1
+// @version      5.4.2
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -6371,38 +6371,29 @@
               onload(r) {
                 if (r.status>=200 && r.status<300) {
                   setSyncDot("live");
-                  // Read back to confirm committed in rules engine before proceeding
-                  _xhrTracked({
-                    method: "GET", url: lobbyBootstrapUrl, timeout: 8000,
-                    onload(rr) {
-                      showBanner("chain-banner-status", false); _clearConnectWatchdog();
-                      fbCleanOwnLobbyEntries();
-                      fbRegisterMember();
-                      fbProbeOwner();   // silent boot-time owner check — sets isOwner + gear menu
-                      // Lobby is confirmed — safe to push GitHub version to Firebase now.
-                      checkForUpdate();
-                      fbCheckWhitelist(allowed => {
-                        if (!allowed) {
-                          showBanner("chain-banner-locked", true);
-                          setSyncDot("error");
-                          return;
-                        }
-                        showBanner("chain-banner-locked", false);
-                        fbStartMainListener();
-                        pollFactionChain();
-                        if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_MS);
-                        if (!attackPollInterval)  attackPollInterval  = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
-                        if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 30000);
-                        // clearAllIntervals() killed the timer observer loop; restart it now.
-                        if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
-                        if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
-                        // On the attack page the user just made (or is about to make) a hit —
-                        // schedule a second chain poll 2s later to catch the timer reset quickly.
-                        if (IS_ATTACK_PAGE) setTimeout(pollFactionChain, 2000);
-                      });
-                    },
-                    onerror()  { showBanner("chain-banner-status", false); _clearConnectWatchdog(); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);if(!attackPollInterval)attackPollInterval=setInterval(pollFactionAttacks,ATTACKS_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
-                    ontimeout(){ showBanner("chain-banner-status", false); _clearConnectWatchdog(); fbRegisterMember(); checkForUpdate(); fbCheckWhitelist(allowed => { if(allowed){fbStartMainListener();pollFactionChain();if(!factionPollInterval)factionPollInterval=setInterval(pollFactionChain,CHAIN_POLL_MS);if(!attackPollInterval)attackPollInterval=setInterval(pollFactionAttacks,ATTACKS_POLL_MS);}else{showBanner("chain-banner-locked",true);setSyncDot("error");} }); },
+                  // Proceed immediately — the PUT success is sufficient confirmation.
+                  // The previous read-back GET was causing silent failures on Opera/Violentmonkey
+                  // where nested GM_xmlhttpRequest calls from within onload callbacks are dropped.
+                  showBanner("chain-banner-status", false); _clearConnectWatchdog();
+                  fbCleanOwnLobbyEntries();
+                  fbRegisterMember();
+                  fbProbeOwner();
+                  checkForUpdate();
+                  fbCheckWhitelist(allowed => {
+                    if (!allowed) {
+                      showBanner("chain-banner-locked", true);
+                      setSyncDot("error");
+                      return;
+                    }
+                    showBanner("chain-banner-locked", false);
+                    fbStartMainListener();
+                    pollFactionChain();
+                    if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_MS);
+                    if (!attackPollInterval)  attackPollInterval  = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
+                    if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 30000);
+                    if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
+                    if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
+                    if (IS_ATTACK_PAGE) setTimeout(pollFactionChain, 2000);
                   });
                 } else {
                   setSyncDot("error");
