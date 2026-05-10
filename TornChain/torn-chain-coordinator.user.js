@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.6.7
+// @version      5.7.4
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -350,7 +350,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.6.7";
+  const CURRENT_VERSION  = "5.7.4";
   // Cloud Function proxy for TornPDA lobby writes — TornPDA's GM bridge only
   // supports GET/POST; this function accepts a POST and writes /lobby/{uid}
   // via Admin SDK. Set to null to disable (falls back to direct PUT, desktop only).
@@ -2823,7 +2823,7 @@
         const row = document.createElement("div");
         row.className = "chain-presence-row";
         const isMe = (m.tornId && m.tornId === ownId) || m.name === ownName;
-        const ver  = m.version || clientVersionMap.get(uid) || null;
+        const ver  = m.version || null;
         const platTag = m.platform === "TornPDA" ? `<span style="font-size:9px;color:#778;margin-left:3px">[PDA]</span>` : "";
         row.innerHTML = `<span class="chain-presence-dot"></span><span class="chain-presence-name">${escHtml(m.name)}${isMe?" (you)":""}${platTag}</span>${versionBadgeHtml(ver)}`;
         presenceList.appendChild(row);
@@ -2837,7 +2837,7 @@
       offline.forEach(([uid, m]) => {
         const row = document.createElement("div");
         row.className = "chain-presence-row offline";
-        const ver = m.version || clientVersionMap.get(uid) || null;
+        const ver = m.version || null;
         row.innerHTML = `<span class="chain-presence-dot offline"></span><span class="chain-presence-name">${escHtml(m.name)}</span>${versionBadgeHtml(ver)}`;
         offlineList.appendChild(row);
       });
@@ -6467,32 +6467,85 @@
       },
     });
   }
-  // Safety-net timer handle — clears "Connecting…" if it hangs beyond 30s.
-  // Opera GX / some Chromium builds can silently drop GM_xmlhttpRequest callbacks
-  // (no onerror, no ontimeout) leaving the banner stuck forever.
+  // Safety-net timer — clears "Connecting…" if it hangs beyond 30s.
+  // On TornPDA, Torn API callbacks are sometimes silently dropped on first
+  // page load. Auto-retry fetchOwnProfile up to 5 times at 3s intervals
+  // before falling through to the 30s timeout message.
   let _connectWatchdog = null;
+  let _pdaRetryCount = 0;
+
+  // TornPDA suppresses setTimeout during page load. Add a touchstart listener
+  // as a guaranteed trigger — first user touch fires fetchOwnProfile if stuck.
+  if (isTornPDA) {
+    const _touchRetry = () => {
+      document.removeEventListener("touchstart", _touchRetry, true);
+      if (_pdaRetryCount === 0) {
+        const statusBanner = document.getElementById("chain-banner-status");
+        const noKeyBanner  = document.getElementById("chain-banner-nokey");
+        const isConnecting = statusBanner && statusBanner.style.display !== "none" &&
+                             statusBanner.textContent.includes("Connecting");
+        const needsKey     = noKeyBanner && noKeyBanner.style.display !== "none";
+        if (isConnecting || needsKey) {
+          console.log("[ChainCoord] TornPDA touch-triggered retry");
+          fetchOwnProfile();
+        }
+      }
+    };
+    document.addEventListener("touchstart", _touchRetry, { capture: true, once: true });
+  }
   function _startConnectWatchdog() {
     if (_connectWatchdog) clearTimeout(_connectWatchdog);
+    if (isTornPDA && _pdaRetryCount < 5) {
+      _connectWatchdog = setTimeout(() => {
+        _connectWatchdog = null;
+        const statusBanner = document.getElementById("chain-banner-status");
+        if (statusBanner && statusBanner.style.display !== "none" &&
+            statusBanner.textContent.includes("Connecting")) {
+          // Re-attempt key load in case it wasn't available at boot
+          if (!tornApiKey) {
+            try { tornApiKey = (sessionStorage.getItem("tcc_api_key") || "").trim(); } catch { /**/ }
+            if (!tornApiKey) tornApiKey = (GM_getValue(SK_API_KEY, "") || "").trim();
+          }
+          _pdaRetryCount++;
+          showBanner("chain-banner-status", true, "Connecting… (retry " + _pdaRetryCount + ")");
+          console.log("[ChainCoord] TornPDA auto-retry #" + _pdaRetryCount + " hasKey=" + !!tornApiKey);
+          if (tornApiKey) {
+            fetchOwnProfile();
+          } else {
+            // Key still missing — schedule another retry
+            _startConnectWatchdog();
+          }
+        }
+      }, 3000);
+      return;
+    }
     _connectWatchdog = setTimeout(() => {
       _connectWatchdog = null;
-      // If still showing "Connecting…" after 30s, something got silently dropped.
       const statusBanner = document.getElementById("chain-banner-status");
       if (statusBanner && statusBanner.style.display !== "none" &&
           statusBanner.textContent.includes("Connecting")) {
         showBanner("chain-banner-status", false);
         showBanner("chain-banner-debug", true,
-          "⚠ Connection timed out after 30s. Check: (1) API key is valid, " +
-          "(2) googleapis.com and firebaseio.com are reachable from this browser, " +
+          "⚠ Connection timed out. Check: (1) API key is valid, " +
+          "(2) googleapis.com and firebaseio.com are reachable, " +
           "(3) no VPN/adblocker blocking Firebase. Try reloading the page.");
       }
     }, 30000);
   }
   function _clearConnectWatchdog() {
     if (_connectWatchdog) { clearTimeout(_connectWatchdog); _connectWatchdog = null; }
+    _pdaRetryCount = 0;  // reset retry count on successful connect
   }
 
   function fetchOwnProfile() {
+    // On TornPDA, re-attempt key load from all sources in case it wasn't available
+    // at script init time (sessionStorage may be slow to initialise on some builds).
+    if (isTornPDA && !tornApiKey) {
+      try { tornApiKey = (sessionStorage.getItem("tcc_api_key") || "").trim(); } catch { /**/ }
+      if (!tornApiKey) tornApiKey = (GM_getValue(SK_API_KEY, "") || "").trim();
+    }
     if (!tornApiKey) { showBanner("chain-banner-nokey",true); return; }
+    console.log("[ChainCoord] fetchOwnProfile: keyLen=" + tornApiKey.length + " retry=" + _pdaRetryCount);
     clearAllIntervals();
     lastPollResponse = null;
     showBanner("chain-banner-nokey",false);
@@ -6716,13 +6769,18 @@
   }
 
   renderPanel();
-  console.log(`[ChainCoord] Boot: isTornPDA=${isTornPDA}, hasKey=${!!tornApiKey}, ua=${_ua}`);
+  console.log(`[ChainCoord] Boot: isTornPDA=${isTornPDA}, hasKey=${!!tornApiKey}, keyLen=${tornApiKey.length}`);
   if (isTornPDA && !tornApiKey) {
-    // On TornPDA, GM storage is wiped on each paste-install. Show a clearer prompt.
     const noKeyBanner = document.getElementById("chain-banner-nokey");
     if (noKeyBanner) noKeyBanner.textContent = "⚠ No API key — tap the API button to enter your key (TornPDA: key must be re-entered after each script update).";
   }
-  fetchOwnProfile();
+  if (isTornPDA) {
+    // Script runs at document-idle — page is fully loaded, GM bridge is ready.
+    // Call fetchOwnProfile directly. The watchdog retry handles dropped callbacks.
+    fetchOwnProfile();
+  } else {
+    fetchOwnProfile();
+  }
   if (!isTornPDA) injectTargetButtons();
   updateVersionUI();   // set initial badge state before Firebase connects
   // checkForUpdate() is called from inside the lobby check-in callback, once fbUid
