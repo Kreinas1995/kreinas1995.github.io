@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.2.8
+// @version      5.3.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -133,13 +133,16 @@
       if (!_bg.rafActive) return;
       const gap = now - _bg.lastRafTime;
       if (_bg.lastRafTime > 0 && gap > BG_FREEZE_MS) {
-        _bg.freezeCount++;
-        _bg.freezeLog.unshift({ time: new Date().toLocaleTimeString(), gap: Math.round(gap) });
-        if (_bg.freezeLog.length > BG_LOG_MAX) _bg.freezeLog.pop();
-        // Do NOT call _bgSavePersisted() here — it goes through setTimeout(debounce)
-        // but even queuing a setTimeout inside rAF can contribute to jank under stress.
-        // The XHR-triggered save (every ~3s) is sufficient to preserve freeze events.
-        _bgSaveDirty = true;  // mark dirty; next XHR-triggered save will flush it
+        // Filter out tab-hidden pauses: rAF stops when the tab is in the background.
+        // Gaps >10s while document.hidden was (or is now) true are visibility pauses,
+        // not main-thread freezes — exclude them from freeze counts/logs.
+        const isVisibilityPause = gap > 10000 || document.hidden;
+        if (!isVisibilityPause) {
+          _bg.freezeCount++;
+          _bg.freezeLog.unshift({ time: new Date().toLocaleTimeString(), gap: Math.round(gap) });
+          if (_bg.freezeLog.length > BG_LOG_MAX) _bg.freezeLog.pop();
+          _bgSaveDirty = true;
+        }
       }
       _bg.lastRafTime = now;
       requestAnimationFrame(_bgRafLoop);
@@ -223,7 +226,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.2.8";    // must be near top — used in panel HTML template literal
+  const CURRENT_VERSION  = "5.3.0";    // must be near top — used in panel HTML template literal
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -3615,6 +3618,30 @@
       }
     }
 
+    // ── Sort hosp hits by release time so earliest-releasing fills earliest slot ──
+    // When multiple hosp targets are queued, they should occupy slots in release-time
+    // order: the target who gets out soonest should be assigned the earliest open slot.
+    // Without this, insertion order determines position, which can put a target out
+    // in 8 minutes at slot 88 while a slot 82 gap sits unclaimed.
+    const hospPending = [...hitMap.values()]
+      .filter(h => h.status !== "done" && h.hospReleaseAt && !h.unspecified)
+      .sort((a, b) => a.hospReleaseAt - b.hospReleaseAt);
+
+    if (hospPending.length > 1) {
+      // Collect their current scheduledAt values, sort ascending
+      const hospSlots = hospPending.map(h => h.scheduledAt).sort((a, b) => a - b);
+      // Reassign: earliest release time gets earliest slot
+      let hospChanged = false;
+      hospPending.forEach((h, i) => {
+        if (Math.abs(h.scheduledAt - hospSlots[i]) >= 1000) {
+          h.scheduledAt = hospSlots[i];
+          fbPut(P.hitField(h.id, "scheduledAt"), hospSlots[i]);
+          changed = true;
+          hospChanged = true;
+        }
+      });
+    }
+
     if (changed) { reNumberPending(); scheduleRender(); }
   }
 
@@ -4314,7 +4341,9 @@
   function onChainStart(startMs) {
     chainStartTime = startMs || Date.now();
     chainSessionId = `s_${chainStartTime}_${Math.random().toString(36).slice(2,7)}`;
-    lastAttackId   = null;  // reset so pollFactionAttacks re-fetches from chain start
+    lastAttackId    = null;
+    _lastAttackEnded = null;  // reset attack cursor so catch-up starts from chain beginning
+    _attackPollInFlight = false;
     fbPut(P.session(), { id: chainSessionId, startTime: chainStartTime });
     persistSession();
   }
@@ -4335,6 +4364,8 @@
     apiTimerSecs      = null;
     apiTimerReadAt    = null;
     lastAttackId      = null;
+    _lastAttackEnded  = null;
+    _attackPollInFlight = false;
     hitMap.clear();
     fbClearHits();
     fbDelete(P.session());
@@ -4759,47 +4790,71 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  Faction attacks API poll — replaces DOM scraper
-  //  Requires "Limited access" API key (faction/attacks endpoint).
-  //  On error code 7 (limited access required) shows a banner and disables
-  //  the interval so we don't spam the API with unauthorized requests.
+  //  Faction attacks API poll — paginated for large chains (100k+ hits)
+  //
+  //  Two modes:
+  //  • Catch-up  (no prior data): paginate from chainStartTime forward, page by
+  //    page (1000 attacks/page), until we've accounted for all done hits up to
+  //    liveChainCount OR we find chain hit #1 with a timestamp matching chainStart.
+  //  • Incremental (ongoing): fetch only attacks newer than lastAttackEnded to
+  //    avoid re-processing the entire history on every 7s poll.
+  //
+  //  Uses sort=asc so pages advance chronologically; pagination cursor is the
+  //  `ended` timestamp of the last attack in each page (+1s to avoid re-fetching
+  //  the boundary attack).
   // ══════════════════════════════════════════════════════════════════════════
+  let _attackPollInFlight = false;
+  let _lastAttackEnded    = null;  // epoch seconds — cursor for incremental polling
+
+  function _handleAttackApiError(d) {
+    const errCode = d.error.code ?? d.error;
+    if (errCode === 16 || errCode === 2) {
+      hasLimitedKey = false;
+      showBanner("chain-banner-limitedkey", true);
+      if (attackPollInterval) { clearInterval(attackPollInterval); attackPollInterval = null; }
+    } else {
+      console.warn("[ChainCoord] pollFactionAttacks error:", errCode, d.error.error || "");
+    }
+  }
+
   function pollFactionAttacks() {
     if (!tornApiKey || !factionId || !chainStartTime) return;
+    if (_attackPollInFlight) return;  // don't stack concurrent paginated polls
 
-    // Build URL — use `from` param to only fetch attacks since chain start,
-    // and `to` to cap at now. This avoids processing attacks from old chains.
-    // The API returns attacks in descending order by ended timestamp.
-    const fromTs = Math.floor(chainStartTime / 1000);
-    const toTs   = Math.floor(Date.now() / 1000);
+    // Incremental: if we've already fetched up to some point in this session,
+    // only fetch attacks newer than that cursor. This keeps ongoing polls cheap.
+    // Catch-up: start from chainStartTime when we have no prior data.
+    const fromTs = _lastAttackEnded !== null
+      ? _lastAttackEnded + 1          // +1s past last seen attack
+      : Math.floor(chainStartTime / 1000);
+
+    _attackPollInFlight = true;
+    _fetchAttackPage(fromTs, 0);
+  }
+
+  function _fetchAttackPage(fromTs, pageCount) {
+    // Safety cap: max 20 pages per poll cycle (20,000 attacks) to avoid runaway
+    // API usage. On a 100k chain, 20 pages catches up 20k attacks per 7s interval.
+    // With the incremental cursor, steady-state is always 1 page.
+    if (pageCount >= 20) {
+      _attackPollInFlight = false;
+      return;
+    }
 
     _xhrTracked({
       method: "GET",
-      url: `https://api.torn.com/v2/faction/attacks?limit=100&from=${fromTs}&to=${toTs}&key=${encodeURIComponent(tornApiKey)}`,
-      timeout: 10000,
+      url: `https://api.torn.com/v2/faction/attacks?limit=1000&sort=asc&from=${fromTs}&key=${encodeURIComponent(tornApiKey)}`,
+      timeout: 15000,
       onload(r) {
         try {
           const d = JSON.parse(r.responseText);
 
-          // ── Handle API errors ──────────────────────────────────────────
           if (d && d.error) {
-            const errCode = d.error.code ?? d.error;
-            // Code 16 (v2) = Access level too low — genuine limited key required
-            // Code 2 = Incorrect key — key is wrong format or invalid
-            // Do NOT stop on code 7 (wrong entity) — that's transient, not a key issue
-            if (errCode === 16 || errCode === 2) {
-              hasLimitedKey = false;
-              showBanner("chain-banner-limitedkey", true);
-              // Stop polling — no point retrying without a key upgrade
-              if (attackPollInterval) { clearInterval(attackPollInterval); attackPollInterval = null; }
-            } else {
-              // Transient error (rate limit, backend, etc.) — log but keep polling
-              console.warn("[ChainCoord] pollFactionAttacks error:", errCode, d.error.error || "");
-            }
+            _handleAttackApiError(d);
+            _attackPollInFlight = false;
             return;
           }
 
-          // ── Confirmed limited key works ────────────────────────────────
           if (hasLimitedKey === false) {
             hasLimitedKey = true;
             showBanner("chain-banner-limitedkey", false);
@@ -4807,13 +4862,39 @@
           hasLimitedKey = true;
 
           const attacks = d.attacks || [];
-          if (!attacks.length || !chainStartTime) return;
+          if (!attacks.length || !chainStartTime) {
+            _attackPollInFlight = false;
+            return;
+          }
 
           onFactionAttacksData(attacks);
-        } catch { /**/ }
+
+          // Advance cursor to last attack in this page
+          const lastAtk = attacks[attacks.length - 1];
+          if (lastAtk && lastAtk.ended) {
+            _lastAttackEnded = lastAtk.ended;
+          }
+
+          // Paginate if this page was full — there may be more attacks
+          if (attacks.length === 1000) {
+            // Only continue if we still need more done hits
+            const highestDone = getHighestDoneHitNum();
+            const needed = liveChainCount || 0;
+            if (highestDone < needed) {
+              // More chain hits to catch up on — fetch next page
+              _fetchAttackPage(_lastAttackEnded + 1, pageCount + 1);
+              return;
+            }
+          }
+
+          _attackPollInFlight = false;
+        } catch(e) {
+          console.warn("[ChainCoord] attack page parse error:", e);
+          _attackPollInFlight = false;
+        }
       },
-      onerror()  { },
-      ontimeout(){ },
+      onerror()  { _attackPollInFlight = false; },
+      ontimeout(){ _attackPollInFlight = false; },
     });
   }
 
