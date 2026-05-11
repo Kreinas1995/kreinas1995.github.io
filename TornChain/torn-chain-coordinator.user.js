@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.7.4
+// @version      5.7.5
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
+// @match        https://www.torn.com/*
 // @match        https://www.torn.com/factions.php*
 // @match        https://www.torn.com/index.php*
 // @match        https://www.torn.com/loader.php*
@@ -350,7 +351,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.7.4";
+  const CURRENT_VERSION  = "5.7.5";
   // Cloud Function proxy for TornPDA lobby writes — TornPDA's GM bridge only
   // supports GET/POST; this function accepts a POST and writes /lobby/{uid}
   // via Admin SDK. Set to null to disable (falls back to direct PUT, desktop only).
@@ -2792,21 +2793,24 @@
     const offlineLabel  = document.getElementById("chain-offline-label");
     if (offlineList) offlineList.innerHTML = "";
 
-    // Deduplicate by name across all entries
-    const seenNames = new Set();
-    const allEntries = [...presenceMap.entries()].filter(([, m]) => {
-      if (!m || !m.name) return false;
-      if (seenNames.has(m.name)) return false;
-      seenNames.add(m.name);
-      return true;
-    });
+    const allEntries = [...presenceMap.entries()].filter(([, m]) => m && m.name);
 
+    // Online: show ALL active sessions (same person on Firefox + TornPDA = two rows)
     const online  = sortMeFirst(
       allEntries.filter(([, m]) => (now - (m.lastSeen||0)) < PRESENCE_TIMEOUT),
       ([, m]) => m.name || ""
     );
+
+    // Offline: deduplicate by name (one row per person, most recent session)
+    const seenNames = new Set();
     const offline = sortMeFirst(
-      allEntries.filter(([, m]) => (now - (m.lastSeen||0)) >= PRESENCE_TIMEOUT && m.version),
+      allEntries.filter(([, m]) => {
+        if ((now - (m.lastSeen||0)) < PRESENCE_TIMEOUT) return false;
+        if (!m.version) return false;
+        if (seenNames.has(m.name)) return false;
+        seenNames.add(m.name);
+        return true;
+      }),
       ([, m]) => m.name || ""
     );
 
@@ -3408,7 +3412,7 @@
         fbRequest({
           method: "PUT", url: lobbyUrl,
           headers: { "Content-Type": "application/json" },
-          data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId||"", lastSeen: Date.now(), platform: isTornPDA ? "TornPDA" : "Browser" }),
+          data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId||"", lastSeen: Date.now(), platform: isTornPDA ? "TornPDA" : "Browser", version: CURRENT_VERSION }),
           timeout: 8000,
           onload(r) {
             if (r.status >= 200 && r.status < 300) {
@@ -4002,7 +4006,7 @@
     const lobbyUrl = P.lobbyMe();
     if (!lobbyUrl) return;
     // TornPDA: lobby write goes through _tccProxy via fbPut → fbRequest
-    if (!isTornPDA) fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now(), platform: isTornPDA ? "TornPDA" : "Browser" });
+    if (!isTornPDA) fbPut(lobbyUrl, { name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now(), platform: isTornPDA ? "TornPDA" : "Browser", version: CURRENT_VERSION });
     // Member record keyed by torn_{tornId} — stable across page loads, no dedup needed.
     // One-time GET at boot to check if a newer-version peer has written a version
     // we should preserve. After this read, _memberVersionToWrite is set and
@@ -4044,7 +4048,7 @@
     fbRequest({
       method: "PUT", url: lobbyUrl,
       headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: now, platform: isTornPDA ? "TornPDA" : "Browser" }),
+      data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: now, platform: isTornPDA ? "TornPDA" : "Browser", version: CURRENT_VERSION }),
       timeout: 8000,
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
@@ -6591,7 +6595,7 @@
             fbRequest({
               method:"PUT", url: lobbyBootstrapUrl,
               headers:{"Content-Type":"application/json"},
-              data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now(), platform: isTornPDA ? "TornPDA" : "Browser" }),
+              data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now(), platform: isTornPDA ? "TornPDA" : "Browser", version: CURRENT_VERSION }),
               timeout:10000,
               onload(r) {
                 if (r.status>=200 && r.status<300) {
@@ -6774,10 +6778,18 @@
     const noKeyBanner = document.getElementById("chain-banner-nokey");
     if (noKeyBanner) noKeyBanner.textContent = "⚠ No API key — tap the API button to enter your key (TornPDA: key must be re-entered after each script update).";
   }
-  if (isTornPDA) {
-    // Script runs at document-idle — page is fully loaded, GM bridge is ready.
-    // Call fetchOwnProfile directly. The watchdog retry handles dropped callbacks.
-    fetchOwnProfile();
+  if (isTornPDA && tornApiKey) {
+    // Simulate pressing Save on the API key popover — this uses the exact same
+    // code path that works when the user taps Save manually, bypassing any
+    // timing issues with GM_xmlhttpRequest during script initialisation.
+    const apiInputEl = document.getElementById("chain-api-input");
+    const apiSaveEl  = document.getElementById("chain-api-save");
+    if (apiInputEl && apiSaveEl) {
+      apiInputEl.value = tornApiKey;
+      apiSaveEl.click();
+    } else {
+      fetchOwnProfile();
+    }
   } else {
     fetchOwnProfile();
   }
