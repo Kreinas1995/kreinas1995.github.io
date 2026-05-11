@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.0
+// @version      5.8.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -80,8 +80,8 @@
 
   // Shared debug state — readable by all scopes within this IIFE without window hacks
   const _dbg = {
-    verbosePoll:      false,
-    verboseMutations: false,
+    verbosePoll:      true,
+    verboseMutations: true,
     recordPoll:       null,   // assigned by wireSettings() once the function exists
   };
 
@@ -258,13 +258,10 @@
   function fbRequest(details) {
     const method = (details.method || "GET").toUpperCase();
     if (isTornPDA && (method === "PUT" || method === "DELETE")) {
-      const sep = details.url.includes("?") ? "&" : "?";
-      const overrideUrl = details.url + sep + "x-http-method-override=" + method;
-      console.log("[ChainCoord] fbRequest TornPDA override: " + method + " → POST+override, url=" + overrideUrl.replace(/auth=[^&]+/, "auth=***"));
+      console.log("[ChainCoord] fbRequest TornPDA override: " + method + " → POST+X-HTTP-Method-Override header, url=" + details.url.replace(/auth=[^&]+/, "auth=***"));
       return _xhrTracked(Object.assign({}, details, {
         method: "POST",
-        url: overrideUrl,
-        headers: Object.assign({ "Content-Type": "application/json" }, details.headers || {}),
+        headers: Object.assign({ "Content-Type": "application/json", "X-HTTP-Method-Override": method }, details.headers || {}),
       }));
     }
     return _xhrTracked(details);
@@ -279,6 +276,18 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
+  // ── v5.8.1 ────────────────────────────────────────────────────────────────
+  // • TornPDA fix: Firebase PUT/DELETE override now sends X-HTTP-Method-Override
+  //   as an HTTP header instead of a query parameter. Firebase RTDB only supports
+  //   the header form — the query param was silently rejected, causing a network
+  //   error on every write and preventing lobby check-in on TornPDA.
+  // • TornPDA detection: added window.flutter_inappwebview check so newer TornPDA
+  //   builds using a Firefox-based webview are correctly identified even when the
+  //   UA string no longer contains "TornPDA", "Dart", or "torn_pda".
+  // • Debug console: verbose poll and MO logging now always enabled (toggles removed).
+  //   Copy Report button moved above the console log for quicker access.
+  // • Debug console: fixed minimized state leaving a fixed 500px height shell —
+  //   height is now cleared when collapsing to the title bar.
   // ── v5.8.0 ────────────────────────────────────────────────────────────────
   // • Browser detection: each session writes its browser tag (Chrome, Firefox,
   //   Opera, Edge, TornPDA, Safari) to Firebase. The presence popover groups
@@ -306,7 +315,7 @@
   //   data is lost despite the background silence.
   // • pollFactionChain rate-limit backoff: error 5 (too many requests) now skips
   //   4 poll cycles (~20s) instead of retrying immediately on the next tick.
-  const CURRENT_VERSION  = "5.8.0";
+  const CURRENT_VERSION  = "5.8.1";
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
@@ -2215,6 +2224,7 @@
         if (body) body.style.display = "none";
         _dbgPanel.style.width = "auto";
         _dbgPanel.style.minWidth = "180px";
+        _dbgPanel.style.height = "";
         _dbgPanel.style.maxHeight = "";
         _dbgPanel.style.overflow = "visible";
         if (minBtn) minBtn.textContent = "▲";
@@ -2308,24 +2318,15 @@
       });
       bodyWrap.appendChild(freezeDiv);
 
-      // ── Verbose toggles (above console log so footer is always last) ──
-      const verboseDiv = document.createElement("div");
-      verboseDiv.id = "tcc-dbg-verbose";
-      Object.assign(verboseDiv.style, {
-        display: "flex", gap: "10px", padding: "3px 10px",
+      // ── Copy report button (above console log) ──
+      const copyTopDiv = document.createElement("div");
+      Object.assign(copyTopDiv.style, {
+        display: "flex", gap: "5px", padding: "3px 10px",
         borderTop: "1px solid rgba(255,255,255,.06)", flexShrink: "0",
-        fontSize: "10px", color: "#556",
       });
-      verboseDiv.innerHTML =
-        `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none">` +
-          `<input type="checkbox" id="tcc-dbg-verbose-poll" style="cursor:pointer" ${_dbg.verbosePoll ? "checked" : ""}>` +
-          `<span>Verbose polls</span>` +
-        `</label>` +
-        `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none">` +
-          `<input type="checkbox" id="tcc-dbg-verbose-mo" style="cursor:pointer" ${_dbg.verboseMutations ? "checked" : ""}>` +
-          `<span>Verbose MO</span>` +
-        `</label>`;
-      bodyWrap.appendChild(verboseDiv);
+      copyTopDiv.innerHTML =
+        `<button id="tcc-dbg-copy" style="flex:1;background:rgba(100,160,255,.15);border:1px solid rgba(100,160,255,.3);color:#88bbff;border-radius:4px;padding:3px 0;font-size:10px;cursor:pointer;font-family:monospace">Copy report</button>`;
+      bodyWrap.appendChild(copyTopDiv);
 
       // ── Console log area ──
       const logDiv = document.createElement("div");
@@ -2346,8 +2347,7 @@
         background: "rgba(10,12,18,0.97)",
       });
       footer.innerHTML =
-        `<button id="tcc-dbg-copy" style="flex:1;background:rgba(100,160,255,.15);border:1px solid rgba(100,160,255,.3);color:#88bbff;border-radius:4px;padding:3px 0;font-size:10px;cursor:pointer;font-family:monospace">Copy report</button>` +
-        `<button id="tcc-dbg-clear" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff8888;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-family:monospace">Clear</button>`;
+        `<button id="tcc-dbg-clear" style="flex:1;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff8888;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-family:monospace">Clear log</button>`;
       bodyWrap.appendChild(footer);
       _dbgPanel.appendChild(bodyWrap);
 
@@ -2414,9 +2414,7 @@
         _dbgRender();
       };
 
-      // Wire verbose toggles
-      document.getElementById("tcc-dbg-verbose-poll").onchange = e => { _dbg.verbosePoll      = e.target.checked; };
-      document.getElementById("tcc-dbg-verbose-mo").onchange   = e => { _dbg.verboseMutations = e.target.checked; };
+      // Verbose logging always enabled — no toggles needed
 
       // ── Drag logic (mouse + touch; position saved to GM storage on drag end) ──
       function _dbgStartDrag(clientX, clientY) {
@@ -6761,6 +6759,6 @@
   updateVersionUI();   // set initial badge state before Firebase connects
   // checkForUpdate() is called from inside the lobby check-in callback, once fbUid
   // is confirmed — this guarantees the Firebase write succeeds (auth is ready).
-  // No blind setTimeout needed here anymore. Defunct.
+  // No blind setTimeout needed here anymore.
 
 })();
