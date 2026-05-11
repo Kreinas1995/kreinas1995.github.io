@@ -367,7 +367,8 @@
   // TornPDA blocks localStorage — detected early so we skip it on PDA.
   const _ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
   const isTornPDA = _ua.includes("TornPDA") || _ua.includes("torn_pda") ||
-    _ua.includes("Dart") || document.documentElement.dataset.tornpda === "true";
+    _ua.includes("Dart") || document.documentElement.dataset.tornpda === "true" ||
+    typeof window.flutter_inappwebview !== "undefined";
 
   // ── Browser tag — written to Firebase presence so peers can see which
   // client each session is using. Detected once at boot from the UA string.
@@ -2214,7 +2215,6 @@
         if (body) body.style.display = "none";
         _dbgPanel.style.width = "auto";
         _dbgPanel.style.minWidth = "180px";
-        _dbgPanel.style.height = "";
         _dbgPanel.style.maxHeight = "";
         _dbgPanel.style.overflow = "visible";
         if (minBtn) minBtn.textContent = "▲";
@@ -6761,6 +6761,6 @@
   updateVersionUI();   // set initial badge state before Firebase connects
   // checkForUpdate() is called from inside the lobby check-in callback, once fbUid
   // is confirmed — this guarantees the Firebase write succeeds (auth is ready).
-  // No blind setTimeout needed here anymore.
+  // No blind setTimeout needed here anymore. Defunct.
 
 })();
