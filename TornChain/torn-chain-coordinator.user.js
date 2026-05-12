@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.18
+// @version      5.8.19
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,14 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.18";
+  const CURRENT_VERSION  = "5.8.19";
+  // ── v5.8.19 ───────────────────────────────────────────────────────────────
+  // • CPU fix (Opera dual-monitor): 1s tick now early-returns when chainStartTime
+  //   and liveChainCount are both null. document.hidden is false when the tab is
+  //   visible on a second monitor — so between chains the tick was running
+  //   syncPendingScheduledAt, DOM patch loops, and notification sort every second
+  //   even with nothing to do. Now it costs one null-check and returns immediately.
+  //   Only updateTopBarBadge (no-op) runs between chains.
   // ── v5.8.18 ───────────────────────────────────────────────────────────────
   // • Attack scraper: added 60-second buffer to chainStartSec filter. During
   //   warmup (hits 1-9), Torn's API returns chain.start = 0, so chainStartTime
@@ -5988,6 +5995,14 @@
   let _lastTickSecs = null;  // deduplicate updateChainTimerUI calls in tick
   let _timerRetryCount = 0;  // rapid-retry counter when chain active but no timer
   setInterval(() => {
+    // Skip all expensive work when no chain is active — between chains this tick
+    // should cost nothing regardless of tab visibility (two-monitor setups keep
+    // document.hidden=false even when the user isn't watching the Torn tab).
+    if (!chainStartTime && !liveChainCount) {
+      updateTopBarBadge();  // keep badge cleared
+      return;
+    }
+
     const now = Date.now();
 
     // Only call updateChainTimerUI from the tick when the displayed second has
