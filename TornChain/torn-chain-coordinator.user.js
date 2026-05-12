@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.11
+// @version      5.8.12
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,15 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.11";
+  const CURRENT_VERSION  = "5.8.12";
+  // ── v5.8.12 ───────────────────────────────────────────────────────────────
+  // • TornPDA chain timer: added scheduleTouchTooltipTrigger() — on TornPDA the
+  //   timer observer was never attempted (entire block was !isTornPDA guarded).
+  //   Now TornPDA runs startChainTimerObserver() + startTimerRetryLoop() at boot
+  //   (catches bar-timeleft if already in DOM), plus a touch-tap trigger that
+  //   dispatches touchstart/touchend/click on the chain bar to force Torn to
+  //   render the tooltip DOM, then immediately tries to attach the MO observer.
+  //   Portal watcher hides any visual flash. Retries every 2s up to 30 attempts.
   // ── v5.8.11 ───────────────────────────────────────────────────────────────
   // • Restored ATTACKS_POLL_MS to 7s (was raised to 15s in v5.8.6). The 15s
   //   interval caused visible "Waiting for Data" delay during chain warmup —
@@ -4921,6 +4929,77 @@
     tryAttach();
   }
 
+  // TornPDA touch-based tooltip trigger.
+  // Dispatches touchstart/touchend + click on the chain bar to force Torn to
+  // render the tooltip DOM, then immediately tries to attach the observer.
+  // Hides any tooltip portal that appears (same portal-watcher approach as desktop).
+  // Runs once, retries every 2s until observer attaches (or 30 attempts).
+  let _touchTriggerActive = false;
+  function scheduleTouchTooltipTrigger() {
+    if (_touchTriggerActive || chainTimerObserver) return;
+    _touchTriggerActive = true;
+    let attempts = 0;
+    const tryTouch = () => {
+      if (chainTimerObserver) { _touchTriggerActive = false; return; }
+      // Try direct attach first — the element may now be in the DOM.
+      if (startChainTimerObserver()) { _touchTriggerActive = false; return; }
+
+      const chainBar = document.querySelector('[class*="chain-bar"]:not(#chain-panel *)');
+      if (chainBar) {
+        // Hide any tooltip portal that appears so the user doesn't see a flash.
+        const hiddenPortals = new Set();
+        const hideNode = n => { n.style.setProperty('visibility', 'hidden', 'important'); hiddenPortals.add(n); };
+        const isTooltipNode = n => n instanceof Element && (
+          n.matches('[class*="tooltip"],[class*="floating"],[data-floating-ui-portal],[class*="popup"],[class*="Popup"],[class*="Tooltip"]')
+          || n.querySelector('[class*="bar-timeleft"],[class*="chainTimer"]')
+        );
+        // Watch for portal nodes appearing
+        const portalWatcher = setInterval(() => {
+          for (const child of document.body.children) {
+            if (!hiddenPortals.has(child) && isTooltipNode(child)) hideNode(child);
+          }
+          hiddenPortals.forEach(n => { if (n.isConnected) n.style.setProperty('visibility', 'hidden', 'important'); });
+        }, 50);
+
+        // Simulate touch tap
+        const rect = chainBar.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+        const mkTouch = () => { try { return new Touch({ identifier: Date.now(), target: chainBar, clientX: cx, clientY: cy, pageX: cx, pageY: cy }); } catch { return null; } };
+        const t = mkTouch();
+        if (t) {
+          chainBar.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t], targetTouches: [t], changedTouches: [t] }));
+          chainBar.dispatchEvent(new TouchEvent('touchend',   { bubbles: true, cancelable: true, touches: [],  targetTouches: [],  changedTouches: [t] }));
+        }
+        chainBar.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+
+        // Poll for observer attachment, then dismiss
+        let polls = 0;
+        const findAndAttach = setInterval(() => {
+          polls++;
+          const attached = startChainTimerObserver();
+          if (attached || polls >= 20) {
+            clearInterval(findAndAttach);
+            clearInterval(portalWatcher);
+            hiddenPortals.forEach(n => n.style.removeProperty('visibility'));
+            hiddenPortals.clear();
+            if (!attached && attempts < 15) {
+              attempts++;
+              setTimeout(tryTouch, 2000);
+            } else {
+              _touchTriggerActive = false;
+            }
+          }
+        }, 50);
+        return; // wait for findAndAttach to finish before next attempt
+      }
+
+      // No chain bar found yet — retry
+      if (++attempts < 30) setTimeout(tryTouch, 2000);
+      else _touchTriggerActive = false;
+    };
+    setTimeout(tryTouch, 1000); // slight delay to let page settle
+  }
+
   function startChainTimerObserver() {
     if (chainTimerObserver) { chainTimerObserver.disconnect(); chainTimerObserver = null; }
     _cachedTimerEl = null;
@@ -4954,10 +5033,20 @@
   // retrying.  We deliberately avoid a subtree:true MutationObserver on document.body
   // — on dynamic pages like loader.php (attack) that fires hundreds of times per second
   // and blocks GM_xmlhttpRequest callbacks, breaking all API features.
+  // Desktop: full observer + tooltip trigger.
+  // TornPDA: try direct attach first (bar-timeleft is often in DOM without a tap),
+  // then fall back to simulated touch tap on the chain bar to force tooltip render.
   if (!isTornPDA) {
     startChainTimerObserver();
     startTimerRetryLoop();
     scheduleTooltipTrigger();
+  } else {
+    // Try direct attach immediately — works if bar-timeleft is already in the DOM.
+    startChainTimerObserver();
+    startTimerRetryLoop();
+    // Also schedule a touch-based trigger for pages where the timer only renders
+    // inside a tap-triggered tooltip (TornPDA renders these on touchstart/click).
+    scheduleTouchTooltipTrigger();
   }
 
   // ══════════════════════════════════════════════════════════════════════════
