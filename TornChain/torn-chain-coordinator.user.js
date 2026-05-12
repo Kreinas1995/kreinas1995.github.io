@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.19
+// @version      5.8.20
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,13 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.19";
+  const CURRENT_VERSION  = "5.8.20";
+  // ── v5.8.20 ───────────────────────────────────────────────────────────────
+  // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
+  //   strict liveChainCount. The attacks endpoint and chain count poll have
+  //   independent intervals — the scraper can receive hit #N before the chain
+  //   poll has confirmed count N, causing valid hits to be filtered out. The
+  //   +1 buffer matches the scraper filter rules (chainHitNum <= liveChainCount+1).
   // ── v5.8.19 ───────────────────────────────────────────────────────────────
   // • CPU fix (Opera dual-monitor): 1s tick now early-returns when chainStartTime
   //   and liveChainCount are both null. document.hidden is false when the tab is
@@ -5495,8 +5501,10 @@
       // Must be within current session time window
       if (atk.ended < chainStartSec) continue;
 
-      // API count is the ceiling — don't accept hits beyond what chain confirms
-      if (apiCount > 0 && chainHitNum > apiCount) continue;
+      // API count is the ceiling — don't accept hits beyond what chain confirms.
+      // +1 buffer for API lag: the attacks endpoint can return a hit before the
+      // chain count poll has updated (both have independent intervals).
+      if (apiCount > 0 && chainHitNum > apiCount + 1) continue;
 
       // Track highest id
       if (atk.id > maxId) maxId = atk.id;
