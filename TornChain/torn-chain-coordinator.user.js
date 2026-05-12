@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.17
+// @version      5.8.18
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,15 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.17";
+  const CURRENT_VERSION  = "5.8.18";
+  // ── v5.8.18 ───────────────────────────────────────────────────────────────
+  // • Attack scraper: added 60-second buffer to chainStartSec filter. During
+  //   warmup (hits 1-9), Torn's API returns chain.start = 0, so chainStartTime
+  //   is estimated from timeout. That estimate can land several seconds AFTER
+  //   the actual first hit, causing warmup hits to be silently filtered out.
+  //   60s of headroom ensures no hit is ever dropped due to estimation error.
+  //   This was the primary cause of "Waiting for Data" during warmup for both
+  //   Opera and TornPDA users.
   // ── v5.8.17 ───────────────────────────────────────────────────────────────
   // • Attack scraper: onChainStart now fires pollFactionAttacks() immediately
   //   rather than waiting up to 7s for the next interval tick. Eliminates the
@@ -5457,7 +5465,11 @@
     // chain.start from /faction/chain gives us the epoch the chain began.
     // We use chainStartTime (ms) already stored in state — convert to seconds.
 
-    const chainStartSec = Math.floor(chainStartTime / 1000);
+    // Subtract 60s buffer from chainStartSec — during warmup (hits 1-9) Torn's API
+    // returns chain.start = 0, so we estimate from timeout. That estimate can land
+    // several seconds AFTER the actual first hit, causing early warmup hits to be
+    // filtered out. 60s of headroom ensures we never miss a hit at chain start.
+    const chainStartSec = Math.floor(chainStartTime / 1000) - 60;
     const apiCount      = liveChainCount || 0;
 
     // Track the highest attack id seen for future incremental polling
