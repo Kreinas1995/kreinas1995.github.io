@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.15
+// @version      5.8.17
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,25 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.15";
+  const CURRENT_VERSION  = "5.8.17";
+  // ── v5.8.17 ───────────────────────────────────────────────────────────────
+  // • Attack scraper: onChainStart now fires pollFactionAttacks() immediately
+  //   rather than waiting up to 7s for the next interval tick. Eliminates the
+  //   "Waiting for Data" delay at chain start, especially noticeable during
+  //   warmup when the 4s session-wait + 7s interval = up to 11s before first
+  //   attack data arrives.
+  // • TornPDA timer: scheduleTouchTooltipTrigger() now also fires from
+  //   onChainApiData when chain becomes active and observer is missing —
+  //   same trigger point as desktop scheduleTooltipTrigger().
+  // ── v5.8.16 ───────────────────────────────────────────────────────────────
+  // • TornPDA timer: findChainTimerEl now searches the last 5 body children
+  //   (portal nodes) for any leaf element containing MM:SS text — the tooltip
+  //   renders as a document.body portal on TornPDA, not inside chain-bar.
+  // • TornPDA timer: MutationObserver now also watches timerEl.parentElement for
+  //   childList removal. When the portal is removed (tooltip dismissed), the MO
+  //   fires, detects !document.contains(timerEl), and re-triggers the touch tap
+  //   to re-attach. Previously the observer stayed pointing at a detached node
+  //   with retry loop cleared — leaving Observer MISSING indefinitely.
   // ── v5.8.15 ───────────────────────────────────────────────────────────────
   // • TornPDA timer: removed portal watcher and second-tap dismiss entirely —
   //   hiding the tooltip was fighting Torn's state machine causing open/close
@@ -4719,6 +4737,8 @@
     _attackPollInFlight = false;
     fbPut(P.session(), { id: chainSessionId, startTime: chainStartTime });
     persistSession();
+    // Immediate attack poll — don't wait for the 7s interval to fire first
+    pollFactionAttacks();
   }
 
   function onChainEnd() {
@@ -4833,6 +4853,25 @@
       for (const el of cw.querySelectorAll('*')) {
         if (el.children.length > 0) continue;
         if (parseTimerText(el.textContent) !== null) { _cachedTimerEl = el; return el; }
+      }
+    }
+
+    // TornPDA: tooltip renders as a portal appended to document.body.
+    // Walk recent body children (portals are typically last) for any leaf
+    // element whose text contains a MM:SS timer pattern.
+    if (isTornPDA) {
+      const bodyChildren = [...document.body.children];
+      // Search from end (most recently added) — portal is usually last
+      for (let i = bodyChildren.length - 1; i >= Math.max(0, bodyChildren.length - 5); i--) {
+        const portal = bodyChildren[i];
+        if (portal.id === 'chain-panel' || portal.id === 'tcc-debug-panel') continue;
+        for (const el of portal.querySelectorAll('*')) {
+          if (el.children.length > 0) continue;
+          if (parseTimerText(el.textContent) !== null) {
+            console.log('[ChainCoord] TornPDA: found timer in portal', portal.className, 'text:', el.textContent.trim().slice(0,30));
+            _cachedTimerEl = el; return el;
+          }
+        }
       }
     }
 
@@ -5016,6 +5055,14 @@
     if (timerRetryInterval) { clearInterval(timerRetryInterval); timerRetryInterval = null; }
     onDomTimerUpdate(parseTimerText(timerEl.textContent));
     chainTimerObserver = new MutationObserver(() => {
+      if (!document.contains(timerEl)) {
+        // Element removed from DOM (TornPDA tooltip portal closed)
+        chainTimerObserver.disconnect(); chainTimerObserver = null;
+        _cachedTimerEl = null;
+        if (isTornPDA) scheduleTouchTooltipTrigger();
+        else startTimerRetryLoop();
+        return;
+      }
       const secs = parseTimerText(timerEl.textContent);
       if (secs === null) {
         chainTimerObserver.disconnect(); chainTimerObserver = null;
@@ -5026,6 +5073,10 @@
       }
     });
     chainTimerObserver.observe(timerEl, { characterData: true, childList: true, subtree: true });
+    // Also observe the parent for removal (TornPDA portal gets removed when tooltip closes)
+    if (isTornPDA && timerEl.parentElement) {
+      chainTimerObserver.observe(timerEl.parentElement, { childList: true });
+    }
     return true;
   }
 
@@ -5193,6 +5244,7 @@
       }
       // Chain active but no DOM observer — try to trigger tooltip render
       if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
+      if (isTornPDA  && !chainTimerObserver) scheduleTouchTooltipTrigger();
     } else {
       if (chainSessionId && !chainEndDebounce) {
         chainEndDebounce = setTimeout(onChainEnd, CHAIN_END_DEBOUNCE);
