@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.10
+// @version      5.8.11
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,13 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.10";
+  const CURRENT_VERSION  = "5.8.11";
+  // ── v5.8.11 ───────────────────────────────────────────────────────────────
+  // • Restored ATTACKS_POLL_MS to 7s (was raised to 15s in v5.8.6). The 15s
+  //   interval caused visible "Waiting for Data" delay during chain warmup —
+  //   target names took up to 15s to appear after a hit. The document.hidden
+  //   guard (v5.8.8) already prevents wasted polls on backgrounded tabs, so
+  //   the 15s rate-reduction was unnecessary.
   // ── v5.8.10 ───────────────────────────────────────────────────────────────
   // • Freeze fix (Opera, script disabled): console patch now bails immediately
   //   unless the first argument is a string containing "[ChainCoord]". Torn's
@@ -412,7 +418,7 @@
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
   const TIMER_FUDGE_SEC      = 0;
-  const ATTACKS_POLL_MS      = 15000;  // 15s — attacks resolve within 5-min window; halves API load
+  const ATTACKS_POLL_MS      = 7000;   // 7s — prime vs CHAIN_POLL_MS(5300) and fbPollOnce(3000)
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
