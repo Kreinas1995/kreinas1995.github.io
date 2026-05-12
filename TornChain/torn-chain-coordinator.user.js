@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.1
+// @version      5.8.2
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -252,17 +252,64 @@
     GM_xmlhttpRequest(wrapped);
   }
 
-  // TornPDA's GM_xmlhttpRequest bridge only supports GET and POST — PUT and DELETE
-  // cause an immediate network error. Firebase REST supports x-http-method-override
-  // to work around this. On all other platforms, this is a transparent pass-through.
+  // ── TornPDA universal Firebase proxy ────────────────────────────────────────
+  // TornPDA's GM bridge: PUT/DELETE cause an immediate network error.
+  // When TCC_PROXY_URL is set, ALL Firebase PUT/DELETE operations go through
+  // the tccProxy Cloud Function via POST. On desktop browsers everything goes
+  // directly to Firebase REST as before.
+
+  // Extract the DB path from a full Firebase REST URL, stripping .json and auth param.
+  function _fbUrlToPath(url) {
+    try {
+      const u = new URL(url);
+      return u.pathname.replace(/\.json$/, "");
+    } catch { return null; }
+  }
+
+  // Core proxy helper — POSTs to tccProxy and calls back like a normal XHR response.
+  function _tccProxy(method, url, data, onload, onerror, ontimeout, timeout) {
+    if (!TCC_PROXY_URL || !fbToken || !fbUid) { console.warn("[ChainCoord] _tccProxy skipped: no proxy/token/uid"); if (onerror) onerror({}); return; }
+    const path = _fbUrlToPath(url);
+    if (!path) { console.warn("[ChainCoord] _tccProxy bad url:", url); if (onerror) onerror({}); return; }
+    let _settled = false;
+    _xhrTracked({
+      method: "POST",
+      url: TCC_PROXY_URL,
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({ token: fbToken, uid: fbUid, method, path, data: data !== undefined ? data : null }),
+      timeout: timeout || 10000,
+      onload(r) {
+        if (_settled) return; _settled = true;
+        if (r && r.status >= 200 && r.status < 300) {
+          if (method === "GET") {
+            let inner; try { inner = JSON.parse(r.responseText); } catch { inner = {}; }
+            if (onload) onload({ status: 200, responseText: JSON.stringify(inner.data !== undefined ? inner.data : null) });
+          } else {
+            if (onload) onload({ status: 200, responseText: r.responseText });
+          }
+        } else {
+          if (onload) onload(r || { status: 500, responseText: "" });
+        }
+      },
+      onerror(e)  { if (_settled) return; _settled = true; if (onerror)  onerror(e||{}); },
+      ontimeout(e){ if (_settled) return; _settled = true; if (ontimeout) ontimeout(e); },
+    });
+  }
+
+  // fbRequest: routes PUT/DELETE through tccProxy on TornPDA; pass-through elsewhere.
   function fbRequest(details) {
     const method = (details.method || "GET").toUpperCase();
     if (isTornPDA && (method === "PUT" || method === "DELETE")) {
-      console.log("[ChainCoord] fbRequest TornPDA override: " + method + " → POST+X-HTTP-Method-Override header, url=" + details.url.replace(/auth=[^&]+/, "auth=***"));
-      return _xhrTracked(Object.assign({}, details, {
-        method: "POST",
-        headers: Object.assign({ "Content-Type": "application/json", "X-HTTP-Method-Override": method }, details.headers || {}),
-      }));
+      if (TCC_PROXY_URL) {
+        console.log("[ChainCoord] fbRequest TornPDA proxy: " + method + " → tccProxy, url=" + details.url.replace(/auth=[^&]+/, "auth=***"));
+        let payload; try { payload = details.data ? JSON.parse(details.data) : null; } catch { payload = null; }
+        _tccProxy(method, details.url, payload,
+          details.onload, details.onerror, details.ontimeout, details.timeout);
+        return;
+      }
+      console.warn("[ChainCoord] fbRequest TornPDA: " + method + " skipped (no TCC_PROXY_URL set)");
+      if (details.onerror) details.onerror({});
+      return;
     }
     return _xhrTracked(details);
   }
@@ -276,6 +323,11 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
+  // ── v5.8.2 ────────────────────────────────────────────────────────────────
+  // • TornPDA fix: Reverted broken X-HTTP-Method-Override header approach —
+  //   Firebase RTDB does not honour that header. Restored _tccProxy / TCC_PROXY_URL
+  //   Cloud Function path from v5.7.5, which was confirmed working. PUT/DELETE on
+  //   TornPDA once again routes through tccProxy; non-TornPDA is unaffected.
   // ── v5.8.1 ────────────────────────────────────────────────────────────────
   // • TornPDA fix: Firebase PUT/DELETE override now sends X-HTTP-Method-Override
   //   as an HTTP header instead of a query parameter. Firebase RTDB only supports
@@ -315,7 +367,11 @@
   //   data is lost despite the background silence.
   // • pollFactionChain rate-limit backoff: error 5 (too many requests) now skips
   //   4 poll cycles (~20s) instead of retrying immediately on the next tick.
-  const CURRENT_VERSION  = "5.8.1";
+  const CURRENT_VERSION  = "5.8.2";
+  // Cloud Function proxy for TornPDA — handles PUT/DELETE that TornPDA's GM bridge
+  // cannot send natively. Deploy functions/index.js (tccProxy) to your Firebase
+  // project and paste the URL here. Set to null to disable (TornPDA writes will fail).
+  const TCC_PROXY_URL    = "https://us-central1-syph-s-war-overhaul.cloudfunctions.net/tccProxy";
 
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
