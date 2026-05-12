@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.3
+// @version      5.8.4
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -323,6 +323,12 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
+  // ── v5.8.4 ────────────────────────────────────────────────────────────────
+  // • TornPDA fix: Firebase GETs were also silently dropped by TornPDA's GM
+  //   bridge for non-api.torn.com domains — not just PUT/DELETE. This meant
+  //   fbGet (used by fbCheckWhitelist) and fbPollOnce never received callbacks,
+  //   so fbStartMainListener was never called (FB polls: 0, Observer: MISSING).
+  //   Both now route through tccProxy on TornPDA, matching the v5.7.5 behaviour.
   // ── v5.8.3 ────────────────────────────────────────────────────────────────
   // • TornPDA fix: Restored simulate-tap boot path dropped in v5.8.1 — on TornPDA
   //   with a stored key, boot now sets apiInput.value and calls apiSave.click(),
@@ -372,7 +378,7 @@
   //   data is lost despite the background silence.
   // • pollFactionChain rate-limit backoff: error 5 (too many requests) now skips
   //   4 poll cycles (~20s) instead of retrying immediately on the next tick.
-  const CURRENT_VERSION  = "5.8.3";
+  const CURRENT_VERSION  = "5.8.4";
   // Cloud Function proxy for TornPDA — handles PUT/DELETE that TornPDA's GM bridge
   // cannot send natively. Deploy functions/index.js (tccProxy) to your Firebase
   // project and paste the URL here. Set to null to disable (TornPDA writes will fail).
@@ -3943,12 +3949,23 @@
 
   function fbGet(url, onData) {
     if (!fbConfigured()) return;
+    if (isTornPDA && TCC_PROXY_URL) {
+      _tccProxy("GET", url, null,
+        (r) => { try { if (r.status >= 200 && r.status < 300) onData(JSON.parse(r.responseText)); } catch(e) { console.warn("[ChainCoord] fbGet proxy parse error", e); } },
+        () => { console.warn("[ChainCoord] fbGet proxy onerror", url.replace(/auth=[^&]+/,"auth=***").slice(0,60)); },
+        () => { console.warn("[ChainCoord] fbGet proxy timeout", url.replace(/auth=[^&]+/,"auth=***").slice(0,60)); },
+        10000
+      );
+      return;
+    }
     _xhrTracked({
       method:"GET", url, timeout:10000,
       onload(r) {
-        try { if(r.status>=200&&r.status<300) onData(JSON.parse(r.responseText)); } catch { /**/ }
+        try { if(r.status>=200&&r.status<300) onData(JSON.parse(r.responseText)); }
+        catch(e) { console.warn("[ChainCoord] fbGet parse error", e); }
       },
-      onerror(){}, ontimeout(){},
+      onerror()  { console.warn("[ChainCoord] fbGet onerror", url.replace(/auth=[^&]+/,"auth=***").slice(0,60)); },
+      ontimeout(){ console.warn("[ChainCoord] fbGet timeout",  url.replace(/auth=[^&]+/,"auth=***").slice(0,60)); },
     });
   }
 
@@ -4267,57 +4284,63 @@
     if (document.hidden) return;
     if (pollInFlight) return;  // skip if previous poll hasn't returned yet
     pollInFlight = true;
+
+    // Shared poll result handler — used by both direct XHR and proxy paths
+    function _handlePollResult(r) {
+      pollInFlight = false;
+      if (r && r.status >= 200 && r.status < 300) {
+        try {
+          if (r.responseText === lastPollResponse) { setSyncDot("live"); return; }
+          lastPollResponse = r.responseText;
+          const data = JSON.parse(r.responseText);
+          queuePatch("/", data);
+          if (_dbg.recordPoll) _dbg.recordPoll();
+          if (_dbg.verbosePoll) console.log("[ChainCoord] Poll OK — bytes:", r.responseText.length);
+          setSyncDot("live");
+          showBanner("chain-banner-debug", false);
+        } catch(e) {
+          const snippet = r.responseText ? r.responseText.slice(0, 120) : "(empty)";
+          console.warn("[ChainCoord] Poll parse error:", e.message || String(e), "| response:", snippet);
+        }
+      } else {
+        setSyncDot("error");
+        const status = r ? r.status : 0;
+        if (status === 401 || status === 403) {
+          if (fbRefreshToken) {
+            fbRefreshIdToken();
+            if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
+            setTimeout(() => { fbStartMainListener(); }, 3000);
+          } else {
+            showBanner("chain-banner-locked", true);
+            showBanner("chain-banner-debug", false);
+            if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
+          }
+        } else {
+          let msg = r ? r.responseText : "";
+          try { msg = JSON.parse(msg).error || msg; } catch { /**/ }
+          showErrorBanner("❌ Poll failed " + status + ": " + msg);
+          console.warn("[ChainCoord] Poll failed", status, r && r.responseText);
+        }
+      }
+    }
+
+    // TornPDA: Firebase GETs have silent callbacks — route through proxy
+    if (isTornPDA && TCC_PROXY_URL) {
+      _tccProxy("GET", P.root(), null,
+        _handlePollResult,
+        () => { pollInFlight = false; setSyncDot("error"); },
+        () => { pollInFlight = false; setSyncDot("error"); },
+        8000
+      );
+      return;
+    }
+
     _xhrTracked({
       method: "GET",
       url: P.root(),
       headers: { "Cache-Control": "no-cache" },
       timeout: 8000,
-      onload(r) {
-        pollInFlight = false;
-        if (r.status >= 200 && r.status < 300) {
-          try {
-            // Skip full parse+render if response text is identical to last poll.
-            // Firebase caches responses up to 30s server-side, so identical strings
-            // are common between updates. This cuts CPU by ~60% during idle periods.
-            if (r.responseText === lastPollResponse) {
-              setSyncDot("live");
-              return;
-            }
-            lastPollResponse = r.responseText;
-            const data = JSON.parse(r.responseText);
-            queuePatch("/", data);
-            if (_dbg.recordPoll) _dbg.recordPoll();
-            if (_dbg.verbosePoll) console.log("[ChainCoord] Poll OK — status:", r.status, "| bytes:", r.responseText.length, "| changed:", r.responseText !== lastPollResponse);
-            setSyncDot("live");
-            showBanner("chain-banner-debug", false);
-          } catch(e) {
-            const snippet = r.responseText ? r.responseText.slice(0, 120) : "(empty)";
-            console.warn("[ChainCoord] Poll parse error:", e.message || String(e), "| response:", snippet);
-          }
-        } else {
-          setSyncDot("error");
-          if (r.status === 401 || r.status === 403) {
-            // Could be expired token or whitelist denial.
-            // Try refreshing the token first — if that fixes it, it was expiry not whitelist.
-            if (fbRefreshToken) {
-              fbRefreshIdToken();
-              // Restart poll after a short delay to let the refresh complete
-              if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
-              setTimeout(() => { fbStartMainListener(); }, 3000);
-            } else {
-              // No refresh token — must be a genuine permission denial
-              showBanner("chain-banner-locked", true);
-              showBanner("chain-banner-debug", false);
-              if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
-            }
-          } else {
-            let msg = r.responseText;
-            try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
-            showErrorBanner("❌ Poll failed "+r.status+": "+msg);
-            console.warn("[ChainCoord] Poll failed", r.status, r.responseText);
-          }
-        }
-      },
+      onload:   _handlePollResult,
       onerror()  { pollInFlight=false; setSyncDot("error"); showErrorBanner("❌ Poll network error — check @connect firebaseio.com"); },
       ontimeout(){ pollInFlight=false; setSyncDot("error"); },
     });
