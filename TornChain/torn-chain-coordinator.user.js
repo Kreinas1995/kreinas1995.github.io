@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.2
+// @version      5.8.3
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -323,6 +323,11 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
+  // ── v5.8.3 ────────────────────────────────────────────────────────────────
+  // • TornPDA fix: Restored simulate-tap boot path dropped in v5.8.1 — on TornPDA
+  //   with a stored key, boot now sets apiInput.value and calls apiSave.click(),
+  //   using the same code path as a manual Save tap rather than calling
+  //   fetchOwnProfile() directly (which bypasses key persistence side-effects).
   // ── v5.8.2 ────────────────────────────────────────────────────────────────
   // • TornPDA fix: Reverted broken X-HTTP-Method-Override header approach —
   //   Firebase RTDB does not honour that header. Restored _tccProxy / TCC_PROXY_URL
@@ -367,7 +372,7 @@
   //   data is lost despite the background silence.
   // • pollFactionChain rate-limit backoff: error 5 (too many requests) now skips
   //   4 poll cycles (~20s) instead of retrying immediately on the next tick.
-  const CURRENT_VERSION  = "5.8.2";
+  const CURRENT_VERSION  = "5.8.3";
   // Cloud Function proxy for TornPDA — handles PUT/DELETE that TornPDA's GM bridge
   // cannot send natively. Deploy functions/index.js (tccProxy) to your Firebase
   // project and paste the URL here. Set to null to disable (TornPDA writes will fail).
@@ -6810,7 +6815,21 @@
     const noKeyBanner = document.getElementById("chain-banner-nokey");
     if (noKeyBanner) noKeyBanner.textContent = "⚠ No API key — tap the API button to enter your key (TornPDA: key must be re-entered after each script update).";
   }
-  fetchOwnProfile();
+  if (isTornPDA && tornApiKey) {
+    // Simulate pressing Save on the API key popover — this uses the exact same
+    // code path that works when the user taps Save manually, bypassing any
+    // timing issues with GM_xmlhttpRequest during script initialisation.
+    const apiInputEl = document.getElementById("chain-api-input");
+    const apiSaveEl  = document.getElementById("chain-api-save");
+    if (apiInputEl && apiSaveEl) {
+      apiInputEl.value = tornApiKey;
+      apiSaveEl.click();
+    } else {
+      fetchOwnProfile();
+    }
+  } else {
+    fetchOwnProfile();
+  }
   if (!isTornPDA) injectTargetButtons();
   updateVersionUI();   // set initial badge state before Firebase connects
   // checkForUpdate() is called from inside the lobby check-in callback, once fbUid
