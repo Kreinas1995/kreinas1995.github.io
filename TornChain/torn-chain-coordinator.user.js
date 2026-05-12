@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.4
+// @version      5.8.5
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/factions.php*
@@ -323,6 +323,11 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
+  // ── v5.8.5 ────────────────────────────────────────────────────────────────
+  // • Diagnostic: added console.log to fbGet and fbPollOnce proxy branches to
+  //   confirm whether isTornPDA+TCC_PROXY_URL branch is reached, and log the
+  //   proxy response status+body. This will reveal whether the cloud function
+  //   is rejecting GET requests or the branch is not being entered at all.
   // ── v5.8.4 ────────────────────────────────────────────────────────────────
   // • TornPDA fix: Firebase GETs were also silently dropped by TornPDA's GM
   //   bridge for non-api.torn.com domains — not just PUT/DELETE. This meant
@@ -378,7 +383,7 @@
   //   data is lost despite the background silence.
   // • pollFactionChain rate-limit backoff: error 5 (too many requests) now skips
   //   4 poll cycles (~20s) instead of retrying immediately on the next tick.
-  const CURRENT_VERSION  = "5.8.4";
+  const CURRENT_VERSION  = "5.8.5";
   // Cloud Function proxy for TornPDA — handles PUT/DELETE that TornPDA's GM bridge
   // cannot send natively. Deploy functions/index.js (tccProxy) to your Firebase
   // project and paste the URL here. Set to null to disable (TornPDA writes will fail).
@@ -3950,10 +3955,14 @@
   function fbGet(url, onData) {
     if (!fbConfigured()) return;
     if (isTornPDA && TCC_PROXY_URL) {
+      console.log("[ChainCoord] fbGet TornPDA proxy GET:", url.replace(/auth=[^&]+/,"auth=***").slice(0,80));
       _tccProxy("GET", url, null,
-        (r) => { try { if (r.status >= 200 && r.status < 300) onData(JSON.parse(r.responseText)); } catch(e) { console.warn("[ChainCoord] fbGet proxy parse error", e); } },
-        () => { console.warn("[ChainCoord] fbGet proxy onerror", url.replace(/auth=[^&]+/,"auth=***").slice(0,60)); },
-        () => { console.warn("[ChainCoord] fbGet proxy timeout", url.replace(/auth=[^&]+/,"auth=***").slice(0,60)); },
+        (r) => {
+          console.log("[ChainCoord] fbGet proxy result status:", r && r.status, "body:", r && r.responseText && r.responseText.slice(0,80));
+          try { if (r.status >= 200 && r.status < 300) onData(JSON.parse(r.responseText)); } catch(e) { console.warn("[ChainCoord] fbGet proxy parse error", e); }
+        },
+        (e) => { console.warn("[ChainCoord] fbGet proxy onerror", url.replace(/auth=[^&]+/,"auth=***").slice(0,60), e); },
+        (e) => { console.warn("[ChainCoord] fbGet proxy timeout", url.replace(/auth=[^&]+/,"auth=***").slice(0,60)); },
         10000
       );
       return;
@@ -4326,6 +4335,7 @@
 
     // TornPDA: Firebase GETs have silent callbacks — route through proxy
     if (isTornPDA && TCC_PROXY_URL) {
+      console.log("[ChainCoord] fbPollOnce TornPDA proxy GET");
       _tccProxy("GET", P.root(), null,
         _handlePollResult,
         () => { pollInFlight = false; setSyncDot("error"); },
