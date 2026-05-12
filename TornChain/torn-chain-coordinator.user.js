@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.13
+// @version      5.8.14
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,13 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.13";
+  const CURRENT_VERSION  = "5.8.14";
+  // ── v5.8.14 ───────────────────────────────────────────────────────────────
+  // • TornPDA timer: dismiss now fires a second tap on the chain bar (toggle
+  //   close) plus the full suite of pointerdown/mousedown/pointerup/mouseup/click
+  //   on document.body covering all floating-ui outside-click patterns. Poll
+  //   reduced to 700ms max; dismiss fires immediately once observer attaches
+  //   rather than waiting out the full poll window.
   // ── v5.8.13 ───────────────────────────────────────────────────────────────
   // • TornPDA timer: fixed tooltip staying open after observer attached. The
   //   dismiss now always fires after the 50ms poll loop (whether or not attach
@@ -4971,14 +4977,23 @@
         hiddenPortals.forEach(n => { if (n.isConnected) n.style.setProperty('visibility', 'hidden', 'important'); });
       }, 30);
 
-      // Dismiss helper: fire touch/click away from the chain bar to close the tooltip.
+      // Dismiss helper: second tap on chain bar toggles the tooltip closed,
+      // plus outside-click events covering all floating-ui dismiss patterns.
       const dismiss = () => {
         clearInterval(portalWatcher);
-        // Tap at a safe offscreen-ish point (top-left corner) to dismiss tooltip
-        document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
-        document.body.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
-        // Also try clicking document to close any floating-ui tooltip
-        document.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        // Second tap on the chain bar — most reliable toggle-close
+        const t2 = mkTouch();
+        if (t2) {
+          chainBar.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t2], targetTouches: [t2], changedTouches: [t2] }));
+          chainBar.dispatchEvent(new TouchEvent('touchend',   { bubbles: true, cancelable: true, touches: [],   targetTouches: [],   changedTouches: [t2] }));
+        }
+        chainBar.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+        // Belt-and-suspenders: outside-click events that floating-ui listens to
+        document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+        document.body.dispatchEvent(new MouseEvent('mousedown',     { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+        document.body.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+        document.body.dispatchEvent(new MouseEvent('mouseup',       { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+        document.body.dispatchEvent(new MouseEvent('click',         { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
         setTimeout(() => {
           hiddenPortals.forEach(n => n.style.removeProperty('visibility'));
           hiddenPortals.clear();
@@ -5001,7 +5016,7 @@
       const findAndAttach = setInterval(() => {
         polls++;
         const attached = startChainTimerObserver();
-        if (attached || polls >= 20) {  // max 1s wait
+        if (attached || polls >= 14) {  // max 700ms wait, dismiss immediately on attach
           clearInterval(findAndAttach);
           dismiss();
           if (!attached && ++attempts < 15) setTimeout(tryTouch, 2000);
