@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.20
+// @version      5.8.21
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,9 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.20";
+  const CURRENT_VERSION  = "5.8.21";
+  // ── v5.8.21 ───────────────────────────────────────────────────────────────
+  // Settings menu collpasible. Opacity marked as !important. Browser details now optional toggle.
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -525,6 +527,7 @@
   const SK_MINI_SHOW_COUNT  = "chain_mini_show_count";       // bool: show chain count in mini pill
   const SK_AUTO_EXPAND_DUE  = "chain_auto_expand_due";       // bool: auto-switch to full view when hit is due
   const SK_DEBUG_CONSOLE    = "chain_debug_console";          // bool: show debug console panel
+  const SK_SHOW_BROWSER     = "chain_show_browser";           // bool: show browser tag in online presence
 
   // ─── App state ────────────────────────────────────────────────────────────
   // Read API key: localStorage first (survives TM UUID changes on reinstall /
@@ -617,6 +620,7 @@
   let settMiniShowCount  = _gmGet(SK_MINI_SHOW_COUNT,  true);
   let settAutoExpandDue  = _gmGet(SK_AUTO_EXPAND_DUE,  false);
   let settDebugConsole   = _gmGet(SK_DEBUG_CONSOLE,    false);
+  let settShowBrowser    = _gmGet(SK_SHOW_BROWSER,     true);
 
   // Boot-time resync: force-write all settings back to both GM and localStorage.
   // On Opera GX with Violentmonkey, paste-installing creates a new UUID namespace
@@ -636,6 +640,7 @@
     _gmSet(SK_MINI_SHOW_COUNT,  settMiniShowCount);
     _gmSet(SK_AUTO_EXPAND_DUE,  settAutoExpandDue);
     _gmSet(SK_DEBUG_CONSOLE,    settDebugConsole);
+    _gmSet(SK_SHOW_BROWSER,     settShowBrowser);
   })();
   // Notification sound (AudioContext, created lazily)
   let _notifyAudioCtx    = null;
@@ -1080,9 +1085,16 @@
     .chain-sett-section-hdr {
       font-size:9px; font-weight:700; color:#445; letter-spacing:.5px; text-transform:uppercase;
       padding:8px 0 3px; border-top:1px solid rgba(255,255,255,.06); margin-top:2px;
-      flex-shrink:0;
+      flex-shrink:0; cursor:pointer; display:flex; align-items:center; gap:5px;
+      user-select:none;
     }
     .chain-sett-section-hdr:first-child { border-top:none; padding-top:2px; margin-top:0; }
+    .chain-sett-section-hdr .chain-sett-section-arrow {
+      font-size:7px; transition:transform .15s; display:inline-block; color:#445; flex-shrink:0;
+    }
+    .chain-sett-section-hdr.open .chain-sett-section-arrow { transform:rotate(90deg); }
+    .chain-sett-section-body { display:none; flex-direction:column; }
+    .chain-sett-section-body.open { display:flex; }
     .chain-sett-row {
       display:flex; flex-direction:column; gap:2px;
       padding:6px 0 6px 8px; border-radius:6px; cursor:pointer;
@@ -1559,103 +1571,123 @@
         <div id="chain-settings-body" style="display:flex;flex-direction:column;gap:0;overflow-y:auto;flex:1;">
 
           <!-- Section: Display -->
-          <div class="chain-sett-section-hdr">🖥 Display</div>
+          <div class="chain-sett-section-hdr" data-section="display"><span class="chain-sett-section-arrow">▶</span>🖥 Display</div>
+          <div class="chain-sett-section-body" id="chain-sett-body-display">
 
-          <label class="chain-sett-row">
-            <span class="chain-sett-label">Show done hits</span>
-            <span class="chain-sett-desc">Keep completed hits visible in the list</span>
-            <input type="checkbox" id="sett-show-done" class="chain-sett-toggle">
-          </label>
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">Show done hits</span>
+              <span class="chain-sett-desc">Keep completed hits visible in the list</span>
+              <input type="checkbox" id="sett-show-done" class="chain-sett-toggle">
+            </label>
 
-          <label class="chain-sett-row">
-            <span class="chain-sett-label">Compact rows</span>
-            <span class="chain-sett-desc">Tighter row height for more hits on screen</span>
-            <input type="checkbox" id="sett-compact" class="chain-sett-toggle">
-          </label>
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">Compact rows</span>
+              <span class="chain-sett-desc">Tighter row height for more hits on screen</span>
+              <input type="checkbox" id="sett-compact" class="chain-sett-toggle">
+            </label>
 
-          <label class="chain-sett-row">
-            <span class="chain-sett-label">Highlight bonus hits</span>
-            <span class="chain-sett-desc">Gold row glow at 10, 25, 50, 100… hits</span>
-            <input type="checkbox" id="sett-bonus-alert" class="chain-sett-toggle">
-          </label>
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">Highlight bonus hits</span>
+              <span class="chain-sett-desc">Gold row glow at 10, 25, 50, 100… hits</span>
+              <input type="checkbox" id="sett-bonus-alert" class="chain-sett-toggle">
+            </label>
 
-          <label class="chain-sett-row">
-            <span class="chain-sett-label">Show count in mini pill</span>
-            <span class="chain-sett-desc">Display chain count number in mini view</span>
-            <input type="checkbox" id="sett-mini-count" class="chain-sett-toggle">
-          </label>
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">Show count in mini pill</span>
+              <span class="chain-sett-desc">Display chain count number in mini view</span>
+              <input type="checkbox" id="sett-mini-count" class="chain-sett-toggle">
+            </label>
 
-          <div class="chain-sett-row chain-sett-row-slider">
-            <span class="chain-sett-label">Panel opacity</span>
-            <span class="chain-sett-desc">Background transparency of the panel</span>
-            <div class="chain-sett-slider-wrap">
-              <input type="range" id="sett-opacity" class="chain-sett-slider" min="50" max="100" step="5">
-              <span id="sett-opacity-val" class="chain-sett-slider-val">96%</span>
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">Show browser in presence</span>
+              <span class="chain-sett-desc">Display browser tag (Chrome, Firefox…) next to version in online list</span>
+              <input type="checkbox" id="sett-show-browser" class="chain-sett-toggle">
+            </label>
+
+            <div class="chain-sett-row chain-sett-row-slider">
+              <span class="chain-sett-label">Panel opacity</span>
+              <span class="chain-sett-desc">Background transparency of the panel</span>
+              <div class="chain-sett-slider-wrap">
+                <input type="range" id="sett-opacity" class="chain-sett-slider" min="50" max="100" step="5">
+                <span id="sett-opacity-val" class="chain-sett-slider-val">96%</span>
+              </div>
             </div>
+
           </div>
 
           <!-- Section: Timer -->
-          <div class="chain-sett-section-hdr">⏱ Timer</div>
+          <div class="chain-sett-section-hdr" data-section="timer"><span class="chain-sett-section-arrow">▶</span>⏱ Timer</div>
+          <div class="chain-sett-section-body" id="chain-sett-body-timer">
 
-          <div class="chain-sett-row chain-sett-row-slider">
-            <span class="chain-sett-label">Warn color threshold</span>
-            <span class="chain-sett-desc">Seconds remaining when timer turns yellow</span>
-            <div class="chain-sett-slider-wrap">
-              <input type="range" id="sett-warn" class="chain-sett-slider" min="30" max="180" step="10">
-              <span id="sett-warn-val" class="chain-sett-slider-val">90s</span>
+            <div class="chain-sett-row chain-sett-row-slider">
+              <span class="chain-sett-label">Warn color threshold</span>
+              <span class="chain-sett-desc">Seconds remaining when timer turns yellow</span>
+              <div class="chain-sett-slider-wrap">
+                <input type="range" id="sett-warn" class="chain-sett-slider" min="30" max="180" step="10">
+                <span id="sett-warn-val" class="chain-sett-slider-val">90s</span>
+              </div>
             </div>
-          </div>
 
-          <div class="chain-sett-row chain-sett-row-slider">
-            <span class="chain-sett-label">Danger color threshold</span>
-            <span class="chain-sett-desc">Seconds remaining when timer turns red</span>
-            <div class="chain-sett-slider-wrap">
-              <input type="range" id="sett-danger" class="chain-sett-slider" min="10" max="90" step="5">
-              <span id="sett-danger-val" class="chain-sett-slider-val">30s</span>
+            <div class="chain-sett-row chain-sett-row-slider">
+              <span class="chain-sett-label">Danger color threshold</span>
+              <span class="chain-sett-desc">Seconds remaining when timer turns red</span>
+              <div class="chain-sett-slider-wrap">
+                <input type="range" id="sett-danger" class="chain-sett-slider" min="10" max="90" step="5">
+                <span id="sett-danger-val" class="chain-sett-slider-val">30s</span>
+              </div>
             </div>
-          </div>
 
-          <div class="chain-sett-row chain-sett-row-slider">
-            <span class="chain-sett-label">Timer offset</span>
-            <span class="chain-sett-desc">Adjust displayed timer by ±N seconds (latency compensation)</span>
-            <div class="chain-sett-slider-wrap">
-              <input type="range" id="sett-fudge" class="chain-sett-slider" min="-15" max="15" step="1">
-              <span id="sett-fudge-val" class="chain-sett-slider-val">0s</span>
+            <div class="chain-sett-row chain-sett-row-slider">
+              <span class="chain-sett-label">Timer offset</span>
+              <span class="chain-sett-desc">Adjust displayed timer by ±N seconds (latency compensation)</span>
+              <div class="chain-sett-slider-wrap">
+                <input type="range" id="sett-fudge" class="chain-sett-slider" min="-15" max="15" step="1">
+                <span id="sett-fudge-val" class="chain-sett-slider-val">0s</span>
+              </div>
             </div>
+
           </div>
 
           <!-- Section: Behaviour -->
-          <div class="chain-sett-section-hdr">🎯 Behaviour</div>
+          <div class="chain-sett-section-hdr" data-section="behaviour"><span class="chain-sett-section-arrow">▶</span>🎯 Behaviour</div>
+          <div class="chain-sett-section-body" id="chain-sett-body-behaviour">
 
-          <label class="chain-sett-row">
-            <span class="chain-sett-label">Sound alert when hit is due</span>
-            <span class="chain-sett-desc">Short beep when your queued hit window opens</span>
-            <input type="checkbox" id="sett-sound" class="chain-sett-toggle">
-          </label>
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">Sound alert when hit is due</span>
+              <span class="chain-sett-desc">Short beep when your queued hit window opens</span>
+              <input type="checkbox" id="sett-sound" class="chain-sett-toggle">
+            </label>
 
-          <label class="chain-sett-row">
-            <span class="chain-sett-label">Auto-expand to full when due</span>
-            <span class="chain-sett-desc">Switch from mini/icon to full view when it's your hit</span>
-            <input type="checkbox" id="sett-auto-expand" class="chain-sett-toggle">
-          </label>
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">Auto-expand to full when due</span>
+              <span class="chain-sett-desc">Switch from mini/icon to full view when it's your hit</span>
+              <input type="checkbox" id="sett-auto-expand" class="chain-sett-toggle">
+            </label>
+
+          </div>
 
           <!-- Section: Debug -->
-          <div class="chain-sett-section-hdr">🔬 Debug</div>
+          <div class="chain-sett-section-hdr" data-section="debug"><span class="chain-sett-section-arrow">▶</span>🔬 Debug</div>
+          <div class="chain-sett-section-body" id="chain-sett-body-debug">
 
-          <label class="chain-sett-row">
-            <span class="chain-sett-label">Show debug console button</span>
-            <span class="chain-sett-desc">Adds a 🔬 Debug Console entry to the ⚙️ menu (off by default)</span>
-            <input type="checkbox" id="sett-debug-console" class="chain-sett-toggle">
-          </label>
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">Show debug console button</span>
+              <span class="chain-sett-desc">Adds a 🔬 Debug Console entry to the ⚙️ menu (off by default)</span>
+              <input type="checkbox" id="sett-debug-console" class="chain-sett-toggle">
+            </label>
+
+          </div>
 
           <!-- Section: Reset -->
-          <div class="chain-sett-section-hdr" style="margin-top:4px;">🔧 Reset</div>
-          <div style="display:flex;gap:6px;padding:6px 0 2px;">
-            <button id="sett-reset-pos" class="chain-sett-action-btn">Reset Position</button>
-            <button id="sett-reset-size" class="chain-sett-action-btn">Reset Size</button>
-            <button id="sett-reset-all" class="chain-sett-action-btn danger">Reset All</button>
+          <div class="chain-sett-section-hdr" data-section="reset"><span class="chain-sett-section-arrow">▶</span>🔧 Reset</div>
+          <div class="chain-sett-section-body" id="chain-sett-body-reset">
+            <div style="display:flex;gap:6px;padding:6px 0 2px;">
+              <button id="sett-reset-pos" class="chain-sett-action-btn">Reset Position</button>
+              <button id="sett-reset-size" class="chain-sett-action-btn">Reset Size</button>
+              <button id="sett-reset-all" class="chain-sett-action-btn danger">Reset All</button>
+            </div>
+            <div id="chain-sett-status" style="font-size:10px;color:#44ff88;min-height:13px;text-align:center;padding-bottom:2px;"></div>
           </div>
-          <div id="chain-sett-status" style="font-size:10px;color:#44ff88;min-height:13px;text-align:center;padding-bottom:2px;"></div>
 
         </div>
         <button id="chain-settings-close" style="padding:5px 0;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#888;flex-shrink:0;margin-top:6px;">Close</button>
@@ -2186,7 +2218,7 @@
   // ── Settings: wire all controls ──────────────────────────────────────────
   (function wireSettings() {
     function applyPanelOpacity(v) {
-      panel.style.background = `rgba(16,18,24,${v})`;
+      panel.style.setProperty("background", `rgba(16,18,24,${v})`, "important");
     }
     function applyCompactMode(on) {
       if (on) {
@@ -2662,6 +2694,7 @@
       const sc   = document.getElementById("sett-compact");
       const sb   = document.getElementById("sett-bonus-alert");
       const smc  = document.getElementById("sett-mini-count");
+      const ssbr = document.getElementById("sett-show-browser");
       const sop  = document.getElementById("sett-opacity");
       const sopv = document.getElementById("sett-opacity-val");
       const sw   = document.getElementById("sett-warn");
@@ -2674,13 +2707,14 @@
       const sae  = document.getElementById("sett-auto-expand");
       const sdc  = document.getElementById("sett-debug-console");
 
-      if (sd)  sd.checked  = settShowDoneHits;
-      if (sc)  sc.checked  = settCompactMode;
-      if (sb)  sb.checked  = settShowBonusAlert;
-      if (smc) smc.checked = settMiniShowCount;
-      if (ss)  ss.checked  = settNotifySound;
-      if (sae) sae.checked = settAutoExpandDue;
-      if (sdc) sdc.checked = settDebugConsole;
+      if (sd)   sd.checked   = settShowDoneHits;
+      if (sc)   sc.checked   = settCompactMode;
+      if (sb)   sb.checked   = settShowBonusAlert;
+      if (smc)  smc.checked  = settMiniShowCount;
+      if (ssbr) ssbr.checked = settShowBrowser;
+      if (ss)   ss.checked   = settNotifySound;
+      if (sae)  sae.checked  = settAutoExpandDue;
+      if (sdc)  sdc.checked  = settDebugConsole;
 
       if (sop)  { sop.value  = Math.round(settPanelOpacity * 100); }
       if (sopv) { sopv.textContent = Math.round(settPanelOpacity * 100) + "%"; }
@@ -2720,6 +2754,11 @@
     wireCheckbox("sett-mini-count", v => {
       settMiniShowCount = v; _gmSet(SK_MINI_SHOW_COUNT, v); applyMiniCountVisibility(v);
     });
+    wireCheckbox("sett-show-browser", v => {
+      settShowBrowser = v; _gmSet(SK_SHOW_BROWSER, v);
+      // Re-render presence popover if it's currently open
+      if (presencePopover && presencePopover.classList.contains("open")) renderPresence();
+    });
     wireCheckbox("sett-sound", v => {
       settNotifySound = v; _gmSet(SK_NOTIFY_SOUND, v); if (v) playDueSound();
     });
@@ -2730,6 +2769,29 @@
       settDebugConsole = v; _gmSet(SK_DEBUG_CONSOLE, v); applyDebugConsole(v);
     });
 
+    // ── Collapsible section headers ───────────────────────────────────────────
+    // All sections start collapsed. Clicking a header toggles its body.
+    (function wireCollapsibleSections() {
+      try {
+        const settBody = document.getElementById("chain-settings-body");
+        if (!settBody) return;
+        settBody.querySelectorAll(".chain-sett-section-hdr[data-section]").forEach(hdr => {
+          const section = hdr.dataset.section;
+          const body    = document.getElementById("chain-sett-body-" + section);
+          if (!body) return;
+          // Start collapsed
+          hdr.classList.remove("open");
+          body.classList.remove("open");
+          hdr.addEventListener("click", e => {
+            e.stopPropagation();
+            const isOpen = body.classList.contains("open");
+            hdr.classList.toggle("open", !isOpen);
+            body.classList.toggle("open", !isOpen);
+          });
+        });
+      } catch (_) { /**/ }
+    })();
+
     // Slider handlers
     document.getElementById("sett-opacity")?.addEventListener("input", e => {
       const v = parseInt(e.target.value) / 100;
@@ -2739,12 +2801,20 @@
       if (sopv) sopv.textContent = Math.round(v * 100) + "%";
     });
     document.getElementById("sett-warn")?.addEventListener("input", e => {
-      settWarnThreshold = parseInt(e.target.value); _gmSet(SK_WARN_THRESHOLD, settWarnThreshold);
+      // Yellow must always be strictly above red — clamp upward if needed
+      const raw = parseInt(e.target.value);
+      settWarnThreshold = Math.max(raw, settDangerThreshold + 10);
+      e.target.value = settWarnThreshold;
+      _gmSet(SK_WARN_THRESHOLD, settWarnThreshold);
       const swv = document.getElementById("sett-warn-val");
       if (swv) swv.textContent = settWarnThreshold + "s";
     });
     document.getElementById("sett-danger")?.addEventListener("input", e => {
-      settDangerThreshold = parseInt(e.target.value); _gmSet(SK_DANGER_THRESHOLD, settDangerThreshold);
+      // Red must always be strictly below yellow — clamp downward if needed
+      const raw = parseInt(e.target.value);
+      settDangerThreshold = Math.min(raw, settWarnThreshold - 10);
+      e.target.value = settDangerThreshold;
+      _gmSet(SK_DANGER_THRESHOLD, settDangerThreshold);
       const sdgv = document.getElementById("sett-danger-val");
       if (sdgv) sdgv.textContent = settDangerThreshold + "s";
     });
@@ -2771,13 +2841,14 @@
       if (!confirm("Reset ALL settings to defaults?")) return;
       [SK_SHOW_DONE_HITS, SK_COMPACT_MODE, SK_NOTIFY_SOUND, SK_TIMER_FUDGE_USR,
        SK_PANEL_OPACITY, SK_WARN_THRESHOLD, SK_DANGER_THRESHOLD, SK_SHOW_BONUS_ALERT,
-       SK_MINI_SHOW_COUNT, SK_AUTO_EXPAND_DUE, SK_DEBUG_CONSOLE, SK_PANEL_W, SK_PANEL_H,
+       SK_MINI_SHOW_COUNT, SK_AUTO_EXPAND_DUE, SK_DEBUG_CONSOLE, SK_SHOW_BROWSER,
+       SK_PANEL_W, SK_PANEL_H,
        SK_POS_X_FULL, SK_POS_Y_FULL, SK_POS_X_ICON, SK_POS_Y_ICON, SK_POS_X_MINI, SK_POS_Y_MINI
       ].forEach(k => _gmSet(k, null));
       settShowDoneHits = true; settCompactMode = false; settNotifySound = false;
       settTimerFudge = 0; settPanelOpacity = 0.96; settWarnThreshold = 90;
       settDangerThreshold = 30; settShowBonusAlert = true; settMiniShowCount = true;
-      settAutoExpandDue = false; settDebugConsole = false;
+      settAutoExpandDue = false; settDebugConsole = false; settShowBrowser = true;
       applyDebugConsole(false);
       applyPanelOpacity(0.96); applyCompactMode(false); applyMiniCountVisibility(true);
       panelW = 380; panelH = null; panel.style.width = panelW + "px"; panel.style.height = "";
@@ -2911,7 +2982,7 @@
     else if (ma2===ma)                                color = "#ff9933";
     else                                              color = "#ff4444";
     const verPart     = ver     ? `v${escHtml(ver)}`          : "?";
-    const browserPart = browser ? ` (${escHtml(browser)})`    : "";
+    const browserPart = (browser && settShowBrowser) ? ` (${escHtml(browser)})` : "";
     return `<span class="chain-presence-ver" style="color:${color};font-size:10px" title="${escHtml(ver||"unknown")} · ${escHtml(browser||"unknown")}">${verPart}${browserPart}</span>`;
   }
 
