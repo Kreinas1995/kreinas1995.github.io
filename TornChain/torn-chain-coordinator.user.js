@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.6
+// @version      5.8.7
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,11 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.6";
+  const CURRENT_VERSION  = "5.8.7";
+  // ── v5.8.7 ────────────────────────────────────────────────────────────────
+  // • Fix: browser tag was missing from /factions/{fid}/members writes (fbRegisterMember
+  //   and fbHeartbeat). presenceMap is populated from members, not lobby, so m.browser
+  //   was always undefined — session badges showed version only, no browser name.
   // ── v5.8.6 ────────────────────────────────────────────────────────────────
   // • Rebased on v5.7.5: restored all @connect headers (cloudfunctions.net etc)
   //   and _ua.includes("tornpda") detection dropped in v5.8.1–5.8.5, which
@@ -4078,7 +4082,7 @@
         _memberVersionToWrite = CURRENT_VERSION;
       }
       _memberVersionConfirmed = true;
-      fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: _memberVersionToWrite });
+      fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: _memberVersionToWrite, browser: _browserTag });
     });
     fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
   }
@@ -4114,7 +4118,7 @@
           // Write member record using cached version — no inner GET needed.
           // _memberVersionToWrite starts as CURRENT_VERSION and is only updated
           // if fbRegisterMember() reads a newer version stored by another device.
-          fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: _memberVersionToWrite });
+          fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: _memberVersionToWrite, browser: _browserTag });
           fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
         } else {
           heartbeatFailCount++;
