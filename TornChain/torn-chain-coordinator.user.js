@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.7
+// @version      5.8.10
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,26 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.7";
+  const CURRENT_VERSION  = "5.8.10";
+  // ── v5.8.10 ───────────────────────────────────────────────────────────────
+  // • Freeze fix (Opera, script disabled): console patch now bails immediately
+  //   unless the first argument is a string containing "[ChainCoord]". Torn's
+  //   Sendbird chat fires 15+ console.warn calls/min with large error objects —
+  //   JSON.stringify on each was causing freezes even after TCC was disabled in
+  //   Tampermonkey, because the console patch persists for the page session.
+  // ── v5.8.9 ────────────────────────────────────────────────────────────────
+  // • Freeze fix (foreground tab, UI minimized/icon): syncPendingScheduledAt()
+  //   now additionally requires viewMode===0 && chainStartTime — it's only useful
+  //   when the full panel is open and a chain is active, so running it every second
+  //   in icon/mini mode or between chains was pure wasted work causing freezes even
+  //   with the UI "disabled". Notification sort similarly gated on chainStartTime.
+  // ── v5.8.8 ────────────────────────────────────────────────────────────────
+  // • Freeze fix (Opera/background tabs): syncPendingScheduledAt(), the timer-cell
+  //   DOM patch loop, and the notification sort in the 1s tick now skip entirely
+  //   when document.hidden is true. These were the primary source of background
+  //   freeze that 5.7.5 didn't have — 5.7.5 was stable overnight because it ran
+  //   significantly less work per tick. The poll functions had their guards added
+  //   in v5.8.6; these are the remaining heavy operations in the 1s interval.
   // ── v5.8.7 ────────────────────────────────────────────────────────────────
   // • Fix: browser tag was missing from /factions/{fid}/members writes (fbRegisterMember
   //   and fbHeartbeat). presenceMap is populated from members, not lobby, so m.browser
@@ -2148,6 +2167,12 @@
           const orig = console[level].bind(console);
           console[level] = function(...args) {
             orig(...args);
+            // Only capture TCC messages — Torn/Sendbird fires dozens of warns/min and
+            // running JSON.stringify on their large error objects on every call causes
+            // measurable freezes even when TCC is disabled in Tampermonkey (the patch
+            // persists for the page session). Filter to [ChainCoord] prefix only.
+            const first = args[0];
+            if (typeof first !== "string" || !first.includes("[ChainCoord]")) return;
             const msg = args.map(a => {
               if (a instanceof Error) return a.message + (a.stack ? "\n" + a.stack.split("\n").slice(1,3).join("\n") : "");
               try { return (typeof a === "object" && a !== null) ? JSON.stringify(a) : String(a); }
@@ -5811,7 +5836,7 @@
 
     // Re-anchor pending hit scheduledAt values to the live DOM timer so that
     // pendingCountdownMs() ticks smoothly at 1s rather than in Firebase poll steps.
-    syncPendingScheduledAt();
+    if (!document.hidden && viewMode === 0 && chainStartTime) syncPendingScheduledAt();
 
     // Rapid-retry: if a chain session is active but apiTimerSecs hasn't loaded yet
     // (e.g. first page load before CHAIN_POLL_MS fires), poll immediately every tick
@@ -5832,9 +5857,10 @@
       scheduleRender();
     }
 
-    // Patch timer cells — only when panel is fully visible (view-full).
+    // Patch timer cells — only when panel is fully visible (view-full) and tab is visible.
     // In icon/mini mode the rows are display:none so writes are wasted work.
-    if (viewMode === 0) {
+    // Skip entirely when document.hidden — was the primary cause of background freeze.
+    if (viewMode === 0 && !document.hidden) {
       // Pre-hoist shared values outside the loop
       const sortedPending = [...hitMap.values()]
         .filter(h => h.status === "pending")
@@ -5901,10 +5927,10 @@
     updateTopBarBadge();
 
     // ── Auto-expand + sound notification when OWN hit becomes due ────────────
-    if (settNotifySound || settAutoExpandDue) {
+    if ((settNotifySound || settAutoExpandDue) && !document.hidden && chainStartTime) {
       // Only fire alerts when the page is in the foreground — prevents background tabs
       // from beeping and auto-expanding continuously on every poll cycle.
-      const pageVisible = !document.hidden;
+      const pageVisible = true;  // already guarded by !document.hidden above
       const myPending = [...hitMap.values()].filter(h => h.status !== "done" && h.claimedBy === ownName)
         .sort((a, b) => a.scheduledAt - b.scheduledAt);
       if (myPending.length) {
