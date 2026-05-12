@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.12
+// @version      5.8.13
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,14 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.12";
+  const CURRENT_VERSION  = "5.8.13";
+  // ── v5.8.13 ───────────────────────────────────────────────────────────────
+  // • TornPDA timer: fixed tooltip staying open after observer attached. The
+  //   dismiss now always fires after the 50ms poll loop (whether or not attach
+  //   succeeded) — dispatches mousedown/mouseup on body + click on document to
+  //   close floating-ui tooltip. Portal watcher stops and visibility is restored
+  //   100ms after dismiss. Removed the premature early-return that skipped the
+  //   touch tap when bar-timeleft was already in DOM (boot already handles that).
   // ── v5.8.12 ───────────────────────────────────────────────────────────────
   // • TornPDA chain timer: added scheduleTouchTooltipTrigger() — on TornPDA the
   //   timer observer was never attempted (entire block was !isTornPDA guarded).
@@ -4941,61 +4948,66 @@
     let attempts = 0;
     const tryTouch = () => {
       if (chainTimerObserver) { _touchTriggerActive = false; return; }
-      // Try direct attach first — the element may now be in the DOM.
-      if (startChainTimerObserver()) { _touchTriggerActive = false; return; }
 
       const chainBar = document.querySelector('[class*="chain-bar"]:not(#chain-panel *)');
-      if (chainBar) {
-        // Hide any tooltip portal that appears so the user doesn't see a flash.
-        const hiddenPortals = new Set();
-        const hideNode = n => { n.style.setProperty('visibility', 'hidden', 'important'); hiddenPortals.add(n); };
-        const isTooltipNode = n => n instanceof Element && (
-          n.matches('[class*="tooltip"],[class*="floating"],[data-floating-ui-portal],[class*="popup"],[class*="Popup"],[class*="Tooltip"]')
-          || n.querySelector('[class*="bar-timeleft"],[class*="chainTimer"]')
-        );
-        // Watch for portal nodes appearing
-        const portalWatcher = setInterval(() => {
-          for (const child of document.body.children) {
-            if (!hiddenPortals.has(child) && isTooltipNode(child)) hideNode(child);
-          }
-          hiddenPortals.forEach(n => { if (n.isConnected) n.style.setProperty('visibility', 'hidden', 'important'); });
-        }, 50);
-
-        // Simulate touch tap
-        const rect = chainBar.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-        const mkTouch = () => { try { return new Touch({ identifier: Date.now(), target: chainBar, clientX: cx, clientY: cy, pageX: cx, pageY: cy }); } catch { return null; } };
-        const t = mkTouch();
-        if (t) {
-          chainBar.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t], targetTouches: [t], changedTouches: [t] }));
-          chainBar.dispatchEvent(new TouchEvent('touchend',   { bubbles: true, cancelable: true, touches: [],  targetTouches: [],  changedTouches: [t] }));
-        }
-        chainBar.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
-
-        // Poll for observer attachment, then dismiss
-        let polls = 0;
-        const findAndAttach = setInterval(() => {
-          polls++;
-          const attached = startChainTimerObserver();
-          if (attached || polls >= 20) {
-            clearInterval(findAndAttach);
-            clearInterval(portalWatcher);
-            hiddenPortals.forEach(n => n.style.removeProperty('visibility'));
-            hiddenPortals.clear();
-            if (!attached && attempts < 15) {
-              attempts++;
-              setTimeout(tryTouch, 2000);
-            } else {
-              _touchTriggerActive = false;
-            }
-          }
-        }, 50);
-        return; // wait for findAndAttach to finish before next attempt
+      if (!chainBar) {
+        // No chain bar yet — retry
+        if (++attempts < 30) setTimeout(tryTouch, 2000);
+        else _touchTriggerActive = false;
+        return;
       }
 
-      // No chain bar found yet — retry
-      if (++attempts < 30) setTimeout(tryTouch, 2000);
-      else _touchTriggerActive = false;
+      // Hide any tooltip portal that appears so the user doesn't see a flash.
+      const hiddenPortals = new Set();
+      const hideNode = n => { n.style.setProperty('visibility', 'hidden', 'important'); hiddenPortals.add(n); };
+      const isTooltipNode = n => n instanceof Element && (
+        n.matches('[class*="tooltip"],[class*="floating"],[data-floating-ui-portal],[class*="popup"],[class*="Popup"],[class*="Tooltip"]')
+        || n.querySelector('[class*="bar-timeleft"],[class*="chainTimer"]')
+      );
+      const portalWatcher = setInterval(() => {
+        for (const child of document.body.children) {
+          if (!hiddenPortals.has(child) && isTooltipNode(child)) hideNode(child);
+        }
+        hiddenPortals.forEach(n => { if (n.isConnected) n.style.setProperty('visibility', 'hidden', 'important'); });
+      }, 30);
+
+      // Dismiss helper: fire touch/click away from the chain bar to close the tooltip.
+      const dismiss = () => {
+        clearInterval(portalWatcher);
+        // Tap at a safe offscreen-ish point (top-left corner) to dismiss tooltip
+        document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+        document.body.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+        // Also try clicking document to close any floating-ui tooltip
+        document.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        setTimeout(() => {
+          hiddenPortals.forEach(n => n.style.removeProperty('visibility'));
+          hiddenPortals.clear();
+        }, 100);
+      };
+
+      // Simulate touch tap on chain bar
+      const rect = chainBar.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+      const mkTouch = () => { try { return new Touch({ identifier: Date.now(), target: chainBar, clientX: cx, clientY: cy, pageX: cx, pageY: cy }); } catch { return null; } };
+      const t = mkTouch();
+      if (t) {
+        chainBar.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t], targetTouches: [t], changedTouches: [t] }));
+        chainBar.dispatchEvent(new TouchEvent('touchend',   { bubbles: true, cancelable: true, touches: [],  targetTouches: [],  changedTouches: [t] }));
+      }
+      chainBar.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+
+      // Poll briefly for the timer element, then ALWAYS dismiss.
+      let polls = 0;
+      const findAndAttach = setInterval(() => {
+        polls++;
+        const attached = startChainTimerObserver();
+        if (attached || polls >= 20) {  // max 1s wait
+          clearInterval(findAndAttach);
+          dismiss();
+          if (!attached && ++attempts < 15) setTimeout(tryTouch, 2000);
+          else _touchTriggerActive = false;
+        }
+      }, 50);
     };
     setTimeout(tryTouch, 1000); // slight delay to let page settle
   }
