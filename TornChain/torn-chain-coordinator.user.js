@@ -351,8 +351,9 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.20";
-  // ── v5.8.20 ───────────────────────────────────────────────────────────────
+  const CURRENT_VERSION  = "5.8.24";
+  // ── 
+  v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
   //   independent intervals — the scraper can receive hit #N before the chain
