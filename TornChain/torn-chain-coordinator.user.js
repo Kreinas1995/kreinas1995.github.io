@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.26
+// @version      5.8.27
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -251,7 +251,18 @@
     _bgSavePersisted();
     const origErr     = details.onerror;
     const origTimeout = details.ontimeout;
+    // ViolentMonkey/Opera accumulates a per-URL response cache for GM_xmlhttpRequest.
+    // After a long chain session this cache grows large and persists even after the
+    // script is disabled, causing CPU lag until Opera is reinstalled. Fix: append a
+    // monotonic cache-bust param to every GET URL so each request is a distinct entry
+    // and VM never serves a stale cached response. Both Firebase REST and Torn API
+    // silently ignore unknown query parameters.
+    let bustUrl = details.url || "";
+    if (!details.method || details.method.toUpperCase() === "GET") {
+      bustUrl += (bustUrl.includes("?") ? "&" : "?") + "_cb=" + Date.now();
+    }
     const wrapped = Object.assign({}, details, {
+      url:       bustUrl,
       onerror:   function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); },
       ontimeout: function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origTimeout) origTimeout.apply(this, a); },
     });
@@ -351,7 +362,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.26";
+  const CURRENT_VERSION  = "5.8.27";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -4161,6 +4172,7 @@
     }
     _xhrTracked({
       method:"GET", url, timeout:10000,
+      headers: { "Cache-Control": "no-cache, no-store", "Pragma": "no-cache" },
       onload(r) {
         try { if(r.status>=200&&r.status<300) onData(JSON.parse(r.responseText)); }
         catch(e) { console.warn("[ChainCoord] fbGet parse error", e, r && r.responseText && r.responseText.slice(0,80)); }
@@ -4527,7 +4539,7 @@
     _xhrTracked({
       method: "GET",
       url: P.root(),
-      headers: { "Cache-Control": "no-cache" },
+      headers: { "Cache-Control": "no-cache, no-store", "Pragma": "no-cache" },
       timeout: 8000,
       onload(r) {
         pollInFlight = false;
