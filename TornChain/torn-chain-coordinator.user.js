@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.25
+// @version      5.8.26
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,7 +351,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.25";
+  const CURRENT_VERSION  = "5.8.26";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -604,7 +604,23 @@
   // Enforce minimum width in case a narrower value was saved previously
   if (panelW < 360) { panelW = 380; _gmSet(SK_PANEL_W, panelW); }
   let panelH        = _gmGet(SK_PANEL_H, null);
-  let viewMode      = isTornPDA ? 0 : _gmGet(SK_VIEW_MODE, 1);
+  // viewMode: read from GM storage (desktop) or sessionStorage (TornPDA — GM UUID
+  // is wiped on every paste-install so GM_getValue always returns null there).
+  // Default: icon (1) on desktop, full (0) on TornPDA only if nothing saved yet.
+  let viewMode;
+  {
+    const gmVal = GM_getValue(SK_VIEW_MODE, null);
+    if (gmVal !== null && gmVal !== undefined) {
+      viewMode = gmVal;
+    } else if (isTornPDA) {
+      try {
+        const ss = sessionStorage.getItem("tcc_view_mode");
+        viewMode = ss !== null ? parseInt(ss) : 0;
+      } catch(_) { viewMode = 0; }
+    } else {
+      viewMode = _gmGet(SK_VIEW_MODE, 1);
+    }
+  }
 
   // ─── User settings state ──────────────────────────────────────────────────
   let settShowDoneHits   = _gmGet(SK_SHOW_DONE_HITS,   true);
@@ -1904,11 +1920,17 @@
     }));
   }
 
+  // Persist viewMode to GM storage + sessionStorage (TornPDA fallback)
+  function _saveViewMode(v) {
+    _gmSet(SK_VIEW_MODE, v);
+    if (isTornPDA) { try { sessionStorage.setItem("tcc_view_mode", v); } catch(_) {} }
+  }
+
   // View button: full→icon, icon→mini, mini→full
   viewBtn.onclick = e => {
     e.stopPropagation();
     viewMode = (viewMode + 1) % 3;
-    _gmSet(SK_VIEW_MODE, viewMode);
+    _saveViewMode(viewMode);
     applyViewMode();
   };
 
@@ -1918,7 +1940,7 @@
     if (e.target === viewBtn || e.target.closest("#chain-panel-header button")) return;
     if (panel.dataset.justDragged === "1") { delete panel.dataset.justDragged; return; }
     viewMode = 2;
-    _gmSet(SK_VIEW_MODE, viewMode);
+    _saveViewMode(viewMode);
     applyViewMode();
   });
 
@@ -6240,7 +6262,7 @@
             _notifiedHitIds.add(first.id);
             playDueSound();
             if (settAutoExpandDue && viewMode !== 0) {
-              viewMode = 0; _gmSet(SK_VIEW_MODE, viewMode); applyViewMode();
+              viewMode = 0; _saveViewMode(viewMode); applyViewMode();
             }
           } else if (rem > 5000) {
             _notifiedHitIds.delete(first.id);
