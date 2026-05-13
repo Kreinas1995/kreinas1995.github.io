@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.21
+// @version      5.8.24
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,9 +351,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.21";
-  // ── v5.8.21 ───────────────────────────────────────────────────────────────
-  // Settings menu collpasible. Opacity marked as !important. Browser details now optional toggle.
+  const CURRENT_VERSION  = "5.8.20";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -678,6 +676,11 @@
   let fbRefreshToken = null;  // used to refresh the ID token before it expires (1hr TTL)
   let fbUid         = null;
   let hitMap        = new Map();
+  // ── Hit-derived caches — null means dirty, recompute on next read ──────────
+  // Invalidated by _invalidateHitCache() at every hitMap mutation site.
+  // Avoids repeated spread+filter+reduce/sort on the 1s tick hot path.
+  let _highestDoneCache   = null;  // cached result of getHighestDoneHitNum()
+  let _sortedPendingCache = null;  // cached [...pending].sort() for the tick cell loop
   // BUG FIX: Track notified hit IDs in a separate Set so Firebase re-syncs
   // (which rebuild hitMap and wipe per-object flags) don't re-trigger alerts.
   const _notifiedHitIds = new Set();
@@ -807,8 +810,9 @@
       border-radius:12px !important; background:rgba(16,18,24,.96) !important; color:#e8e8e8 !important;
       box-shadow:0 12px 32px rgba(0,0,0,.6) !important; font-family:Arial,Helvetica,sans-serif !important;
       user-select:none !important; overflow:visible !important; display:flex !important;
-      flex-direction:column !important; touch-action:none !important;
-      /* FIX #5: smooth view mode transitions */
+      flex-direction:column !important;
+      /* touch-action is NOT set here — it would block scroll on #chain-panel-inner.
+         touch-action:none belongs on the drag handle (#chain-panel-header) only. */
       transition:border-radius .15s, width .15s, height .15s !important;
     }
 
@@ -898,8 +902,12 @@
       border-bottom:1px solid rgba(255,255,255,.08) !important; flex-shrink:0 !important;
       cursor:grab !important; position:relative !important; border-radius:12px 12px 0 0 !important;
       overflow:visible !important; box-sizing:border-box !important; width:100% !important;
+      touch-action:none !important;
     }
     #chain-panel-header:active { cursor:grabbing !important; }
+    #chain-panel-inner { overflow-y:auto !important; flex:1 !important; padding:4px 0 !important;
+      touch-action:pan-y !important;
+    }
     #chain-panel-title {
       font-weight:700 !important; font-size:13px !important;
       flex:0 0 auto !important; min-width:0 !important; max-width:160px !important; margin-left:6px !important;
@@ -1187,7 +1195,6 @@
       box-shadow:0 2px 6px rgba(0,0,0,.5) !important;
     }
 
-    #chain-panel-inner { overflow-y:auto !important; flex:1 !important; padding:4px 0 !important; }
     #chain-panel-inner::-webkit-scrollbar { width:5px; }
     #chain-panel-inner::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:3px; }
 
@@ -2908,6 +2915,7 @@
       outside:      true,
     };
     hitMap.set(outsideHit.id, outsideHit);
+    _invalidateHitCache();
     reNumberPending(true);  // skipWrite: fbWriteHit writes the full object below
     fbWriteHit(outsideHit);
   });
@@ -3872,12 +3880,20 @@
     }
     return [...byNum.values()].sort((a,b)=>(a.chainHitNum||0)-(b.chainHitNum||0));
   }
+  // Invalidate hit-derived caches. Call at every hitMap mutation point.
+  function _invalidateHitCache() {
+    _highestDoneCache   = null;
+    _sortedPendingCache = null;
+  }
+
   function getHighestDoneHitNum() {
-    // No session filter here — used for slot numbering, where a higher watermark
-    // from a stale session is safer than resetting to 0 and misnumbering new hits.
-    // getDoneHits() and allDoneBySlot apply the display-layer session filter.
-    return [...hitMap.values()].filter(h => h.status === "done" && h.chainHitNum)
-      .reduce((m,h)=>Math.max(m,h.chainHitNum),0);
+    if (_highestDoneCache !== null) return _highestDoneCache;
+    // No session filter — used for slot numbering; higher watermark from a stale
+    // session is safer than resetting to 0 and misnumbering new hits.
+    _highestDoneCache = [...hitMap.values()]
+      .filter(h => h.status === "done" && h.chainHitNum)
+      .reduce((m, h) => Math.max(m, h.chainHitNum), 0);
+    return _highestDoneCache;
   }
 
   // reNumberPending: assigns correct hitNumbers locally and syncs to Firebase.
@@ -4002,6 +4018,7 @@
           outside: true, unspecified: true, sessionId: chainSessionId,
         };
         hitMap.set(gapId, gapHit);
+        _invalidateHitCache();
         gapHit._fbCommitted = true;
         fbPut(P.hit(gapId), gapHit);
         changed = true;
@@ -4028,6 +4045,7 @@
         _deletedHitIds.add(h.id);
         fbDelete(P.hit(h.id));
         hitMap.delete(h.id);
+        _invalidateHitCache();
         changed = true;
       }
     }
@@ -4579,6 +4597,7 @@
       if (data === null) {
         hitMap.clear();  // deliberate clear from Firebase
         _deletedHitIds.clear();  // all hits gone — no need to guard deletions any more
+        _invalidateHitCache();
       } else if (data && typeof data === "object") {
         // Merge: keep any local pending hits that Firebase doesn't know about yet.
         // These are hits written by fbWriteHit whose PUT hasn't been committed before
@@ -4612,6 +4631,7 @@
         // Prune _deletedHitIds for entries that Firebase has already removed
         // (they're no longer in the server payload, so the guard is no longer needed).
         _deletedHitIds.forEach(id => { if (!(id in data)) _deletedHitIds.delete(id); });
+        _invalidateHitCache();
       }
       // If data is undefined or any other falsy — leave hitMap alone
       reNumberPending();
@@ -4627,11 +4647,13 @@
       if (data === null) {
         hitMap.delete(id);
         _deletedHitIds.delete(id);  // Firebase confirmed the delete — release the guard
+        _invalidateHitCache();
       } else if (!_deletedHitIds.has(id)) {
         // BUG FIX: Don't re-insert a hit that's pending local deletion
         if (data && data.status && data.targetName) {
           data._fbCommitted = true;
           hitMap.set(id, data);
+          _invalidateHitCache();
         }
       }
       reNumberPending();
@@ -4653,6 +4675,7 @@
           obj = obj[parts[i]];
         }
         obj[parts[parts.length - 1]] = data;
+        _invalidateHitCache();
         reNumberPending();
         setSyncDot("live");
         scheduleRender();
@@ -4661,6 +4684,7 @@
         fbGet(P.hit(id), hit => {
           if (hit) {
             hitMap.set(id, hit);
+            _invalidateHitCache();
             reNumberPending();
             scheduleRender();
           }
@@ -4743,6 +4767,7 @@
           } else if (data.hits === null) {
             hitMap.clear();  // deliberate clear
           }
+          _invalidateHitCache();
           // Rebuild scrapedHitIds to match Firebase state
           scrapedHitIds.clear();
           for (const h of hitMap.values()) {
@@ -4786,6 +4811,7 @@
     hit._fbCommitted = true;
     fbPut(P.hit(hit.id), hit);
     hitMap.set(hit.id, hit);
+    _invalidateHitCache();
     reNumberPending();
     resolveHospGaps();        // create gap placeholders if new hit is hosp-blocked
     scheduleRender();
@@ -4797,6 +4823,7 @@
     fbPut(P.hitField(hitId, field), value);
     if (hitMap.has(hitId)) {
       hitMap.get(hitId)[field] = value;
+      _invalidateHitCache();
       reNumberPending();
       scheduleRender();
     }
@@ -4808,6 +4835,7 @@
     const hit = { ...hitMap.get(hitId), ...updates };
     fbPut(P.hit(hitId), hit);
     hitMap.set(hitId, hit);
+    _invalidateHitCache();
     reNumberPending();
     scheduleRender();
   }
@@ -4815,6 +4843,7 @@
   function fbClearHits() {
     fbDelete(P.hits());
     hitMap.clear();
+    _invalidateHitCache();
     scheduleRender();
   }
 
@@ -4852,6 +4881,7 @@
     _lastAttackEnded  = null;
     _attackPollInFlight = false;
     hitMap.clear();
+    _invalidateHitCache();
     fbClearHits();
     fbDelete(P.session());
     persistSession();
@@ -5773,6 +5803,7 @@
         const deletedScheduledAt = hit.scheduledAt;
         fbDelete(P.hit(hitId));
         hitMap.delete(hitId);
+        _invalidateHitCache();
 
         // BUG FIX: Shift remaining pending hits' scheduledAt to close the gap
         // left by the removed hit so their displayed timers are correct immediately.
@@ -5846,9 +5877,9 @@
   }
 
   function renderPanel() {
-    // Re-anchor scheduledAt before every render so the initial Firebase-driven
-    // render (before the 1s tick fires) shows correct offsets, not stale ones.
-    syncPendingScheduledAt();
+    // syncPendingScheduledAt is NOT called here — the 1s tick calls it every second,
+    // so calling it again in renderPanel (rAF-queued immediately after the tick) was a
+    // redundant double-call on every poll cycle. Removed v5.8.23 to reduce Opera/Edge CPU.
     const inner   = document.getElementById("chain-panel-inner");
     const colHead = document.getElementById("chain-col-header");
     const titleEl = document.getElementById("chain-panel-title");
@@ -6071,8 +6102,9 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  1-second tick
   // ══════════════════════════════════════════════════════════════════════════
-  let _lastTickSecs = null;  // deduplicate updateChainTimerUI calls in tick
-  let _timerRetryCount = 0;  // rapid-retry counter when chain active but no timer
+  let _lastTickSecs = null;      // deduplicate updateChainTimerUI calls in tick
+  let _timerRetryCount = 0;     // rapid-retry counter when chain active but no timer
+  let _timerCellTick  = 0;      // counts ticks for cell-loop rate-limiting
   setInterval(() => {
     // Skip all expensive work when no chain is active — between chains this tick
     // should cost nothing regardless of tab visibility (two-monitor setups keep
@@ -6129,7 +6161,16 @@
       const currentHitNum = liveChainCount !== null ? Math.max(liveChainCount + 1, liveChainCount >= CHAIN_CONFIRM_HITS ? CHAIN_CONFIRM_HITS + 1 : 1) : getHighestDoneHitNum() + 1;
       // Use the cached panel inner reference to scope querySelector — avoids scanning the whole document
       const _panelInner = document.getElementById("chain-panel-inner");
-      if (_panelInner) {
+
+      // Rate-limit the per-cell DOM patch loop: run every 2 ticks when the timer
+      // is above the danger threshold (default 30s). Below that, update every tick
+      // so the critical countdown stays sharp. This halves cell-loop DOM work during
+      // normal chain operation without any visible difference to users.
+      _timerCellTick++;
+      const inDanger    = tickSecs !== null && tickSecs <= settDangerThreshold;
+      const runCellLoop = inDanger || (_timerCellTick % 2 === 0);
+
+      if (_panelInner && runCellLoop) {
       _panelInner.querySelectorAll(".chain-hit-timer[data-pos]").forEach(cell => {
         const pos = parseInt(cell.dataset.pos);
         if (pos < 0) return;
@@ -6169,55 +6210,51 @@
         if (!isHospStillIn(hit)) { hc.textContent = ""; hc.removeAttribute("data-hosp-id"); }
         else hc.textContent = `out in ${formatTime(hit.hospReleaseAt - Date.now())}`;
       });
-      } // end if (_panelInner)
+      } // end if (_panelInner && runCellLoop)
 
-      const nh = getPendingHits()[0];
-      if (nh) {
-        const rem0 = pendingCountdownMs(0);
-        nextTimer.textContent = rem0 <= 0 ? "NOW" : formatTime(rem0);
-        nextTimer.className   = hitTimerClass(rem0);
-      } else if (liveChainSecs !== null) {
-        const rem  = chainTimerMs();
-        const disp = Math.round(rem/1000);
-        nextTimer.textContent = `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`;
-        nextTimer.className   = hitTimerClass(rem);
+      if (sortedPending.length > 0 || liveChainSecs !== null) {
+        const nh = sortedPending[0];
+        if (nh) {
+          const rem0 = pendingCountdownMs(0, sortedPending);
+          nextTimer.textContent = rem0 <= 0 ? "NOW" : formatTime(rem0);
+          nextTimer.className   = hitTimerClass(rem0);
+        } else if (liveChainSecs !== null) {
+          const rem  = chainTimerMs();
+          const disp = Math.round(rem/1000);
+          nextTimer.textContent = `${Math.floor(disp/60)}:${String(disp%60).padStart(2,"0")}`;
+          nextTimer.className   = hitTimerClass(rem);
+        }
+      }
+
+      // ── Auto-expand + sound notification when OWN hit becomes due ──────────
+      // Reuses sortedPending already computed above — no additional allocation.
+      if ((settNotifySound || settAutoExpandDue) && !document.hidden && chainStartTime) {
+        const myPending = sortedPending.filter(h => h.claimedBy === ownName);
+        if (myPending.length) {
+          const first = myPending[0];
+          const rem = Math.max(0, first.scheduledAt - Date.now());
+          if (rem < 1000 && !_notifiedHitIds.has(first.id)) {
+            _notifiedHitIds.add(first.id);
+            playDueSound();
+            if (settAutoExpandDue && viewMode !== 0) {
+              viewMode = 0; _gmSet(SK_VIEW_MODE, viewMode); applyViewMode();
+            }
+          } else if (rem > 5000) {
+            _notifiedHitIds.delete(first.id);
+          }
+        }
+        // Purge stale notified IDs (hits now done or removed) — only when map is non-empty
+        if (_notifiedHitIds.size > 0) {
+          _notifiedHitIds.forEach(id => {
+            const h = hitMap.get(id);
+            if (!h || h.status === "done") _notifiedHitIds.delete(id);
+          });
+        }
       }
     }
 
     // Top-bar chain badge (all pages)
     updateTopBarBadge();
-
-    // ── Auto-expand + sound notification when OWN hit becomes due ────────────
-    if ((settNotifySound || settAutoExpandDue) && !document.hidden && chainStartTime) {
-      // Only fire alerts when the page is in the foreground — prevents background tabs
-      // from beeping and auto-expanding continuously on every poll cycle.
-      const pageVisible = true;  // already guarded by !document.hidden above
-      const myPending = [...hitMap.values()].filter(h => h.status !== "done" && h.claimedBy === ownName)
-        .sort((a, b) => a.scheduledAt - b.scheduledAt);
-      if (myPending.length) {
-        const first = myPending[0];
-        const rem = Math.max(0, first.scheduledAt - Date.now());
-        // Fire exactly once when countdown hits 0 — keyed by hit ID in a persistent Set
-        // so Firebase re-syncs (which wipe per-object flags) don't re-trigger the alert.
-        if (rem < 1000 && !_notifiedHitIds.has(first.id)) {
-          _notifiedHitIds.add(first.id);
-          if (pageVisible) {
-            playDueSound();
-            if (settAutoExpandDue && viewMode !== 0) {
-              viewMode = 0; _gmSet(SK_VIEW_MODE, viewMode); applyViewMode();
-            }
-          }
-        } else if (rem > 5000) {
-          // Reset: hit is back in the future (e.g. rescheduled), allow future alert
-          _notifiedHitIds.delete(first.id);
-        }
-        // Purge stale IDs for hits that are now done or removed
-        _notifiedHitIds.forEach(id => {
-          const h = hitMap.get(id);
-          if (!h || h.status === "done") _notifiedHitIds.delete(id);
-        });
-      }
-    }
   }, 1000);
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -6300,6 +6337,7 @@
         _deletedHitIds.add(gap.id);
         fbDelete(P.hit(gap.id));
         hitMap.delete(gap.id);
+        _invalidateHitCache();
       }
     }
 
@@ -6308,6 +6346,7 @@
     // numbers, and the new hit is about to be written in full by fbWriteHit below —
     // a field-level hitNumber PUT here would create a zombie partial node.
     hitMap.set(newHit.id, newHit);
+    _invalidateHitCache();
     reNumberPending(true);
     fbWriteHit(newHit);  // writes the complete, correctly-numbered hit to Firebase
 
