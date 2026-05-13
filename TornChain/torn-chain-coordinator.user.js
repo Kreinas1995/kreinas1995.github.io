@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.24
+// @version      5.8.25
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -351,9 +351,8 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.24";
-  // ── 
-  // v5.8.20 ───────────────────────────────────────────────────────────────
+  const CURRENT_VERSION  = "5.8.25";
+  // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
   //   independent intervals — the scraper can receive hit #N before the chain
@@ -820,7 +819,10 @@
     /* ══ View modes ══════════════════════════════════════════════════════════ */
 
     /* ── view-full: complete board ── */
-    #chain-panel.view-full { /* default — all children visible */ }
+    #chain-panel.view-full {
+      max-height:calc(100vh - 20px) !important;  /* cap at viewport — inner scrolls */
+      display:flex !important; flex-direction:column !important;
+    }
 
     /* ── view-mini: slim pill — timer + badge only ── */
     #chain-panel.view-mini {
