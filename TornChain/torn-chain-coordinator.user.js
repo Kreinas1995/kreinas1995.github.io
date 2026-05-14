@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.29
+// @version      5.8.31
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -254,9 +254,8 @@
     // ViolentMonkey/Opera accumulates a per-URL response cache for GM_xmlhttpRequest.
     // After a long chain session this cache grows large and persists even after the
     // script is disabled, causing CPU lag until Opera is reinstalled. Fix: append a
-    // monotonic cache-bust param to every GET URL so each request is a distinct entry
-    // and VM never serves a stale cached response. Both Firebase REST and Torn API
-    // silently ignore unknown query parameters.
+    // monotonic cache-bust param to every GET URL so VM never serves a stale cached
+    // response. Both Firebase REST and Torn API silently ignore unknown query params.
     let bustUrl = details.url || "";
     if (!details.method || details.method.toUpperCase() === "GET") {
       bustUrl += (bustUrl.includes("?") ? "&" : "?") + "_cb=" + Date.now();
@@ -362,7 +361,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.29";
+  const CURRENT_VERSION  = "5.8.31";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -2922,6 +2921,12 @@
     if (!canClear || !factionId) return;
     if (!confirm("Clear the entire chain list for your faction?")) return;
     fbClearHits();
+    fbDelete(P.session());
+    chainSessionId = null;
+    chainStartTime = null;
+    hitMap.clear();
+    _invalidateHitCache();
+    scheduleRender();
   };
 
   // ── Outside Hit button — one tap, no input needed ───────────────────────
@@ -4893,6 +4898,12 @@
     lastAttackId    = null;
     _lastAttackEnded = null;  // reset attack cursor so catch-up starts from chain beginning
     _attackPollInFlight = false;
+    // Clear stale hits from previous chain before writing the new session.
+    // Without this, old /hits entries persist in Firebase and load into hitMap,
+    // polluting the new chain's board until a co-leader manually wipes the tracker.
+    hitMap.clear();
+    _invalidateHitCache();
+    fbClearHits();
     fbPut(P.session(), { id: chainSessionId, startTime: chainStartTime });
     persistSession();
     // Immediate attack poll — don't wait for the 7s interval to fire first
@@ -4954,10 +4965,9 @@
       _chainStartPending = false;  // Firebase delivered the session — cancel any pending onChainStart
       scrapedHitIds.clear();  // clear dedup so scraper re-evaluates with correct start time
       persistSession();
-      // Immediately backfill attack history for this session — don't wait for the
-      // 7s attackPollInterval tick. Without this, all past hits show "Waiting for Data"
-      // until the next scheduled poll fires after the user joins mid-chain.
-      _lastAttackEnded = null;  // ensure catch-up starts from session beginning
+      // Immediately backfill attack history — don't wait for the 7s attackPollInterval tick.
+      // Without this, all past hits show "Waiting for Data" until the next scheduled poll.
+      _lastAttackEnded = null;
       _attackPollInFlight = false;
       pollFactionAttacks();
     }
@@ -5401,11 +5411,20 @@
             if (!chainSessionId) onChainStart(_pendingApiStart);
           }, 4000);
         }
-      } else if (apiStartMs && chainStartTime && Math.abs(apiStartMs - chainStartTime) > 3000) {
-        // API start time differs from our local start by more than 3s — new chain
-        onChainEnd();
-        setTimeout(() => onChainStart(apiStartMs), 500);
-        return;
+      } else if (apiStartMs && chainStartTime) {
+        const drift = apiStartMs - chainStartTime;
+        if (Math.abs(drift) > 10 * 60 * 1000) {
+          // Difference > 10 minutes — genuinely a different chain
+          onChainEnd();
+          setTimeout(() => onChainStart(apiStartMs), 500);
+          return;
+        } else if (chainStart > 0 && Math.abs(drift) > 3000) {
+          // chain.start is the authoritative Torn value (non-zero = confirmed).
+          // Our warmup estimate drifted — correct it in place without wiping hits.
+          chainStartTime = apiStartMs;
+          fbPut(P.session(), { id: chainSessionId, startTime: chainStartTime });
+          persistSession();
+        }
       }
       // Chain active but no DOM observer — try to trigger tooltip render
       if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
@@ -6387,9 +6406,8 @@
       }
     } else {
       // Hosp hits fill the earliest unspecified gap whose slot time >= hospReleaseMs.
-      // This prevents them from being pushed to the very end of the queue behind all
-      // Unclaimed gaps — instead they take the first open slot they can actually use.
-      // resolveHospGaps handles fine-tuning after insertion.
+      // This prevents them being pushed to the very end of the queue behind all
+      // Unclaimed gaps — they take the first open slot they can actually use.
       const gaps = [...hitMap.values()]
         .filter(h => h.unspecified && h.status === "pending" && h.scheduledAt >= hospReleaseMs)
         .sort((a, b) => a.scheduledAt - b.scheduledAt);
