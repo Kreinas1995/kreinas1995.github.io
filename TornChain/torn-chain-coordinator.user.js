@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.27
+// @version      5.8.29
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -362,7 +362,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.27";
+  const CURRENT_VERSION  = "5.8.29";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -4954,6 +4954,12 @@
       _chainStartPending = false;  // Firebase delivered the session — cancel any pending onChainStart
       scrapedHitIds.clear();  // clear dedup so scraper re-evaluates with correct start time
       persistSession();
+      // Immediately backfill attack history for this session — don't wait for the
+      // 7s attackPollInterval tick. Without this, all past hits show "Waiting for Data"
+      // until the next scheduled poll fires after the user joins mid-chain.
+      _lastAttackEnded = null;  // ensure catch-up starts from session beginning
+      _attackPollInFlight = false;
+      pollFactionAttacks();
     }
   }
 
@@ -6335,16 +6341,19 @@
         insertSlot = appendSlot;
         insertIdx  = activeHits.length;
       } else {
-        // In hosp — append at the end, but push the slot out further if the
-        // append slot doesn't clear the hosp window yet.  Never insert before
-        // existing hits — hosp targets cannot skip the line.
-        if (appendSlot >= hospReleaseMs) {
-          insertSlot = appendSlot;
+        // In hosp — find the last *real* (non-unspecified) hit to compute append point,
+        // so Unclaimed gap slots don't artificially push the hosp target further out.
+        // The gap-filling block below will then consume the appropriate unspecified slot.
+        const realHits = activeHits.filter(h => !h.unspecified);
+        const realLastSlot = realHits.length ? realHits[realHits.length - 1].scheduledAt : now;
+        const realAppendSlot = realLastSlot + HIT_INTERVAL;
+        if (realAppendSlot >= hospReleaseMs) {
+          insertSlot = realAppendSlot;
         } else {
-          const extraIntervals = Math.ceil((hospReleaseMs - appendSlot) / HIT_INTERVAL);
-          insertSlot = appendSlot + extraIntervals * HIT_INTERVAL;
+          const extraIntervals = Math.ceil((hospReleaseMs - realAppendSlot) / HIT_INTERVAL);
+          insertSlot = realAppendSlot + extraIntervals * HIT_INTERVAL;
         }
-        insertIdx = activeHits.length; // always append — no shifting of existing hits
+        insertIdx = activeHits.length; // position adjusted by gap-filling block below
       }
     }
 
@@ -6367,6 +6376,22 @@
     if (!isInHosp) {
       const gaps = [...hitMap.values()]
         .filter(h => h.unspecified && h.status === "pending")
+        .sort((a, b) => a.scheduledAt - b.scheduledAt);
+      if (gaps.length > 0) {
+        const gap = gaps[0];
+        newHit.scheduledAt = gap.scheduledAt;
+        _deletedHitIds.add(gap.id);
+        fbDelete(P.hit(gap.id));
+        hitMap.delete(gap.id);
+        _invalidateHitCache();
+      }
+    } else {
+      // Hosp hits fill the earliest unspecified gap whose slot time >= hospReleaseMs.
+      // This prevents them from being pushed to the very end of the queue behind all
+      // Unclaimed gaps — instead they take the first open slot they can actually use.
+      // resolveHospGaps handles fine-tuning after insertion.
+      const gaps = [...hitMap.values()]
+        .filter(h => h.unspecified && h.status === "pending" && h.scheduledAt >= hospReleaseMs)
         .sort((a, b) => a.scheduledAt - b.scheduledAt);
       if (gaps.length > 0) {
         const gap = gaps[0];
