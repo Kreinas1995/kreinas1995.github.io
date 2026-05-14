@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.8.0
+// @version      2.8.1
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
 // @match        https://www.torn.com/factions.php*
@@ -57,7 +57,7 @@
 
   window.__swtBridge = {
     installed:    true,
-    version:      "2.8.0",
+    version:      "2.8.1",
     enabled,
     showKey,
     sortEnabled,
@@ -772,6 +772,9 @@
   // ─── Boot ───────────────────────────────────────────────────────────────────
   refreshKeyDisplay();
   setStatus(apiKey ? "Running..." : "No API key set");
+
+  // Write cross-page installed signal so TCC can detect SWT on any Torn page
+  try { localStorage.setItem("swt_installed", "1"); } catch(e) {}
 
   // Hide SWT's own floating box when TCC is detected — TCC owns the UI.
   // Poll briefly to handle TCC loading slightly after SWT.
