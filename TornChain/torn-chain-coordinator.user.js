@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.42
+// @version      5.9.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -361,7 +361,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.42";
+  const CURRENT_VERSION  = "5.9.0";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -702,7 +702,9 @@
   let fbToken       = null;
   let fbRefreshToken = null;  // used to refresh the ID token before it expires (1hr TTL)
   let fbUid         = null;
-  let hitMap        = new Map();
+  let hitMap        = new Map(); // computed union of pendingMap + doneMap — rebuilt by _invalidateHitCache
+  let pendingMap    = new Map(); // user-queued hits — /hits/pending in Firebase
+  let doneMap       = new Map(); // scraped done hits — /hits/done/{sessionId} in Firebase
   // ── Hit-derived caches — null means dirty, recompute on next read ──────────
   // Invalidated by _invalidateHitCache() at every hitMap mutation site.
   // Avoids repeated spread+filter+reduce/sort on the 1s tick hot path.
@@ -795,9 +797,15 @@
 
   const P = {
     root:        () => `${fBase()}.json${auth()}`,
+    // Legacy flat hits path — used only for migration detection
     hits:        () => `${fBase()}/hits.json${auth()}`,
-    hit:         id => `${fBase()}/hits/${id}.json${auth()}`,
-    hitField:    (id, f) => `${fBase()}/hits/${id}/${f}.json${auth()}`,
+    // Phase 2: split pending/done paths
+    pendingHits:     ()        => `${fBase()}/hits/pending.json${auth()}`,
+    pendingHit:      id        => `${fBase()}/hits/pending/${id}.json${auth()}`,
+    pendingHitField: (id, f)   => `${fBase()}/hits/pending/${id}/${f}.json${auth()}`,
+    doneHits:        sid       => `${fBase()}/hits/done/${sid}.json${auth()}`,
+    doneHit:         (sid, id) => `${fBase()}/hits/done/${sid}/${id}.json${auth()}`,
+    doneHitField:    (sid, id, f) => `${fBase()}/hits/done/${sid}/${id}/${f}.json${auth()}`,
     session:     () => `${fBase()}/session.json${auth()}`,
     perms:       () => `${fBase()}/permissions.json${auth()}`,
     perm:        uid => `${fBase()}/permissions/${uid}.json${auth()}`,
@@ -805,19 +813,15 @@
     member:      uid => `${fBase()}/members/${uid}.json${auth()}`,
     memberById:  id  => `${fBase()}/members/torn_${id}.json${auth()}`,
     memberMe:    ()  => ownId ? `${fBase()}/members/torn_${ownId}.json${auth()}` : null,
-    // Lobby: keyed by fbUid — auth.uid === $uid is the only reliable identity check in rules
     lobbyBootstrap:  () => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}.json${auth()}` : null,
     lobbyMe:         () => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}.json${auth()}` : null,
     lobbyMeField:    f  => fbUid ? `${FIREBASE_DB_URL}/lobby/${fbUid}/${f}.json${auth()}` : null,
     lobbyAll:        () => `${FIREBASE_DB_URL}/lobby.json${auth()}`,
     whitelist:       () => `${FIREBASE_DB_URL}/whitelist.json${auth()}`,
     whitelistEntry:  fid => `${FIREBASE_DB_URL}/whitelist/${fid}.json${auth()}`,
-    // Global client version registry — keyed by torn_{tornId} for dedup across page loads
     clientVersion:   key => `${FIREBASE_DB_URL}/meta/clientVersions/${key}.json${auth()}`,
     clientVersions:  ()  => `${FIREBASE_DB_URL}/meta/clientVersions.json${auth()}`,
-    // Canonical latest-release node — written by checkForUpdate, read by all clients
     latestVersion:   ()  => `${FIREBASE_DB_URL}/meta/latestVersion.json${auth()}`,
-    // Bug reports (authenticated write, owner read) and public tracker (public read)
     bugReport:    id  => `${FIREBASE_DB_URL}/bugs/${id}.json${auth()}`,
     bugs:         ()  => `${FIREBASE_DB_URL}/bugs.json${auth()}`,
     bugTracker:   ()  => `${FIREBASE_DB_URL}/bugTracker.json${auth()}`,
@@ -2973,8 +2977,11 @@
     fbDelete(P.session());
     chainSessionId = null;
     chainStartTime = null;
-    hitMap.clear();
+    pendingMap.clear(); doneMap.clear();
     _invalidateHitCache();
+    GM_setValue(SK_ATTACK_CURSOR, "");
+    GM_setValue(SK_SESSION_ID,    "");
+    GM_setValue(SK_SESSION_START, "");
     scheduleRender();
   };
 
@@ -3004,7 +3011,7 @@
       sessionId:    chainSessionId,
       outside:      true,
     };
-    hitMap.set(outsideHit.id, outsideHit);
+    pendingMap.set(outsideHit.id, outsideHit);
     _invalidateHitCache();
     reNumberPending(true);  // skipWrite: fbWriteHit writes the full object below
     fbWriteHit(outsideHit);
@@ -3974,6 +3981,16 @@
   function _invalidateHitCache() {
     _highestDoneCache   = null;
     _sortedPendingCache = null;
+    // Rebuild hitMap as the union of pendingMap (user queue) and doneMap (scraped history).
+    // doneMap is iterated first so pendingMap entries win on key collision (shouldn't happen
+    // but pending hits are higher priority).
+    hitMap = new Map([...doneMap, ...pendingMap]);
+  }
+
+  // Remove a hit from whichever sub-map it lives in
+  function _deleteFromMaps(id) {
+    pendingMap.delete(id);
+    doneMap.delete(id);
   }
 
   function getHighestDoneHitNum() {
@@ -4006,7 +4023,7 @@
         // as a complete object (has a status field in the server copy).
         // Newly-created hits are skipped here — fbWriteHit writes the full object.
         if (!skipWrite && h.id && fbConfigured() && fbToken && h._fbCommitted) {
-          fbPut(P.hitField(h.id, "hitNumber"), newNum);
+          fbPut(P.pendingHitField(h.id, "hitNumber"), newNum);
         }
       }
     });
@@ -4050,8 +4067,8 @@
         );
         if (!stillNeeded) {
           _deletedHitIds.add(gap.id);
-          fbDelete(P.hit(gap.id));
-          hitMap.delete(gap.id);
+          fbDelete(P.pendingHit(gap.id));
+          _deleteFromMaps(gap.id);
           _invalidateHitCache();
         }
       });
@@ -4119,7 +4136,7 @@
 
         if (filler) {
           filler.scheduledAt = gapTime;
-          fbPut(P.hitField(filler.id, "scheduledAt"), gapTime);
+          fbPut(P.pendingHitField(filler.id, "scheduledAt"), gapTime);
           changed = true;
           continue;
         }
@@ -4137,10 +4154,10 @@
           hospReleaseAt: null, attackUrl: null, status: "pending",
           outside: true, unspecified: true, sessionId: chainSessionId,
         };
-        hitMap.set(gapId, gapHit);
+        pendingMap.set(gapId, gapHit);
         _invalidateHitCache();
         gapHit._fbCommitted = true;
-        fbPut(P.hit(gapId), gapHit);
+        fbPut(P.pendingHit(gapId), gapHit);
         changed = true;
       }
 
@@ -4148,7 +4165,7 @@
       const newHospSlot = naturalSlot + slotsBack * HIT_INTERVAL;
       if (Math.abs(h.scheduledAt - newHospSlot) >= 1000) {
         h.scheduledAt = newHospSlot;
-        fbPut(P.hitField(h.id, "scheduledAt"), newHospSlot);
+        fbPut(P.pendingHitField(h.id, "scheduledAt"), newHospSlot);
         changed = true;
       }
     }
@@ -4163,8 +4180,8 @@
       if (!h.unspecified || h.status === "done") continue;
       if (realSlotTimes.has(Math.round(h.scheduledAt / 1000))) {
         _deletedHitIds.add(h.id);
-        fbDelete(P.hit(h.id));
-        hitMap.delete(h.id);
+        fbDelete(P.pendingHit(h.id));
+        _deleteFromMaps(h.id);
         _invalidateHitCache();
         changed = true;
       }
@@ -4187,7 +4204,7 @@
       hospPending.forEach((h, i) => {
         if (Math.abs(h.scheduledAt - hospSlots[i]) >= 1000) {
           h.scheduledAt = hospSlots[i];
-          fbPut(P.hitField(h.id, "scheduledAt"), hospSlots[i]);
+          fbPut(P.pendingHitField(h.id, "scheduledAt"), hospSlots[i]);
           changed = true;
           hospChanged = true;
         }
@@ -4712,105 +4729,108 @@
     // Route a Firebase patch to the right handler
   function applyPatch(path, data) {
     if (path === "/hits") {
-      // Only clear+replace if Firebase gave us actual hit data.
-      // A null /hits means the node was deleted (chain cleared) — that's intentional.
-      // But never wipe local state if data is undefined/missing (transient Firebase state).
+      // Root /hits delivery — could be old flat format (migration) or new split format
       if (data === null) {
-        hitMap.clear();  // deliberate clear from Firebase
-        _deletedHitIds.clear();  // all hits gone — no need to guard deletions any more
-        _invalidateHitCache();
+        pendingMap.clear(); doneMap.clear(); _deletedHitIds.clear(); _invalidateHitCache();
       } else if (data && typeof data === "object") {
-        // Merge: keep any local pending hits that Firebase doesn't know about yet.
-        // These are hits written by fbWriteHit whose PUT hasn't been committed before
-        // this poll fired — a race that wipes the queue if we blind-clear here.
-        const localPendingNotInFb = [...hitMap.entries()].filter(
-          ([id, h]) => h.status !== "done" && !(id in data)
-        );
-        hitMap.clear();
-        Object.entries(data).forEach(([id, h]) => {
-          // BUG FIX: Never re-insert a hit that was locally deleted — skip until
-          // Firebase confirms the DELETE by omitting the node from future responses.
-          // BUG FIX: Skip "zombie" entries that only have a hitNumber and no status/targetName —
-          // these are leftover partial nodes after fbClearHits() wipes the /hits node but
-          // Firebase retains child keys that were written individually (e.g. hitNumber fields).
-          if (h && !_deletedHitIds.has(id) && h.status && h.targetName) {
-            h._fbCommitted = true;
-            hitMap.set(id, h);
-          } else if (h && !h.status && !h.targetName && !_deletedHitIds.has(id)) {
-            // Zombie node: only has hitNumber (or similar partial data), no status/targetName.
-            // This was created by a stale field-level hitNumber PUT after the /hits node
-            // was wiped. Delete it from Firebase so it stops reappearing on every poll.
-            _deletedHitIds.add(id);
-            fbDelete(P.hit(id));
-          }
-        });
-        // Re-inject local-only pending hits so they survive until Firebase confirms,
-        // but never re-inject hits that are pending deletion.
-        for (const [id, h] of localPendingNotInFb) {
-          if (!_deletedHitIds.has(id)) hitMap.set(id, h);
+        // New format: data has "pending" and/or "done" sub-keys
+        if ("pending" in data || "done" in data) {
+          _applyPendingData(data.pending || null);
+          _applyDoneData(data.done || null);
+        } else {
+          // Legacy flat format — migrate in place
+          _migrateFlatHits(data);
         }
-        // Prune _deletedHitIds for entries that Firebase has already removed
-        // (they're no longer in the server payload, so the guard is no longer needed).
-        _deletedHitIds.forEach(id => { if (!(id in data)) _deletedHitIds.delete(id); });
         _invalidateHitCache();
       }
-      // If data is undefined or any other falsy — leave hitMap alone
-      reNumberPending();
-      resolveHospGaps();        // create gap placeholders and reorder around hosp-blocked hits
-      setSyncDot("live");
-      scheduleRender();
+      reNumberPending(); resolveHospGaps(); setSyncDot("live"); scheduleRender();
       return;
     }
 
+    if (path === "/hits/pending") {
+      _applyPendingData(data);
+      _invalidateHitCache();
+      reNumberPending(); resolveHospGaps(); setSyncDot("live"); scheduleRender();
+      return;
+    }
+
+    const doneSessionMatch = path.match(/^\/hits\/done\/([^/]+)$/);
+    if (doneSessionMatch) {
+      if (doneSessionMatch[1] === chainSessionId) {
+        _applyDoneData(data ? { [doneSessionMatch[1]]: data } : null);
+        _invalidateHitCache();
+      }
+      setSyncDot("live"); scheduleRender();
+      return;
+    }
+
+
+    const pendingHitMatch = path.match(/^\/hits\/pending\/([^/]+)$/);
+    if (pendingHitMatch) {
+      const id = pendingHitMatch[1];
+      if (data === null) {
+        pendingMap.delete(id);
+        _deletedHitIds.delete(id);
+      } else if (!_deletedHitIds.has(id) && data && data.status && data.targetName) {
+        data._fbCommitted = true;
+        pendingMap.set(id, data);
+      }
+      _invalidateHitCache(); reNumberPending(); setSyncDot("live"); scheduleRender();
+      return;
+    }
+
+    const pendingHitFieldMatch = path.match(/^\/hits\/pending\/([^/]+)\/(.+)$/);
+    if (pendingHitFieldMatch) {
+      const [, id, field] = pendingHitFieldMatch;
+      if (pendingMap.has(id)) {
+        const parts = field.split("/");
+        let obj = pendingMap.get(id);
+        for (let i = 0; i < parts.length - 1; i++) { if (!obj[parts[i]]) obj[parts[i]] = {}; obj = obj[parts[i]]; }
+        obj[parts[parts.length - 1]] = data;
+        _invalidateHitCache(); reNumberPending(); setSyncDot("live"); scheduleRender();
+      }
+      return;
+    }
+
+    const doneHitMatch = path.match(/^\/hits\/done\/([^/]+)\/([^/]+)$/);
+    if (doneHitMatch) {
+      const [, sid, id] = doneHitMatch;
+      if (sid !== chainSessionId) return; // ignore other sessions
+      if (data === null) {
+        doneMap.delete(id);
+      } else if (data && data.status && data.targetName) {
+        data._fbCommitted = true;
+        doneMap.set(id, data);
+      }
+      _invalidateHitCache(); setSyncDot("live"); scheduleRender();
+      return;
+    }
+
+    const doneHitFieldMatch = path.match(/^\/hits\/done\/([^/]+)\/([^/]+)\/(.+)$/);
+    if (doneHitFieldMatch) {
+      const [, sid, id, field] = doneHitFieldMatch;
+      if (sid !== chainSessionId || !doneMap.has(id)) return;
+      const parts = field.split("/");
+      let obj = doneMap.get(id);
+      for (let i = 0; i < parts.length - 1; i++) { if (!obj[parts[i]]) obj[parts[i]] = {}; obj = obj[parts[i]]; }
+      obj[parts[parts.length - 1]] = data;
+      _invalidateHitCache(); setSyncDot("live"); scheduleRender();
+      return;
+    }
+
+    // Legacy flat /hits/{id} paths — handle for migration period
     const hitMatch = path.match(/^\/hits\/([^/]+)$/);
-    if (hitMatch) {
+    if (hitMatch && !["pending","done"].includes(hitMatch[1])) {
       const id = hitMatch[1];
       if (data === null) {
-        hitMap.delete(id);
-        _deletedHitIds.delete(id);  // Firebase confirmed the delete — release the guard
-        _invalidateHitCache();
-      } else if (!_deletedHitIds.has(id)) {
-        // BUG FIX: Don't re-insert a hit that's pending local deletion
-        if (data && data.status && data.targetName) {
-          data._fbCommitted = true;
-          hitMap.set(id, data);
-          _invalidateHitCache();
-        }
+        pendingMap.delete(id); doneMap.delete(id);
+        _deletedHitIds.delete(id);
+      } else if (!_deletedHitIds.has(id) && data && data.status && data.targetName) {
+        data._fbCommitted = true;
+        if (data.status === "done") doneMap.set(id, data);
+        else pendingMap.set(id, data);
       }
-      reNumberPending();
-      setSyncDot("live");
-      scheduleRender();
-      return;
-    }
-
-    // FIX #1: handle sub-field updates — e.g. /hits/{id}/status or /hits/{id}/hitNumber
-    const hitFieldMatch = path.match(/^\/hits\/([^/]+)\/(.+)$/);
-    if (hitFieldMatch) {
-      const [,id,field] = hitFieldMatch;
-      if (hitMap.has(id)) {
-        // Support nested field paths like "foo/bar" if they ever appear
-        const parts = field.split("/");
-        let obj = hitMap.get(id);
-        for (let i = 0; i < parts.length - 1; i++) {
-          if (obj[parts[i]] === undefined) obj[parts[i]] = {};
-          obj = obj[parts[i]];
-        }
-        obj[parts[parts.length - 1]] = data;
-        _invalidateHitCache();
-        reNumberPending();
-        setSyncDot("live");
-        scheduleRender();
-      } else if (data !== null) {
-        // Hit doesn't exist locally yet — fetch the full hit node
-        fbGet(P.hit(id), hit => {
-          if (hit) {
-            hitMap.set(id, hit);
-            _invalidateHitCache();
-            reNumberPending();
-            scheduleRender();
-          }
-        });
-      }
+      _invalidateHitCache(); reNumberPending(); setSyncDot("live"); scheduleRender();
       return;
     }
 
@@ -4872,46 +4892,38 @@
     // Root full load
     if (path === "/") {
       if (data && typeof data === "object") {
-        // Only replace hitMap if Firebase actually sent hits data.
-        // If the hits key is absent from the root response, leave local state alone —
-        // it means Firebase returned a partial/transient snapshot, not a deliberate clear.
         if ("hits" in data) {
-          if (data.hits && typeof data.hits === "object") {
-            // Merge: preserve local pending hits not yet committed to Firebase.
-            // A poll can arrive before our fbPut response, wiping hits we just wrote.
-            const localPendingNotInFb = [...hitMap.entries()].filter(
-              ([id, h]) => h.status !== "done" && !(id in data.hits)
-            );
-            hitMap.clear();
-            Object.entries(data.hits).forEach(([id,h]) => { if(h && h.status && h.targetName) { h._fbCommitted = true; hitMap.set(id,h); } });
-            for (const [id, h] of localPendingNotInFb) hitMap.set(id, h);
-          } else if (data.hits === null) {
-            hitMap.clear();  // deliberate clear
-          }
-          _invalidateHitCache();
-          // Rebuild scrapedHitIds to match Firebase state
-          scrapedHitIds.clear();
-          for (const h of hitMap.values()) {
-            if (h.status === "done" && h.chainHitNum && chainSessionId) {
-              scrapedHitIds.add((chainSessionId||"nosession") + "_hit_" + h.chainHitNum);
+          const hits = data.hits;
+          if (hits === null) {
+            pendingMap.clear(); doneMap.clear(); _deletedHitIds.clear();
+          } else if (hits && typeof hits === "object") {
+            if ("pending" in hits || "done" in hits) {
+              // New split format
+              _applyPendingData(hits.pending || null);
+              _applyDoneData(hits.done || null);
+            } else {
+              // Legacy flat format
+              _migrateFlatHits(hits);
             }
           }
+          _invalidateHitCache();
+          scrapedHitIds.clear();
+          for (const h of doneMap.values()) {
+            if (h.chainHitNum && chainSessionId)
+              scrapedHitIds.add((chainSessionId||"nosession") + "_hit_" + h.chainHitNum);
+          }
         }
-        // Handle both session present and session explicitly null.
-        // Previously `if (data.session)` skipped the null case, so when onChainEnd()
-        // deleted /session the root poll never fired handleRemoteSession(null),
-        // leaving stale done hits on the board indefinitely for users on root polls.
         if ("session" in data) handleRemoteSession(data.session || null);
         permissions = (data.permissions && typeof data.permissions==="object") ? data.permissions : {};
         presenceMap.clear();
         if (data.members && typeof data.members==="object") {
           Object.entries(data.members).forEach(([uid,m]) => { if(m) presenceMap.set(uid,m); });
         }
-        // Also populate presence from lobby (lobby is the authoritative presence source)
         fbSyncLobbyPresence();
         recomputeNetworkLatestVersion();
         updateOnlineCount();
         reNumberPending();
+        resolveHospGaps();
         updateClearBtn();
         setSyncDot("live");
         scheduleRender();
@@ -4922,68 +4934,176 @@
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  Hit write operations
-  // ══════════════════════════════════════════════════════════════════════════
+  // ── applyPatch helpers ───────────────────────────────────────────────────
+
+  function _applyPendingData(data) {
+    if (data === null) {
+      pendingMap.clear(); return;
+    }
+    if (!data || typeof data !== "object") return;
+    // Merge — add/update hits present in Firebase
+    Object.entries(data).forEach(([id, h]) => {
+      if (!h || !h.status || !h.targetName) {
+        if (!_deletedHitIds.has(id)) { _deletedHitIds.add(id); fbDelete(P.pendingHit(id)); }
+        return;
+      }
+      if (_deletedHitIds.has(id)) return;
+      h._fbCommitted = true;
+      pendingMap.set(id, h);
+    });
+    // Remove hits Firebase deleted
+    for (const [id, h] of pendingMap) {
+      if (!(id in data) && h._fbCommitted && !_deletedHitIds.has(id)) pendingMap.delete(id);
+    }
+    _deletedHitIds.forEach(id => { if (!(id in data)) _deletedHitIds.delete(id); });
+  }
+
+  function _applyDoneData(data) {
+    // data is { [sessionId]: { [hitId]: hit } } or null
+    if (!data || typeof data !== "object") { doneMap.clear(); return; }
+    const sessionHits = data[chainSessionId];
+    doneMap.clear();
+    if (!sessionHits || typeof sessionHits !== "object") return;
+    Object.entries(sessionHits).forEach(([id, h]) => {
+      if (h && h.status && h.targetName) {
+        h._fbCommitted = true;
+        doneMap.set(id, h);
+      }
+    });
+  }
+
+  function _migrateFlatHits(data) {
+    // Legacy: data is { [hitId]: hit } flat structure — migrate to split paths
+    if (!data || typeof data !== "object") return;
+    const toWritePending = [];
+    const toWriteDone = [];
+    Object.entries(data).forEach(([id, h]) => {
+      if (!h || !h.status || !h.targetName) return;
+      h._fbCommitted = true;
+      if (h.status === "done") {
+        doneMap.set(id, h);
+        toWriteDone.push([id, h]);
+      } else {
+        pendingMap.set(id, h);
+        toWritePending.push([id, h]);
+      }
+    });
+    // Write to new paths and delete old flat nodes
+    if (chainSessionId) {
+      toWriteDone.forEach(([id, h]) => fbPut(P.doneHit(chainSessionId, id), h));
+    }
+    toWritePending.forEach(([id, h]) => fbPut(P.pendingHit(id), h));
+    // Delete the old flat /hits/{id} nodes
+    Object.keys(data).forEach(id => fbDelete(`${fBase()}/hits/${id}.json${auth()}`));
+    console.log("[ChainCoord] Migrated", Object.keys(data).length, "flat hits to split pending/done structure");
+  }
+
+  // ── Hit path helpers — route to pending or done based on status ───────────
+  function _hitPath(hit) {
+    return hit.status === "done"
+      ? P.doneHit(chainSessionId || "nosession", hit.id)
+      : P.pendingHit(hit.id);
+  }
+  function _hitFieldPath(hitId, field) {
+    const hit = hitMap.get(hitId);
+    if (!hit) return P.pendingHitField(hitId, field); // fallback
+    return hit.status === "done"
+      ? P.doneHitField(chainSessionId || "nosession", hitId, field)
+      : P.pendingHitField(hitId, field);
+  }
 
   function fbWriteHit(hit) {
-    // Mark as committed optimistically so reNumberPending() may field-write hitNumber
-    // on subsequent renumbers (e.g. when another hit is removed from the queue).
     hit._fbCommitted = true;
-    fbPut(P.hit(hit.id), hit);
-    hitMap.set(hit.id, hit);
+    const isPending = hit.status !== "done";
+    if (isPending) {
+      pendingMap.set(hit.id, hit);
+      fbPut(P.pendingHit(hit.id), hit);
+    } else {
+      doneMap.set(hit.id, hit);
+      fbPut(P.doneHit(chainSessionId || "nosession", hit.id), hit);
+    }
     _invalidateHitCache();
     reNumberPending();
-    resolveHospGaps();        // create gap placeholders if new hit is hosp-blocked
+    resolveHospGaps();
     scheduleRender();
   }
 
-  // FIX #1: kept for targeted single-field writes (hitNumber sync), but
-  // the scraper now uses fbUpdateHit (full node) for reliability.
   function fbUpdateHitField(hitId, field, value) {
-    fbPut(P.hitField(hitId, field), value);
-    if (hitMap.has(hitId)) {
-      hitMap.get(hitId)[field] = value;
-      _invalidateHitCache();
-      reNumberPending();
-      scheduleRender();
+    fbPut(_hitFieldPath(hitId, field), value);
+    if (pendingMap.has(hitId)) {
+      pendingMap.get(hitId)[field] = value;
+    } else if (doneMap.has(hitId)) {
+      doneMap.get(hitId)[field] = value;
     }
+    _invalidateHitCache();
+    reNumberPending();
+    scheduleRender();
   }
 
-  // FIX #1: full node PUT — most reliable for cross-client sync
   function fbUpdateHit(hitId, updates) {
     if (!hitMap.has(hitId)) return;
     const hit = { ...hitMap.get(hitId), ...updates };
-    fbPut(P.hit(hitId), hit);
-    hitMap.set(hitId, hit);
+    const wasPending = pendingMap.has(hitId);
+    const nowDone = hit.status === "done";
+
+    if (wasPending && nowDone) {
+      // Transitioning pending → done: move from pendingMap to doneMap
+      pendingMap.delete(hitId);
+      fbDelete(P.pendingHit(hitId));
+      doneMap.set(hitId, hit);
+      fbPut(P.doneHit(chainSessionId || "nosession", hitId), hit);
+    } else if (wasPending) {
+      pendingMap.set(hitId, hit);
+      fbPut(P.pendingHit(hitId), hit);
+    } else {
+      doneMap.set(hitId, hit);
+      fbPut(P.doneHit(chainSessionId || "nosession", hitId), hit);
+    }
     _invalidateHitCache();
     reNumberPending();
     scheduleRender();
   }
 
   function fbClearHits() {
-    fbDelete(P.hits());
-    hitMap.clear();
+    fbDelete(P.pendingHits());
+    if (chainSessionId) fbDelete(P.doneHits(chainSessionId));
+    pendingMap.clear();
+    doneMap.clear();
     _invalidateHitCache();
     scheduleRender();
+  }
+
+  function fbClearPending() {
+    fbDelete(P.pendingHits());
+    pendingMap.clear();
+    _invalidateHitCache();
+    scheduleRender();
+  }
+
+  function fbClearDone(sessionId) {
+    if (sessionId) fbDelete(P.doneHits(sessionId));
+    doneMap.clear();
+    _invalidateHitCache();
   }
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Session management
   // ══════════════════════════════════════════════════════════════════════════
   function onChainStart(startMs) {
+    if (chainSessionId) return; // already have a session — spurious call
+
+    const oldSessionId = chainSessionId; // null here but kept for clarity
     chainStartTime = startMs || Date.now();
     chainSessionId = `s_${chainStartTime}_${Math.random().toString(36).slice(2,7)}`;
     lastAttackId    = null;
     _lastAttackEnded = null;
     _attackPollInFlight = false;
     _startTimeCorrected = false;
-    // Clear stale hits from previous chain. Guard: only wipe if we're creating a
-    // genuinely new session (chainSessionId just changed above). This prevents
-    // accidental wipes if onChainStart fires spuriously mid-chain.
-    hitMap.clear();
-    _invalidateHitCache();
-    fbClearHits();
+    // New chain: clear the pending queue (old targets don't carry over)
+    // and clear done hits from any previous session.
+    fbClearPending();
+    if (oldSessionId) fbClearDone(oldSessionId);
+    doneMap.clear();
     GM_setValue(SK_ATTACK_CURSOR, "");
     GM_setValue(SK_SESSION_ID,    "");
     GM_setValue(SK_SESSION_START, "");
@@ -4995,6 +5115,7 @@
   function onChainEnd() {
     if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
     if (!chainSessionId) return;
+    const endedSessionId = chainSessionId;
     chainSessionId    = null;
     chainStartTime    = null;
     lastTimerReadAt   = null;
@@ -5014,9 +5135,11 @@
     GM_setValue(SK_ATTACK_CURSOR, "");
     GM_setValue(SK_SESSION_ID,    "");
     GM_setValue(SK_SESSION_START, "");
-    hitMap.clear();
+    // Clear done hits from memory — they belonged to the ended session.
+    // Do NOT touch pendingMap — the queue survives until the next chain starts
+    // (or until a manual wipe). onChainStart will clear pending for a new chain.
+    doneMap.clear();
     _invalidateHitCache();
-    fbClearHits();
     fbDelete(P.session());
     persistSession();
     scheduleRender();
@@ -5028,40 +5151,39 @@
       if (chainSessionId) {
         chainSessionId = null; chainStartTime = null; chainConfirmed = false;
         chainHit1Time = null; sessionMinHitNum = null; scrapedHitIds.clear();
-        // Don't wipe hitMap here — Firebase /hits may still have data.
-        // The poll will reconcile hits on the next cycle.
-        // Only wipe if the /hits node also comes back null (handled in applyPatch).
+        doneMap.clear();
+        _invalidateHitCache();
         persistSession();
         scheduleRender();
       }
     } else if (data.id && data.id !== chainSessionId) {
-      // Only accept a remote session if its startTime is recent (within 2 hours).
-      // Stale Firebase sessions from previous chains must not set chainStartTime
-      // to a time in the past, which would allow old DOM hits to pass the filter.
       const remoteStart = data.startTime || 0;
       const ageMs = Date.now() - remoteStart;
       if (ageMs > 2 * 60 * 60 * 1000) {
-        // Session is older than 2 hours — stale, ignore it
         console.warn("[ChainCoord] Ignoring stale remote session, age:", Math.round(ageMs/60000), "min");
         return;
       }
+      const oldSessionId = chainSessionId;
+      // New session from another client — clear pending queue (new chain = fresh targets)
+      // and clear done hits from old session.
+      if (oldSessionId) {
+        fbClearPending();
+        fbClearDone(oldSessionId);
+      } else {
+        // First session we've seen — just clear local pending in case of stale GM data
+        pendingMap.clear();
+      }
+      doneMap.clear();
       chainSessionId   = data.id;
       chainStartTime   = remoteStart || Date.now();
       sessionMinHitNum = null;
       _chainStartPending = false;
       scrapedHitIds.clear();
+      _invalidateHitCache();
       persistSession();
-      // Only backfill if we don't already have a cursor from GM cache.
-      // If _lastAttackEnded is set, we restored from a previous session and only
-      // need incremental updates — the full history is already in Firebase/hitMap.
-      if (_lastAttackEnded === null) {
-        _attackPollInFlight = false;
-        pollFactionAttacks();
-      } else {
-        // Resume incremental polling from cached cursor — no full backfill needed.
-        _attackPollInFlight = false;
-        pollFactionAttacks();
-      }
+      _lastAttackEnded = null;
+      _attackPollInFlight = false;
+      pollFactionAttacks();
     }
   }
 
@@ -5466,8 +5588,13 @@
     }
 
     if (newTimeout === 0 && newCount === 0 && chainSessionId) {
-      if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
-      onChainEnd(); return;
+      // Chain is dead — always use the debounce, never fire onChainEnd() immediately.
+      // Immediate firing was the primary cause of spurious queue wipes: a single
+      // API poll returning timeout=0 (lag, rate limit, brief blip) destroyed everything.
+      if (!chainEndDebounce) {
+        chainEndDebounce = setTimeout(onChainEnd, CHAIN_END_DEBOUNCE);
+      }
+      return;
     }
 
     liveChainCount = newCount > 0 ? newCount : null;
@@ -5506,9 +5633,14 @@
       } else if (apiStartMs && chainStartTime) {
         const drift = apiStartMs - chainStartTime;
         if (Math.abs(drift) > 10 * 60 * 1000) {
-          // Difference > 10 minutes — genuinely a different chain
-          onChainEnd();
-          setTimeout(() => onChainStart(apiStartMs), 500);
+          // Difference > 10 minutes — genuinely a different chain.
+          // Use debounce for onChainEnd to avoid wiping state on a single bad poll.
+          if (!chainEndDebounce) {
+            chainEndDebounce = setTimeout(() => {
+              onChainEnd();
+              setTimeout(() => onChainStart(apiStartMs), 500);
+            }, CHAIN_END_DEBOUNCE);
+          }
           return;
         } else if (chainStart > 0 && Math.abs(drift) > 3000 && !_startTimeCorrected) {
           // chain.start is the authoritative Torn value (non-zero = confirmed).
@@ -5965,8 +6097,8 @@
 
         // Capture the deleted hit's scheduledAt so we can close the gap.
         const deletedScheduledAt = hit.scheduledAt;
-        fbDelete(P.hit(hitId));
-        hitMap.delete(hitId);
+        fbDelete(P.pendingHit(hitId));
+        _deleteFromMaps(hitId);
         _invalidateHitCache();
 
         // If the removed hit was hosp-blocked, delete the unspecified gap placeholders
@@ -5979,8 +6111,8 @@
                          h.scheduledAt < deletedScheduledAt);
           gapsToDelete.forEach(g => {
             _deletedHitIds.add(g.id);
-            fbDelete(P.hit(g.id));
-            hitMap.delete(g.id);
+            fbDelete(P.pendingHit(g.id));
+            _deleteFromMaps(g.id);
           });
         }
 
@@ -6048,7 +6180,7 @@
     // Re-sort times and assign them in new order
     pending.forEach((h, i) => {
       h.scheduledAt = times[i];
-      fbPut(P.hitField(h.id, "scheduledAt"), h.scheduledAt);
+      fbPut(P.pendingHitField(h.id, "scheduledAt"), h.scheduledAt);
     });
 
     reNumberPending();
@@ -6517,8 +6649,8 @@
         const gap = gaps[0];
         newHit.scheduledAt = gap.scheduledAt;
         _deletedHitIds.add(gap.id);
-        fbDelete(P.hit(gap.id));
-        hitMap.delete(gap.id);
+        fbDelete(P.pendingHit(gap.id));
+        _deleteFromMaps(gap.id);
         _invalidateHitCache();
       }
     } else {
@@ -6532,8 +6664,8 @@
         const gap = gaps[0];
         newHit.scheduledAt = gap.scheduledAt;
         _deletedHitIds.add(gap.id);
-        fbDelete(P.hit(gap.id));
-        hitMap.delete(gap.id);
+        fbDelete(P.pendingHit(gap.id));
+        _deleteFromMaps(gap.id);
         _invalidateHitCache();
       }
     }
@@ -6542,7 +6674,7 @@
     // Pass skipWrite=true to reNumberPending: existing hits already have the right
     // numbers, and the new hit is about to be written in full by fbWriteHit below —
     // a field-level hitNumber PUT here would create a zombie partial node.
-    hitMap.set(newHit.id, newHit);
+    pendingMap.set(newHit.id, newHit);
     _invalidateHitCache();
     reNumberPending(true);
     fbWriteHit(newHit);  // writes the complete, correctly-numbered hit to Firebase
@@ -6602,7 +6734,7 @@
                 // Target left hospital early — pull slot back to now if it was hosp-extended
                 h.scheduledAt = Math.max(Date.now(), h.scheduledAt - (oldHospMs - newHospMs));
               }
-              hitMap.set(hit.id, h);
+              pendingMap.set(hit.id, h);
               fbWriteHit(h);
               reNumberPending();
               scheduleRender();
