@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.37
+// @version      5.8.39
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -361,7 +361,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.37";
+  const CURRENT_VERSION  = "5.8.39";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -523,6 +523,7 @@
   const SK_SESSION_START  = "chain_session_start";
   const SK_SESSION_MIN    = "chain_session_min";
   const SK_CHAIN_COUNT    = "chain_live_count";
+  const SK_ATTACK_CURSOR  = "chain_attack_cursor";  // epoch seconds of last seen attack
   // ─── Settings keys ────────────────────────────────────────────────────────
   const SK_SHOW_DONE_HITS   = "chain_show_done_hits";      // bool: show done hits in list
   const SK_COMPACT_MODE     = "chain_compact_mode";         // bool: reduce row height
@@ -749,16 +750,39 @@
   let _attackBackoffSkips  = 0;     // polls to skip after error 5 (too many requests)
   let _attackBackoffLevel  = 0;     // exponential level — resets after successful poll
 
-  // Session is restored from Firebase on first poll — do not restore from
-  // GM storage as stale chainStartTime causes the scraper to accept hits
-  // from the previous chain. Firebase is the single source of truth.
+  // ── Restore session state from GM storage ────────────────────────────────
+  // Restoring chainSessionId/chainStartTime lets applyPatch render scraped hits
+  // immediately on page reload without waiting for Firebase. The values are
+  // treated as provisional — if Firebase delivers a different session ID,
+  // handleRemoteSession will overwrite them. If Firebase confirms the same ID,
+  // we keep the restored cursor and skip a redundant backfill poll.
+  {
+    const cachedId    = GM_getValue(SK_SESSION_ID,    "") || "";
+    const cachedStart = GM_getValue(SK_SESSION_START, "") || "";
+    const cachedCursor= GM_getValue(SK_ATTACK_CURSOR, "") || "";
+    if (cachedId && cachedStart) {
+      const startMs = Number(cachedStart);
+      const ageMs   = Date.now() - startMs;
+      // Only restore if session is less than 2 hours old (same guard as handleRemoteSession)
+      if (ageMs < 2 * 60 * 60 * 1000 && ageMs > 0) {
+        chainSessionId  = cachedId;
+        chainStartTime  = startMs;
+        if (cachedCursor) _lastAttackEnded = Number(cachedCursor);
+        // Fire an immediate incremental poll once factionId is available (boot completes).
+        // Without this, new hits since the cached cursor wait up to 7s for the first interval tick.
+        _cachedSessionRestored = true;
+      }
+    }
+  }
 
   // ── Persist session state helper ──────────────────────────────────────────
   function persistSession() {
-    // Only persist liveChainCount for display purposes.
-    // Session ID/start/min are intentionally NOT persisted — Firebase is
-    // the source of truth and stale local values cause scraper false positives.
-    GM_setValue(SK_CHAIN_COUNT, liveChainCount || "");
+    // Persist session state to GM storage so page navigation restores it instantly
+    // without waiting for Firebase. This eliminates "Waiting for Data" on tab switch.
+    GM_setValue(SK_CHAIN_COUNT,    liveChainCount || "");
+    GM_setValue(SK_SESSION_ID,     chainSessionId || "");
+    GM_setValue(SK_SESSION_START,  chainStartTime || "");
+    GM_setValue(SK_ATTACK_CURSOR,  _lastAttackEnded !== null ? _lastAttackEnded : "");
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -4949,9 +4973,12 @@
     chainStartTime = startMs || Date.now();
     chainSessionId = `s_${chainStartTime}_${Math.random().toString(36).slice(2,7)}`;
     lastAttackId    = null;
-    _lastAttackEnded = null;  // reset attack cursor so catch-up starts from chain beginning
+    _lastAttackEnded = null;
     _attackPollInFlight = false;
     _startTimeCorrected = false;
+    GM_setValue(SK_ATTACK_CURSOR, "");
+    GM_setValue(SK_SESSION_ID,    "");
+    GM_setValue(SK_SESSION_START, "");
     // Clear stale hits from previous chain before writing the new session.
     // Without this, old /hits entries persist in Firebase and load into hitMap,
     // polluting the new chain's board until a co-leader manually wipes the tracker.
@@ -4983,6 +5010,9 @@
     _lastAttackEnded  = null;
     _attackPollInFlight = false;
     _startTimeCorrected = false;
+    GM_setValue(SK_ATTACK_CURSOR, "");
+    GM_setValue(SK_SESSION_ID,    "");
+    GM_setValue(SK_SESSION_START, "");
     hitMap.clear();
     _invalidateHitCache();
     fbClearHits();
@@ -5017,14 +5047,20 @@
       chainSessionId   = data.id;
       chainStartTime   = remoteStart || Date.now();
       sessionMinHitNum = null;
-      _chainStartPending = false;  // Firebase delivered the session — cancel any pending onChainStart
-      scrapedHitIds.clear();  // clear dedup so scraper re-evaluates with correct start time
+      _chainStartPending = false;
+      scrapedHitIds.clear();
       persistSession();
-      // Immediately backfill attack history — don't wait for the 7s attackPollInterval tick.
-      // Without this, all past hits show "Waiting for Data" until the next scheduled poll.
-      _lastAttackEnded = null;
-      _attackPollInFlight = false;
-      pollFactionAttacks();
+      // Only backfill if we don't already have a cursor from GM cache.
+      // If _lastAttackEnded is set, we restored from a previous session and only
+      // need incremental updates — the full history is already in Firebase/hitMap.
+      if (_lastAttackEnded === null) {
+        _attackPollInFlight = false;
+        pollFactionAttacks();
+      } else {
+        // Resume incremental polling from cached cursor — no full backfill needed.
+        _attackPollInFlight = false;
+        pollFactionAttacks();
+      }
     }
   }
 
@@ -5590,6 +5626,7 @@
   let _attackPollInFlight = false;
   let _lastAttackEnded    = null;  // epoch seconds — cursor for incremental polling
   let _startTimeCorrected = false; // true once chain.start has corrected our warmup estimate
+  let _cachedSessionRestored = false; // true when session was pre-loaded from GM cache
 
   function _handleAttackApiError(d) {
     const errCode = d.error.code ?? d.error;
@@ -5670,6 +5707,7 @@
           const lastAtk = attacks[attacks.length - 1];
           if (lastAtk && lastAtk.ended) {
             _lastAttackEnded = lastAtk.ended;
+            GM_setValue(SK_ATTACK_CURSOR, _lastAttackEnded);
           }
 
           // Paginate if this page was full — there may be more attacks
@@ -7202,6 +7240,7 @@
                     _chainPollIsActive = false;
                     if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_IDLE_MS);
                     if (!attackPollInterval)  attackPollInterval  = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
+                    if (_cachedSessionRestored) { _cachedSessionRestored = false; pollFactionAttacks(); }
                     if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 30000);
                     if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
                     if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
