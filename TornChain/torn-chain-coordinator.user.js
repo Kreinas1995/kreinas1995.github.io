@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.31
+// @version      5.8.37
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -361,7 +361,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.31";
+  const CURRENT_VERSION  = "5.8.37";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -1513,7 +1513,7 @@
       <div id="chain-gear-menu">
         <div class="chain-gear-menu-item" id="chain-gmenu-bug">🪲 Bug Report / Tracker</div>
         <div class="chain-gear-menu-item" id="chain-gmenu-whitelist" style="display:none">🔒 Whitelist</div>
-        <div class="chain-gear-menu-item" id="chain-gmenu-clear" style="display:none">❌ Wipe Tracker</div>
+        <div class="chain-gear-menu-item" id="chain-gmenu-trackerdata" style="display:none">🗄 Tracker Data</div>
         <div class="chain-gear-menu-item" id="chain-gmenu-manage" style="display:none">⚙ Permissions</div>
         <div style="height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
         <div class="chain-gear-menu-item" id="chain-gmenu-debug" style="display:none">🔬 Debug Console</div>
@@ -1525,6 +1525,14 @@
       <div id="chain-bug-menu" style="display:none">
         <div class="chain-bug-menu-item" id="chain-bug-report-item">🪲 Report a Bug</div>
         <div class="chain-bug-menu-item" id="chain-bug-tracker-item">📋 View Bug Tracker</div>
+      </div>
+
+      <!-- Tracker Data popover -->
+      <div id="chain-trackerdata-popover" class="chain-popover" style="position:absolute;top:42px;left:8px;right:8px;border:1px solid rgba(120,160,255,.3);gap:8px;">
+        <div style="font-size:12px;font-weight:700;color:#aac4ff;margin-bottom:2px;">🗄 Tracker Data</div>
+        <button id="chain-td-refresh" style="width:100%;padding:7px;border-radius:6px;border:1px solid rgba(68,200,255,.35);background:rgba(40,160,220,.12);color:#66ccff;font-size:12px;cursor:pointer;text-align:left;">🔄 Refresh Data — re-fetch attack history from current chain start</button>
+        <div style="height:1px;background:rgba(255,255,255,.08)"></div>
+        <button id="chain-td-wipe" style="width:100%;padding:7px;border-radius:6px;border:1px solid rgba(255,80,80,.35);background:rgba(200,40,40,.12);color:#ff8888;font-size:12px;cursor:pointer;text-align:left;">❌ Wipe Tracker — clear all hits and session from Firebase</button>
       </div>
 
       <!-- Bug report popover -->
@@ -1745,7 +1753,7 @@
       <div id="chain-banner-locked" class="chain-banner warn" style="display:none">🔒 Access Locked — your faction is not whitelisted.</div>
       <div id="chain-banner-status" class="chain-banner info" style="display:none"></div>
       <div id="chain-banner-debug"  class="chain-banner warn" style="display:none;font-size:10px;word-break:break-all"></div>
-      <div id="chain-banner-limitedkey" class="chain-banner warn" style="display:none">⚠ Limited API key required for attack tracking — re-enter your key with Limited access enabled.</div>
+      <div id="chain-banner-limitedkey" class="chain-banner warn" style="display:none">⚠ Attack tracking unavailable — requires a Limited API key AND faction API access enabled on your position (ask your leader).</div>
 
       <div id="chain-col-header" style="display:none">
         <span>#</span><span>Claimer</span><span>Target</span>
@@ -1982,6 +1990,7 @@
      document.getElementById("chain-bug-menu"),
      document.getElementById("chain-bug-popover"),
      document.getElementById("chain-tracker-popover"),
+     document.getElementById("chain-trackerdata-popover"),
      document.getElementById("chain-gear-menu"),
      document.getElementById("chain-settings-popover"),
     ].forEach(p => p && p.classList.remove("open"));
@@ -2206,12 +2215,12 @@
     // Never touch .style.display on the hidden proxy buttons — they must stay
     // display:none / pointer-events:none at all times to avoid invisible tap targets.
     // Only the gear-menu items are shown/hidden to reflect permissions.
-    const gClear     = document.getElementById("chain-gmenu-clear");
+    const gTrackerData = document.getElementById("chain-gmenu-trackerdata");
     const gManage    = document.getElementById("chain-gmenu-manage");
     const gWhitelist = document.getElementById("chain-gmenu-whitelist");
-    if (gClear)      gClear.style.display     = canClear ? "" : "none";
-    if (gManage)     gManage.style.display     = isLeaderOrCoLeader ? "" : "none";
-    if (gWhitelist)  gWhitelist.style.display  = isOwner ? "" : "none";
+    if (gTrackerData) gTrackerData.style.display = canClear ? "" : "none";
+    if (gManage)      gManage.style.display      = isLeaderOrCoLeader ? "" : "none";
+    if (gWhitelist)   gWhitelist.style.display   = isOwner ? "" : "none";
   }
 
   // ── Gear menu button ────────────────────────────────────────────────────────────────────────────
@@ -2234,8 +2243,22 @@
       e.stopPropagation(); gearMenu.classList.remove("open");
       whitelistBtn.click();
     });
-    _gWire("chain-gmenu-clear", e => {
+    _gWire("chain-gmenu-trackerdata", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
+      closeAllPopovers();
+      const pop = document.getElementById("chain-trackerdata-popover");
+      if (pop) pop.classList.add("open");
+    });
+    _gWire("chain-td-refresh", e => {
+      e.stopPropagation(); closeAllPopovers();
+      // Reset attack cursor and re-fetch from chain start — fills "Waiting for Data" gaps
+      // without wiping Firebase. Safe to run at any time during an active chain.
+      _lastAttackEnded = null;
+      _attackPollInFlight = false;
+      pollFactionAttacks();
+    });
+    _gWire("chain-td-wipe", e => {
+      e.stopPropagation(); closeAllPopovers();
       clearBtn.click();
     });
     _gWire("chain-gmenu-manage", e => {
@@ -3978,6 +4001,36 @@
   function resolveHospGaps() {
     if (!fbConfigured() || !fbToken) return;
 
+    // ── Stale gap cleanup ───────────────────────────────────────────────────
+    // Unspecified gaps were created to buffer hosp-blocked hits. They become
+    // stale when: (a) the hosp hit was removed from the queue, or (b) the target
+    // came out of hospital and their hospReleaseAt has passed. In either case,
+    // delete the gaps so they don't linger as phantom Unclaimed rows.
+    const hospHits = [...hitMap.values()]
+      .filter(h => h.status !== "done" && h.hospReleaseAt && !h.unspecified);
+    const now = Date.now();
+
+    // A gap is stale if no active hosp-blocked hit has its scheduledAt ahead of the gap.
+    // Simpler: any unspecified gap whose scheduledAt is in the past (or whose paired
+    // hosp hit has hospReleaseAt <= now) should be cleaned up.
+    [...hitMap.values()]
+      .filter(h => h.unspecified && h.status === "pending")
+      .forEach(gap => {
+        // A gap is needed only if there's an active hosp hit whose scheduledAt is
+        // beyond this gap (meaning this gap is buffering it). If no such hit exists,
+        // the gap is stale — delete it regardless of whether it's past or future.
+        const stillNeeded = hospHits.some(h =>
+          h.hospReleaseAt > now && h.scheduledAt > gap.scheduledAt
+        );
+        if (!stillNeeded) {
+          _deletedHitIds.add(gap.id);
+          fbDelete(P.hit(gap.id));
+          hitMap.delete(gap.id);
+          _invalidateHitCache();
+        }
+      });
+    // ── End stale gap cleanup ───────────────────────────────────────────────
+
     // chainTimerMsForScheduling() returns 0 when no timer is active — natural slots
     // all collapse to Date.now(), which is still correct: any hospReleaseAt > now
     // will trigger gap creation, and slots get correct times once the timer attaches.
@@ -4898,6 +4951,7 @@
     lastAttackId    = null;
     _lastAttackEnded = null;  // reset attack cursor so catch-up starts from chain beginning
     _attackPollInFlight = false;
+    _startTimeCorrected = false;
     // Clear stale hits from previous chain before writing the new session.
     // Without this, old /hits entries persist in Firebase and load into hitMap,
     // polluting the new chain's board until a co-leader manually wipes the tracker.
@@ -4928,6 +4982,7 @@
     lastAttackId      = null;
     _lastAttackEnded  = null;
     _attackPollInFlight = false;
+    _startTimeCorrected = false;
     hitMap.clear();
     _invalidateHitCache();
     fbClearHits();
@@ -5418,12 +5473,18 @@
           onChainEnd();
           setTimeout(() => onChainStart(apiStartMs), 500);
           return;
-        } else if (chainStart > 0 && Math.abs(drift) > 3000) {
+        } else if (chainStart > 0 && Math.abs(drift) > 3000 && !_startTimeCorrected) {
           // chain.start is the authoritative Torn value (non-zero = confirmed).
           // Our warmup estimate drifted — correct it in place without wiping hits.
+          // _startTimeCorrected flag prevents this from firing every poll interval.
+          _startTimeCorrected = true;
           chainStartTime = apiStartMs;
           fbPut(P.session(), { id: chainSessionId, startTime: chainStartTime });
           persistSession();
+          // Reset attack cursor so next poll re-fetches from the corrected start time.
+          _lastAttackEnded = null;
+          _attackPollInFlight = false;
+          pollFactionAttacks();
         }
       }
       // Chain active but no DOM observer — try to trigger tooltip render
@@ -5528,10 +5589,14 @@
   // ══════════════════════════════════════════════════════════════════════════
   let _attackPollInFlight = false;
   let _lastAttackEnded    = null;  // epoch seconds — cursor for incremental polling
+  let _startTimeCorrected = false; // true once chain.start has corrected our warmup estimate
 
   function _handleAttackApiError(d) {
     const errCode = d.error.code ?? d.error;
-    if (errCode === 16 || errCode === 2) {
+    if (errCode === 7 || errCode === 16 || errCode === 2) {
+      // 7  = no faction API access on this member's position
+      // 16 = key access level too low (needs Limited)
+      // 2  = bad key
       hasLimitedKey = false;
       showBanner("chain-banner-limitedkey", true);
       if (attackPollInterval) { clearInterval(attackPollInterval); attackPollInterval = null; }
@@ -5867,7 +5932,22 @@
         hitMap.delete(hitId);
         _invalidateHitCache();
 
-        // BUG FIX: Shift remaining pending hits' scheduledAt to close the gap
+        // If the removed hit was hosp-blocked, delete the unspecified gap placeholders
+        // that resolveHospGaps created to hold its place. Without this they linger as
+        // phantom Unclaimed rows permanently.
+        if (hit.hospReleaseAt) {
+          const gapsToDelete = [...hitMap.values()]
+            .filter(h => h.unspecified && h.status === "pending" &&
+                         h.scheduledAt >= (deletedScheduledAt - HIT_INTERVAL * 0.5) &&
+                         h.scheduledAt < deletedScheduledAt);
+          gapsToDelete.forEach(g => {
+            _deletedHitIds.add(g.id);
+            fbDelete(P.hit(g.id));
+            hitMap.delete(g.id);
+          });
+        }
+
+        // Shift remaining pending hits' scheduledAt to close the gap
         // left by the removed hit so their displayed timers are correct immediately.
         const remaining = [...hitMap.values()]
           .filter(h => h.status !== "done")
