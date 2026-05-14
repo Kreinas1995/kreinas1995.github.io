@@ -1,8 +1,9 @@
 // ==UserScript==
-// @name         Torn Hospital Timers
+// @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.6.2
-// @description  Hospital timers + abroad labels, multi-tier sort, color-coded urgency, ALIVE on release.
+// @version      2.7.0
+// @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
+// @author       Sypharius [2348580]
 // @match        https://www.torn.com/factions.php*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -11,6 +12,8 @@
 // @grant        GM_addStyle
 // @connect      api.torn.com
 // @run-at       document-idle
+// @downloadURL  https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/Syphs-War-Timers.user.js
+// @updateURL    https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/Syphs-War-Timers.user.js
 // ==/UserScript==
 
 (function () {
@@ -119,11 +122,11 @@
   box.id = "hospital-box";
   box.innerHTML = `
     <div id="hospital-header">
-      <span>Hospital Timers</span>
+      <span>Syph's War Timers</span>
       <span id="hospital-toggle">${minimized ? "＋" : "−"}</span>
     </div>
     <div id="hospital-body" class="${minimized ? "hidden" : ""}">
-      <div id="hospital-sub">Detects hospitalized members on any faction page you view</div>
+      <div id="hospital-sub">Hospital timers, abroad tracking &amp; war sorting for faction pages</div>
       <input id="hospital-key" readonly>
       <div id="hospital-status">Idle</div>
       <div id="hospital-steps">
@@ -443,25 +446,28 @@
           const until = data?.states?.hospital_timestamp || 0;
 
           // Abroad: direction inferred from status.description
-          // e.g. "Traveling to Switzerland", "Returning to Torn", "In Switzerland"
+          // Torn descriptions: "Traveling to Switzerland", "Returning to Torn from Switzerland", "In Switzerland"
           const desc = (data?.status?.description || "").toLowerCase();
           let traveling = null;
-          let country   = data?.status?.description || null;
+          let country   = null;
           if (state === "abroad") {
-            if (desc.includes("returning") || desc.includes("return to torn")) {
+            if (desc.includes("returning")) {
               traveling = "returning";
-              // Extract country from description like "Returning from Switzerland"
+              // "Returning to Torn from Switzerland" — extract after "from"
               const m = data.status.description.match(/from\s+(.+)$/i);
-              if (m) country = m[1].trim();
+              country = m ? m[1].trim() : "Torn";
             } else if (desc.includes("traveling to")) {
               traveling = "leaving";
+              // "Traveling to Switzerland" — extract after "to"
               const m = data.status.description.match(/traveling to\s+(.+)$/i);
-              if (m) country = m[1].trim();
-            } else if (desc.includes("in ")) {
+              country = m ? m[1].trim() : null;
+            } else if (desc.startsWith("in ")) {
               // Static abroad: "In Switzerland"
+              traveling = null;
               const m = data.status.description.match(/^in\s+(.+)$/i);
-              if (m) country = m[1].trim();
+              country = m ? m[1].trim() : null;
             }
+            if (!country) country = data?.status?.description || "Abroad";
           }
 
           // Respect: profile doesn't expose faction respect for other users
