@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.7.0
+// @version      2.8.0
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
 // @match        https://www.torn.com/factions.php*
@@ -19,16 +19,94 @@
 (function () {
   "use strict";
 
-  // ─── Storage ────────────────────────────────────────────────────────────────
-  const STORAGE_API_KEY   = "torn_public_api_key";
-  const STORAGE_SHOW_KEY  = "hospital_show_key_anyfaction";
-  const STORAGE_MINIMIZED = "hospital_minimized_anyfaction";
-  const STORAGE_SORT      = "hospital_sort_enabled";
+  // ─── Storage keys ────────────────────────────────────────────────────────────
+  const STORAGE_API_KEY      = "torn_public_api_key";
+  const STORAGE_SHOW_KEY     = "hospital_show_key_anyfaction";
+  const STORAGE_MINIMIZED    = "hospital_minimized_anyfaction";
+  const STORAGE_SORT         = "hospital_sort_enabled";
+  const STORAGE_ENABLED      = "swt_enabled";
+  const STORAGE_SHOW_FRIENDLY = "swt_show_friendly";
+  const STORAGE_SHOW_ENEMY   = "swt_show_enemy";
 
-  let apiKey      = (GM_getValue(STORAGE_API_KEY,   "") || "").trim();
-  let showKey     = !!GM_getValue(STORAGE_SHOW_KEY,  false);
-  let minimized   = !!GM_getValue(STORAGE_MINIMIZED, false);
-  let sortEnabled = !!GM_getValue(STORAGE_SORT,      false);
+  let apiKey       = (GM_getValue(STORAGE_API_KEY,       "") || "").trim();
+  let showKey      = !!GM_getValue(STORAGE_SHOW_KEY,     false);
+  let minimized    = !!GM_getValue(STORAGE_MINIMIZED,    false);
+  let sortEnabled  = !!GM_getValue(STORAGE_SORT,         false);
+  let enabled      = GM_getValue(STORAGE_ENABLED,        true)  !== false;
+  let showFriendly = GM_getValue(STORAGE_SHOW_FRIENDLY,  true)  !== false;
+  let showEnemy    = GM_getValue(STORAGE_SHOW_ENEMY,     true)  !== false;
+
+  // ─── Page context helpers ────────────────────────────────────────────────────
+  function getViewedFactionId() {
+    const m = location.search.match(/viewFaction=(\d+)/i);
+    return m ? m[1] : null;
+  }
+  function isEnemyPage() { return !!getViewedFactionId(); }
+
+  // ─── Bridge (exposed for TCC integration) ────────────────────────────────────
+  // TCC reads/writes settings via this object rather than calling GM APIs directly.
+  function syncBridge() {
+    if (!window.__swtBridge) return;
+    window.__swtBridge.enabled      = enabled;
+    window.__swtBridge.showKey      = showKey;
+    window.__swtBridge.sortEnabled  = sortEnabled;
+    window.__swtBridge.showFriendly = showFriendly;
+    window.__swtBridge.showEnemy    = showEnemy;
+    window.__swtBridge.apiKey       = apiKey;
+  }
+
+  window.__swtBridge = {
+    installed:    true,
+    version:      "2.8.0",
+    enabled,
+    showKey,
+    sortEnabled,
+    showFriendly,
+    showEnemy,
+    apiKey,
+
+    setEnabled(v) {
+      enabled = !!v;
+      GM_setValue(STORAGE_ENABLED, enabled);
+      syncBridge();
+      if (!enabled) restoreAllCells();
+    },
+    setSort(v) {
+      sortEnabled = !!v;
+      GM_setValue(STORAGE_SORT, sortEnabled);
+      syncBridge();
+      if (!sortEnabled) restoreOriginalOrder();
+      // sync sort bar checkbox if present
+      const cb = document.getElementById("hosp-sort-cb");
+      if (cb) cb.checked = sortEnabled;
+    },
+    setShowFriendly(v) {
+      showFriendly = !!v;
+      GM_setValue(STORAGE_SHOW_FRIENDLY, showFriendly);
+      syncBridge();
+      if (!showFriendly && !isEnemyPage()) restoreAllCells();
+    },
+    setShowEnemy(v) {
+      showEnemy = !!v;
+      GM_setValue(STORAGE_SHOW_ENEMY, showEnemy);
+      syncBridge();
+      if (!showEnemy && isEnemyPage()) restoreAllCells();
+    },
+    setShowKey(v) {
+      showKey = !!v;
+      GM_setValue(STORAGE_SHOW_KEY, showKey);
+      syncBridge();
+      refreshKeyDisplay();
+    },
+    setApiKey(key) {
+      apiKey = String(key || "").trim();
+      GM_setValue(STORAGE_API_KEY, apiKey);
+      syncBridge();
+      for (const k of Object.keys(playerCache)) delete playerCache[k];
+      refreshKeyDisplay();
+    },
+    getApiKeyMasked() { return maskKey(apiKey); },
+  };
 
   // ─── Cache ──────────────────────────────────────────────────────────────────
   // { [userId]: { state, until, country, traveling, respect, ts } }
@@ -252,6 +330,15 @@
     if ("origHtml" in statusNode.dataset) {
       statusNode.innerHTML = statusNode.dataset.origHtml;
       delete statusNode.dataset.origHtml;
+    }
+  }
+
+  function restoreAllCells() {
+    for (const a of document.querySelectorAll('a[href*="profiles.php?XID="]')) {
+      const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement;
+      if (!row) continue;
+      const statusNode = findStatusNodeForRow(row);
+      if (statusNode) restoreCell(statusNode);
     }
   }
 
@@ -585,6 +672,9 @@
 
   // ─── Tick: update displays ──────────────────────────────────────────────────
   function updatePageTimers() {
+    if (!enabled) return;
+    if (isEnemyPage() && !showEnemy) return;
+    if (!isEnemyPage() && !showFriendly) return;
     const now = Date.now() / 1000;
 
     for (const a of document.querySelectorAll('a[href*="profiles.php?XID="]')) {
@@ -653,6 +743,10 @@
 
   async function scan() {
     if (scanRunning) return;
+    // Bail early if disabled or page type is filtered out
+    if (!enabled) { restoreAllCells(); return; }
+    if (isEnemyPage() && !showEnemy) { restoreAllCells(); return; }
+    if (!isEnemyPage() && !showFriendly) { restoreAllCells(); return; }
     scanRunning = true;
     try {
       if (!apiKey) { setStatus("No API key set (use Tampermonkey menu)"); return; }
@@ -679,9 +773,28 @@
   refreshKeyDisplay();
   setStatus(apiKey ? "Running..." : "No API key set");
 
+  // Hide SWT's own floating box when TCC is detected — TCC owns the UI.
+  // Poll briefly to handle TCC loading slightly after SWT.
+  (function hideSwtBoxIfTcc() {
+    const box = document.getElementById("hospital-box");
+    if (window.__tccRunning && box) {
+      box.style.display = "none";
+      return;
+    }
+    // Check up to 5s, then give up and show the box normally
+    let attempts = 0;
+    const iv = setInterval(() => {
+      try {
+        const b = document.getElementById("hospital-box");
+        if (window.__tccRunning && b) { b.style.display = "none"; clearInterval(iv); return; }
+        if (++attempts >= 10) clearInterval(iv);
+      } catch(e) { clearInterval(iv); }
+    }, 500);
+  })();
+
   tryEarlyInject();  // inject sort bar as soon as DOM is ready, no fetch delay
   scan();
-  setInterval(scan, 5000);
-  setInterval(updatePageTimers, 1000);
+  setInterval(() => { try { scan(); } catch(e) { console.warn("[SWT] scan error", e); } }, 5000);
+  setInterval(() => { try { updatePageTimers(); } catch(e) { console.warn("[SWT] timer error", e); } }, 1000);
 
 })();
