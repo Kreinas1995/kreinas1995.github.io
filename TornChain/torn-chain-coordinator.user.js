@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.8.39
+// @version      5.8.42
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -361,7 +361,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.8.39";
+  const CURRENT_VERSION  = "5.8.42";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -749,6 +749,8 @@
   let hasLimitedKey        = null;  // null=unknown, true=confirmed, false=insufficient
   let _attackBackoffSkips  = 0;     // polls to skip after error 5 (too many requests)
   let _attackBackoffLevel  = 0;     // exponential level — resets after successful poll
+  let _startTimeCorrected  = false; // true once chain.start has corrected our warmup estimate
+  let _cachedSessionRestored = false; // true when session was pre-loaded from GM cache
 
   // ── Restore session state from GM storage ────────────────────────────────
   // Restoring chainSessionId/chainStartTime lets applyPatch render scraped hits
@@ -4976,18 +4978,17 @@
     _lastAttackEnded = null;
     _attackPollInFlight = false;
     _startTimeCorrected = false;
-    GM_setValue(SK_ATTACK_CURSOR, "");
-    GM_setValue(SK_SESSION_ID,    "");
-    GM_setValue(SK_SESSION_START, "");
-    // Clear stale hits from previous chain before writing the new session.
-    // Without this, old /hits entries persist in Firebase and load into hitMap,
-    // polluting the new chain's board until a co-leader manually wipes the tracker.
+    // Clear stale hits from previous chain. Guard: only wipe if we're creating a
+    // genuinely new session (chainSessionId just changed above). This prevents
+    // accidental wipes if onChainStart fires spuriously mid-chain.
     hitMap.clear();
     _invalidateHitCache();
     fbClearHits();
+    GM_setValue(SK_ATTACK_CURSOR, "");
+    GM_setValue(SK_SESSION_ID,    "");
+    GM_setValue(SK_SESSION_START, "");
     fbPut(P.session(), { id: chainSessionId, startTime: chainStartTime });
     persistSession();
-    // Immediate attack poll — don't wait for the 7s interval to fire first
     pollFactionAttacks();
   }
 
@@ -5464,7 +5465,7 @@
       updateChainTimerUI();
     }
 
-    if (newTimeout === 0 && chainSessionId) {
+    if (newTimeout === 0 && newCount === 0 && chainSessionId) {
       if (chainEndDebounce) { clearTimeout(chainEndDebounce); chainEndDebounce = null; }
       onChainEnd(); return;
     }
@@ -5625,8 +5626,6 @@
   // ══════════════════════════════════════════════════════════════════════════
   let _attackPollInFlight = false;
   let _lastAttackEnded    = null;  // epoch seconds — cursor for incremental polling
-  let _startTimeCorrected = false; // true once chain.start has corrected our warmup estimate
-  let _cachedSessionRestored = false; // true when session was pre-loaded from GM cache
 
   function _handleAttackApiError(d) {
     const errCode = d.error.code ?? d.error;
@@ -5779,7 +5778,7 @@
       const targetId    = String(atk.defender.id);
       const targetName  = atk.defender.name || `Player #${targetId}`;
       const attackerName= atk.attacker.name || "Unknown";
-      const attackUrl   = `https://www.torn.com/loader.php?sid=attack&user2ID=${targetId}`;
+      const attackUrl   = `https://www.torn.com/page.php?sid=attack&user2ID=${targetId}`;
 
       const dedupKey = (chainSessionId || "nosession") + "_hit_" + chainHitNum;
       if (scrapedHitIds.has(dedupKey)) continue;
@@ -6667,7 +6666,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   function extractAttackUrl(a) {
     const h=a?.href||"";
-    if(h.includes("loader.php")&&h.includes("sid=attack")) return h;
+    if((h.includes("loader.php")||h.includes("page.php"))&&h.includes("sid=attack")) return h;
     return h.startsWith("http")?h:"https://www.torn.com"+h;
   }
 
@@ -6676,7 +6675,8 @@
   const IS_LIST_PAGE       = /page\.php/.test(window.location.pathname) &&
                              /sid=list/.test(window.location.search);
   const IS_PROFILE_PAGE    = /profiles\.php/.test(window.location.pathname);
-  const IS_ATTACK_PAGE     = /loader\.php/.test(window.location.pathname) &&
+  const IS_ATTACK_PAGE     = (/loader\.php/.test(window.location.pathname) ||
+                              /page\.php/.test(window.location.pathname)) &&
                              /sid=attack/.test(window.location.search);
   const IS_ANY_TORN_PAGE   = /torn\.com/.test(window.location.hostname);
 
@@ -6711,7 +6711,7 @@
     if (ownId && targetId === ownId) return;
 
     // Find the attack button — it's in the Actions section
-    const attackA = document.querySelector('a[href*="loader.php?sid=attack"], a[href*="user2ID='+targetId+'"]');
+    const attackA = document.querySelector('a[href*="page.php?sid=attack"], a[href*="user2ID='+targetId+'"]');
     if (!attackA) return;  // Actions not loaded yet — observer will retry
     const attackUrl = extractAttackUrl(attackA);
 
@@ -6758,8 +6758,8 @@
       profileA.dataset.chainBtnInjected="1";
       const targetName=(profileA.textContent||"").trim()||"Unknown";
       const row=profileA.closest("li")||profileA.closest('[class*="member"]')||profileA.closest("tr")||profileA.parentElement;
-      let attackUrl=`https://www.torn.com/loader.php?sid=attack&user2ID=${targetId}`;
-      if(row){const al=row.querySelector('a[href*="loader.php?sid=attack"]');if(al)attackUrl=extractAttackUrl(al);}
+      let attackUrl=`https://www.torn.com/page.php?sid=attack&user2ID=${targetId}`;
+      if(row){const al=row.querySelector('a[href*="page.php?sid=attack"]');if(al)attackUrl=extractAttackUrl(al);}
       const btn=document.createElement("button");
       btn.className="chain-target-btn";
       const queued=[...hitMap.values()].find(h=>h.status==="pending"&&h.targetId===targetId);
@@ -6878,7 +6878,7 @@
     }
     if (!targetName) targetName = "Player #" + targetId;
 
-    const attackUrl = `https://www.torn.com/loader.php?sid=attack&user2ID=${targetId}`;
+    const attackUrl = `https://www.torn.com/page.php?sid=attack&user2ID=${targetId}`;
 
     const btn = document.createElement("a");
     btn.className = "chain-target-btn";
