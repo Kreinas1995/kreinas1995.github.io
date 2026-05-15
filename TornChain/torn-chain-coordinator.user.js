@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.9.8
+// @version      5.9.9
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -374,7 +374,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.9.8";
+  const CURRENT_VERSION  = "5.9.9";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -5320,10 +5320,10 @@
     _lastAttackEnded = null;
     _attackPollInFlight = false;
     _startTimeCorrected = false;
-    // New chain: clear the pending queue (old targets don't carry over)
-    // and clear done hits from any previous session.
+    // New chain: clear the pending queue (old targets don't carry over).
+    // Done hits from the previous session are cleaned up in onChainEnd()
+    // which runs before chainSessionId is nulled — so no cleanup needed here.
     fbClearPending();
-    if (oldSessionId) fbClearDone(oldSessionId);
     doneMap.clear();
     GM_setValue(SK_ATTACK_CURSOR, "");
     GM_setValue(SK_SESSION_ID,    "");
@@ -5356,9 +5356,9 @@
     GM_setValue(SK_ATTACK_CURSOR, "");
     GM_setValue(SK_SESSION_ID,    "");
     GM_setValue(SK_SESSION_START, "");
-    // Clear done hits from memory — they belonged to the ended session.
-    // Do NOT touch pendingMap — the queue survives until the next chain starts
-    // (or until a manual wipe). onChainStart will clear pending for a new chain.
+    // Clear done hits from Firebase and memory — they belonged to the ended session.
+    // Do NOT touch pendingMap — the queue survives until the next chain starts.
+    fbDelete(P.doneHits(endedSessionId));
     doneMap.clear();
     _invalidateHitCache();
     fbDelete(P.session());
