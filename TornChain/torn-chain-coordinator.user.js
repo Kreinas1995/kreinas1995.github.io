@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.9.0
+// @version      5.9.6
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -77,12 +77,15 @@
   //     Firefox + Tampermonkey is more permissive and will not catch these issues.
   // ══════════════════════════════════════════════════════════════════════════
 
+  // ── Cross-script shared window ───────────────────────────────────────────
+  // Tampermonkey on Firefox sandboxes each script's `window`. Use unsafeWindow
+  // (the real page window) so TCC and SWT can see each other's properties.
+  const _xw = (typeof unsafeWindow !== "undefined") ? unsafeWindow : window;
+
   // ── Singleton guard ───────────────────────────────────────────────────────
-  // Prevents a second panel from spawning if two versions of the script are
-  // installed simultaneously (e.g. old 5.0.0 + new 5.0.3 both active).
-  // The first instance to run wins; subsequent runs abort immediately.
-  if (window.__tccRunning) return;
-  window.__tccRunning = true;
+  // Allow takeover if panel isn't in DOM (previous instance crashed before appending).
+  if (_xw.__tccRunning && document.getElementById("chain-panel")) return;
+  _xw.__tccRunning = true;
 
   // Shared debug state — readable by all scopes within this IIFE without window hacks
   const _dbg = {
@@ -361,7 +364,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.9.0";
+  const CURRENT_VERSION  = "5.9.6";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -1548,6 +1551,7 @@
         <div style="height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
         <div class="chain-gear-menu-item" id="chain-gmenu-debug" style="display:none">🔬 Debug Console</div>
         <div style="height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
+        <div class="chain-gear-menu-item" id="chain-gmenu-swt" style="display:none">⚕ War Timers</div>
         <div class="chain-gear-menu-item" id="chain-gmenu-settings">⚙️ Settings</div>
       </div>
 
@@ -1763,9 +1767,70 @@
             <div id="chain-sett-status" style="font-size:10px;color:#44ff88;min-height:13px;text-align:center;padding-bottom:2px;"></div>
           </div>
 
+          <div class="chain-sett-section-hdr" data-section="companions"><span class="chain-sett-section-arrow">▶</span>📦 Install Companion Scripts</div>
+          <div class="chain-sett-section-body" id="chain-sett-body-companions">
+            <div style="padding:6px 0 4px;font-size:11px;color:#aaa;line-height:1.4;">
+              Optional scripts that work alongside TCC.
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;">
+              <div>
+                <div style="font-size:12px;font-weight:700;color:#eee;">Syph's War Timers</div>
+                <div style="font-size:10px;color:#888;margin-top:2px;">Hospital timers &amp; abroad tracking on faction pages</div>
+              </div>
+              <a href="https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/Syphs-War-Timers.user.js" target="_blank"
+                 style="flex-shrink:0;padding:5px 10px;border-radius:6px;font-size:11px;
+                        border:1px solid rgba(68,255,136,.3);background:rgba(68,255,136,.08);
+                        color:#44ff88;text-decoration:none;white-space:nowrap;cursor:pointer;">
+                ↓ Install
+              </a>
+            </div>
+          </div>
+
         </div>
         <button id="chain-settings-close" style="padding:5px 0;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#888;flex-shrink:0;margin-top:6px;">Close</button>
       </div>
+    </div>
+
+    <!-- SWT popover -->
+    <div id="chain-swt-popover" class="chain-popover" style="left:8px;right:8px;border:1px solid rgba(68,255,136,.25);max-height:85vh;overflow:hidden;">
+      <div style="font-size:12px;font-weight:700;color:#44ff88;letter-spacing:.3px;flex-shrink:0;">⚕ Syph's War Timers</div>
+      <div style="display:flex;flex-direction:column;gap:0;overflow-y:auto;flex:1;padding-top:4px;">
+
+        <!-- Master toggle -->
+        <div class="chain-sett-row" style="padding:8px 0 6px;border-bottom:1px solid rgba(255,255,255,.07);">
+          <label class="chain-sett-label" style="font-size:12px;font-weight:700;color:#eee;">Enable War Timers</label>
+          <input type="checkbox" id="swt-enabled-cb" class="chain-sett-cb">
+        </div>
+
+        <!-- Faction page filters -->
+        <div style="font-size:10px;font-weight:700;color:#556;letter-spacing:.4px;text-transform:uppercase;padding:8px 0 4px;">Faction Pages</div>
+        <div class="chain-sett-row">
+          <label class="chain-sett-label">Show on friendly pages <span class="chain-sett-desc">(your faction)</span></label>
+          <input type="checkbox" id="swt-friendly-cb" class="chain-sett-cb">
+        </div>
+        <div class="chain-sett-row">
+          <label class="chain-sett-label">Show on enemy pages <span class="chain-sett-desc">(other factions)</span></label>
+          <input type="checkbox" id="swt-enemy-cb" class="chain-sett-cb">
+        </div>
+
+        <!-- Sorting -->
+        <div style="font-size:10px;font-weight:700;color:#556;letter-spacing:.4px;text-transform:uppercase;padding:8px 0 4px;">Sorting</div>
+        <div class="chain-sett-row">
+          <label class="chain-sett-label">War sort <span class="chain-sett-desc">(hospitalised first)</span></label>
+          <input type="checkbox" id="swt-sort-cb" class="chain-sett-cb">
+        </div>
+
+        <!-- API Key -->
+        <div style="font-size:10px;font-weight:700;color:#556;letter-spacing:.4px;text-transform:uppercase;padding:8px 0 4px;">API Key</div>
+        <div style="display:flex;align-items:center;gap:6px;padding:2px 0 6px;">
+          <span id="swt-key-display" style="font-family:monospace;font-size:11px;color:#aaa;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span>
+          <button id="swt-key-show-btn" class="chain-sett-action-btn" title="Show/hide key" style="flex-shrink:0;min-width:28px;">👁</button>
+          <button id="swt-key-clear-btn" class="chain-sett-action-btn" title="Clear key" style="flex-shrink:0;">Clear</button>
+        </div>
+        <button id="swt-key-set-btn" class="chain-sett-action-btn" style="width:100%;padding:6px 0;font-size:11px;">Set API Key…</button>
+        <div id="swt-status" style="font-size:10px;color:#44ff88;min-height:13px;text-align:center;padding:4px 0 2px;"></div>
+      </div>
+      <button id="chain-swt-close" style="padding:5px 0;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#888;flex-shrink:0;margin-top:6px;">Close</button>
     </div>
 
     <div id="chain-timer-bar">
@@ -2023,6 +2088,7 @@
      document.getElementById("chain-trackerdata-popover"),
      document.getElementById("chain-gear-menu"),
      document.getElementById("chain-settings-popover"),
+     document.getElementById("chain-swt-popover"),
     ].forEach(p => p && p.classList.remove("open"));
   }
 
@@ -2295,6 +2361,12 @@
       e.stopPropagation(); gearMenu.classList.remove("open");
       manageBtn.click();
     });
+    _gWire("chain-gmenu-swt", e => {
+      e.stopPropagation(); gearMenu.classList.remove("open");
+      closeAllPopovers();
+      const sp = document.getElementById("chain-swt-popover");
+      if (sp) { if (window._swtRefreshPanel) window._swtRefreshPanel(); sp.classList.add("open"); }
+    });
     _gWire("chain-gmenu-settings", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
       const sp = document.getElementById("chain-settings-popover");
@@ -2309,6 +2381,116 @@
   // ── Settings popover close ───────────────────────────────────────────────
   const settingsClose = document.getElementById("chain-settings-close");
   if (settingsClose) settingsClose.onclick = closeAllPopovers;
+
+  // ── SWT integration ──────────────────────────────────────────────────────
+  (function wireSwtIntegration() {
+    const swtPopover  = document.getElementById("chain-swt-popover");
+    const swtClose    = document.getElementById("chain-swt-close");
+    const swtStatus   = document.getElementById("swt-status");
+
+    if (!swtPopover) return;
+
+    if (swtClose) swtClose.onclick = closeAllPopovers;
+
+    // Expose refreshSwtPanel so gear menu wire can call it
+    window._swtRefreshPanel = function() { refreshSwtPanel(); };
+
+    function setSwtStatus(msg, color) {
+      if (!swtStatus) return;
+      swtStatus.textContent = msg;
+      swtStatus.style.color = color || "#44ff88";
+      if (msg) setTimeout(() => { if (swtStatus.textContent === msg) swtStatus.textContent = ""; }, 2500);
+    }
+
+    function refreshSwtPanel() {
+      const bridge = _xw.__swtBridge;
+      if (!bridge) return;
+
+      const enabledCb  = document.getElementById("swt-enabled-cb");
+      const friendlyCb = document.getElementById("swt-friendly-cb");
+      const enemyCb    = document.getElementById("swt-enemy-cb");
+      const sortCb     = document.getElementById("swt-sort-cb");
+      const keyDisplay = document.getElementById("swt-key-display");
+
+      if (enabledCb)  enabledCb.checked  = bridge.enabled;
+      if (friendlyCb) friendlyCb.checked = bridge.showFriendly;
+      if (enemyCb)    enemyCb.checked    = bridge.showEnemy;
+      if (sortCb)     sortCb.checked     = bridge.sortEnabled;
+      if (keyDisplay) {
+        keyDisplay.textContent = bridge.apiKey
+          ? (bridge.showKey ? bridge.apiKey : bridge.getApiKeyMasked())
+          : "No key set";
+      }
+    }
+
+    function wireCheckboxSWT(id, setter) {
+      const cb = document.getElementById(id);
+      if (!cb) return;
+      cb.addEventListener("change", () => {
+        try {
+          const bridge = _xw.__swtBridge;
+          if (bridge) { bridge[setter](cb.checked); setSwtStatus("Saved"); }
+        } catch(e) { console.warn("[TCC/SWT]", e); }
+      });
+    }
+
+    wireCheckboxSWT("swt-enabled-cb",  "setEnabled");
+    wireCheckboxSWT("swt-friendly-cb", "setShowFriendly");
+    wireCheckboxSWT("swt-enemy-cb",    "setShowEnemy");
+    wireCheckboxSWT("swt-sort-cb",     "setSort");
+
+    const showBtn  = document.getElementById("swt-key-show-btn");
+    const clearBtn = document.getElementById("swt-key-clear-btn");
+    const setBtn   = document.getElementById("swt-key-set-btn");
+
+    if (showBtn) showBtn.onclick = () => {
+      try {
+        const bridge = _xw.__swtBridge;
+        if (bridge) { bridge.setShowKey(!bridge.showKey); refreshSwtPanel(); }
+      } catch(e) {}
+    };
+
+    if (clearBtn) clearBtn.onclick = () => {
+      try {
+        const bridge = _xw.__swtBridge;
+        if (bridge) { bridge.setApiKey(""); refreshSwtPanel(); setSwtStatus("Key cleared", "#ff8888"); }
+      } catch(e) {}
+    };
+
+    if (setBtn) setBtn.onclick = () => {
+      try {
+        const bridge = _xw.__swtBridge;
+        const current = bridge?.apiKey || "";
+        const input = prompt("Enter your Torn Public API key for Syph's War Timers:", current);
+        if (input === null) return;
+        if (bridge) { bridge.setApiKey(input); refreshSwtPanel(); setSwtStatus("Key saved"); }
+      } catch(e) {}
+    };
+
+    // ── Detection poll — show button when SWT is installed ─────────────────
+    let swtFound = false;
+    function checkSwtPresence() {
+      try {
+        if (swtFound) return;
+        if (_xw.__swtBridge?.installed) {
+          swtFound = true;
+          const gSWT = document.getElementById("chain-gmenu-swt");
+          if (gSWT) gSWT.style.display = "";
+          // If TCC's factionId is available, share it with SWT
+          if (typeof factionId !== "undefined" && factionId && _xw.__swtBridge) {
+            _xw.__swtBridge.tccFactionId = factionId;
+          }
+        }
+      } catch(e) {}
+    }
+
+    // Check immediately, then at 500ms, 1s, 2s, then every 2s
+    // Handles both load orders (SWT first or TCC first)
+    checkSwtPresence();
+    setTimeout(() => { try { checkSwtPresence(); } catch(e) {} }, 500);
+    setTimeout(() => { try { checkSwtPresence(); } catch(e) {} }, 1000);
+    setInterval(() => { try { checkSwtPresence(); } catch(e) {} }, 2000);
+  })();
 
   // ── Settings: wire all controls ──────────────────────────────────────────
   (function wireSettings() {
@@ -2452,7 +2634,8 @@
           `<span style="color:#778">Faction</span><span style="color:#aaa">${factionId || "—"}</span>` +
           `<span style="color:#778">Auth uid</span><span style="color:#aaa;font-size:9px">${fbUid ? fbUid.slice(0,8)+"…" : "—"}</span>` +
           `<span style="color:#778">TornPDA</span><span style="color:${isTornPDA ? "#44ff88" : "#556"}">${isTornPDA ? "yes ✓" : "no"}</span>` +
-          `<span style="color:#778">Key stored</span><span style="color:${tornApiKey ? "#44ff88" : "#ff8844"}">${tornApiKey ? "yes ✓" : "missing ✗"}</span>`;
+          `<span style="color:#778">Key stored</span><span style="color:${tornApiKey ? "#44ff88" : "#ff8844"}">${tornApiKey ? "yes ✓" : "missing ✗"}</span>` +
+          (() => { const b = _xw.__swtBridge; const col = b ? "#44ff88" : "#556"; const val = b ? `v${b.version||"?"}` : "not detected"; return `<span style="color:#778">SWT bridge</span><span style="color:${col}">${val}</span>`; })();
       }
 
       // ── Freeze log pane ──
@@ -2584,60 +2767,86 @@
       bodyWrap.className = "tcc-dbg-body";
       Object.assign(bodyWrap.style, { display: "flex", flexDirection: "column", overflow: "hidden", flex: "1" });
 
-      // ── Stats row ──
+      // ── Helper: collapsible section ──
+      function _dbgSection(id, label, color, defaultOpen, extraBtn) {
+        const hdr = document.createElement("div");
+        Object.assign(hdr.style, {
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "3px 10px 3px", flexShrink: "0", cursor: "pointer",
+          borderTop: "1px solid rgba(255,255,255,.06)", userSelect: "none",
+        });
+        hdr.innerHTML = `<span style="font-size:9px;font-weight:700;color:${color};letter-spacing:.4px;text-transform:uppercase">` +
+          `<span id="${id}-arrow" style="font-size:8px;margin-right:4px;display:inline-block;transition:transform .15s">${defaultOpen ? "▼" : "▶"}</span>${label}</span>` +
+          (extraBtn || "");
+        const body = document.createElement("div");
+        body.id = id;
+        body.style.display = defaultOpen ? "" : "none";
+        hdr.addEventListener("click", e => {
+          if (e.target.tagName === "BUTTON") return;
+          const open = body.style.display !== "none";
+          body.style.display = open ? "none" : "";
+          const arrow = document.getElementById(id + "-arrow");
+          if (arrow) arrow.style.transform = open ? "" : "rotate(90deg) translateX(-1px)";
+        });
+        return { hdr, body };
+      }
+
+      // ── Stats section (collapsed by default) ──
+      const { hdr: statsHdr, body: statsBody } = _dbgSection(
+        "tcc-dbg-stats-body", "State", "#88bbff", false
+      );
       const statsDiv = document.createElement("div");
       statsDiv.id = "tcc-dbg-stats";
       Object.assign(statsDiv.style, {
         display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 8px",
-        padding: "6px 10px 4px", fontSize: "10px", flexShrink: "0",
-        borderBottom: "1px solid rgba(255,255,255,.06)",
+        padding: "4px 10px 6px", fontSize: "10px",
       });
-      bodyWrap.appendChild(statsDiv);
+      statsBody.appendChild(statsDiv);
+      bodyWrap.appendChild(statsHdr);
+      bodyWrap.appendChild(statsBody);
 
-      // ── Freeze log section ──
-      // Header: label + Reset button. Body: XHR counts + persisted freeze events.
-      const freezeHdr = document.createElement("div");
-      Object.assign(freezeHdr.style, {
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "3px 10px 1px", flexShrink: "0",
-      });
-      freezeHdr.innerHTML =
-        `<span style="font-size:9px;font-weight:700;color:#66ccff;letter-spacing:.4px;text-transform:uppercase">📋 Freeze Log (persisted)</span>` +
-        `<button id="tcc-dbg-freeze-reset" style="font-size:9px;padding:1px 6px;border-radius:4px;cursor:pointer;border:1px solid rgba(255,80,80,.3);background:rgba(255,60,60,.1);color:#ff8888">Reset</button>`;
-      bodyWrap.appendChild(freezeHdr);
+      // ── Freeze log section (collapsed by default) ──
+      const resetBtn = `<button id="tcc-dbg-freeze-reset" style="font-size:9px;padding:1px 6px;border-radius:4px;cursor:pointer;border:1px solid rgba(255,80,80,.3);background:rgba(255,60,60,.1);color:#ff8888" onclick="event.stopPropagation()">Reset</button>`;
+      const { hdr: freezeHdr, body: freezeBody } = _dbgSection(
+        "tcc-dbg-freeze-body", "📋 Freeze Log (persisted)", "#66ccff", false, resetBtn
+      );
       const freezeDiv = document.createElement("div");
       freezeDiv.id = "tcc-dbg-freezelog";
       Object.assign(freezeDiv.style, {
-        overflowY: "auto", padding: "2px 10px 4px",
+        overflowY: "auto", padding: "2px 10px 6px",
         fontSize: "10px", fontFamily: "monospace",
-        height: "78px", flexShrink: "0",
-        borderBottom: "1px solid rgba(255,255,255,.06)",
-        color: "#aaa",
+        maxHeight: "120px", color: "#aaa",
       });
-      bodyWrap.appendChild(freezeDiv);
+      freezeBody.appendChild(freezeDiv);
+      bodyWrap.appendChild(freezeHdr);
+      bodyWrap.appendChild(freezeBody);
 
-      // ── Copy Report button (above console log for quick access) ──
+      // ── Copy button ──
       const copyTopDiv = document.createElement("div");
       Object.assign(copyTopDiv.style, {
-        display: "flex", gap: "5px", padding: "3px 10px",
+        display: "flex", gap: "5px", padding: "4px 10px",
         borderTop: "1px solid rgba(255,255,255,.06)", flexShrink: "0",
       });
       copyTopDiv.innerHTML =
         `<button id="tcc-dbg-copy" style="flex:1;background:rgba(100,160,255,.15);border:1px solid rgba(100,160,255,.3);color:#88bbff;border-radius:4px;padding:3px 0;font-size:10px;cursor:pointer;font-family:monospace">Copy report</button>`;
       bodyWrap.appendChild(copyTopDiv);
 
-      // ── Console log area ──
+      // ── Console log section (collapsed by default) ──
+      const { hdr: logHdr, body: logBody } = _dbgSection(
+        "tcc-dbg-log-body", "Console Log", "#ffcc66", false
+      );
       const logDiv = document.createElement("div");
       logDiv.id = "tcc-dbg-log";
       Object.assign(logDiv.style, {
         overflowY: "auto", padding: "4px 6px",
         fontSize: "10px", fontFamily: "monospace",
-        flex: "1", minHeight: "60px", maxHeight: "180px",
-        borderBottom: "1px solid rgba(255,255,255,.06)",
+        flex: "1", minHeight: "60px", maxHeight: "200px",
       });
-      bodyWrap.appendChild(logDiv);
+      logBody.appendChild(logDiv);
+      bodyWrap.appendChild(logHdr);
+      bodyWrap.appendChild(logBody);
 
-      // ── Footer: Clear button — always visible, never scrolled away ──
+      // ── Footer ──
       const footerDiv = document.createElement("div");
       Object.assign(footerDiv.style, {
         display: "flex", gap: "5px", padding: "5px 10px 7px",
