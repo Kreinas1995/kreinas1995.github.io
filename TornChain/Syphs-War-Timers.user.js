@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.8.2
+// @version      2.8.6
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,11 @@
 
 (function () {
   "use strict";
+
+  // ── Cross-script shared window ───────────────────────────────────────────────
+  // Tampermonkey on Firefox sandboxes each script's `window`. Use unsafeWindow
+  // so SWT and TCC can see each other's properties.
+  const _xw = (typeof unsafeWindow !== "undefined") ? unsafeWindow : window;
 
   // ─── Storage keys ────────────────────────────────────────────────────────────
   const STORAGE_API_KEY      = "torn_public_api_key";
@@ -46,18 +51,18 @@
   // ─── Bridge (exposed for TCC integration) ────────────────────────────────────
   // TCC reads/writes settings via this object rather than calling GM APIs directly.
   function syncBridge() {
-    if (!window.__swtBridge) return;
-    window.__swtBridge.enabled      = enabled;
-    window.__swtBridge.showKey      = showKey;
-    window.__swtBridge.sortEnabled  = sortEnabled;
-    window.__swtBridge.showFriendly = showFriendly;
-    window.__swtBridge.showEnemy    = showEnemy;
-    window.__swtBridge.apiKey       = apiKey;
+    if (!_xw.__swtBridge) return;
+    _xw.__swtBridge.enabled      = enabled;
+    _xw.__swtBridge.showKey      = showKey;
+    _xw.__swtBridge.sortEnabled  = sortEnabled;
+    _xw.__swtBridge.showFriendly = showFriendly;
+    _xw.__swtBridge.showEnemy    = showEnemy;
+    _xw.__swtBridge.apiKey       = apiKey;
   }
 
-  window.__swtBridge = {
+  _xw.__swtBridge = {
     installed:    true,
-    version:      "2.8.2",
+    version:      "2.8.6",
     enabled,
     showKey,
     sortEnabled,
@@ -291,8 +296,8 @@
 
   function formatCountryLabel(cached) {
     const country = (cached.country || "Abroad").trim();
-    if (cached.traveling === "returning") return `←<br>${country}`;
-    if (cached.traveling === "leaving")   return `→<br>${country}`;
+    if (cached.traveling === "leaving")   return `➡️ ${country}`;   // Torn → Destination
+    if (cached.traveling === "returning") return `${country} ⬅️`;   // Destination → Torn
     return country;
   }
 
@@ -533,28 +538,40 @@
           const until = data?.states?.hospital_timestamp || 0;
 
           // Abroad: direction inferred from status.description
-          // Torn descriptions: "Traveling to Switzerland", "Returning to Torn from Switzerland", "In Switzerland"
+          // Torn description formats (may vary by version):
+          // Leaving:   "Traveling to Switzerland"
+          //            "Traveling from Torn to South Africa"
+          // Returning: "Returning to Torn from Switzerland"
+          //            "Traveling from Canada to Torn"
+          // Static:    "In Switzerland"
           const desc = (data?.status?.description || "").toLowerCase();
+          const rawDesc = data?.status?.description || "";
           let traveling = null;
           let country   = null;
           if (state === "abroad") {
-            if (desc.includes("returning")) {
+            // Returning: ends with "to Torn" or contains "returning"
+            if (desc.includes("returning") || /to torn$/i.test(desc)) {
               traveling = "returning";
-              // "Returning to Torn from Switzerland" — extract after "from"
-              const m = data.status.description.match(/from\s+(.+)$/i);
-              country = m ? m[1].trim() : "Torn";
-            } else if (desc.includes("traveling to")) {
+              // "Traveling from Canada to Torn" → extract between "from" and "to Torn"
+              // "Returning to Torn from Switzerland" → extract after last "from"
+              const m1 = rawDesc.match(/from\s+(.+?)\s+to\s+torn/i);
+              const m2 = rawDesc.match(/from\s+(.+)$/i);
+              country = (m1 ? m1[1] : m2 ? m2[1] : null);
+              if (country) country = country.replace(/\s*to\s+torn\s*$/i, "").trim();
+              if (!country) country = "Abroad";
+            } else if (desc.includes("traveling") || desc.includes("to ")) {
               traveling = "leaving";
-              // "Traveling to Switzerland" — extract after "to"
-              const m = data.status.description.match(/traveling to\s+(.+)$/i);
+              // "Traveling to Switzerland" → after last "to "
+              // "Traveling from Torn to South Africa" → after last "to "
+              const m = rawDesc.match(/to\s+(?!torn\b)(.+)$/i);
               country = m ? m[1].trim() : null;
+              if (!country) country = rawDesc.replace(/traveling.*?to\s*/i, "").trim() || "Abroad";
             } else if (desc.startsWith("in ")) {
-              // Static abroad: "In Switzerland"
               traveling = null;
-              const m = data.status.description.match(/^in\s+(.+)$/i);
+              const m = rawDesc.match(/^in\s+(.+)$/i);
               country = m ? m[1].trim() : null;
             }
-            if (!country) country = data?.status?.description || "Abroad";
+            if (!country) country = rawDesc || "Abroad";
           }
 
           // Respect: profile doesn't expose faction respect for other users
@@ -777,12 +794,11 @@
   try { localStorage.setItem("swt_installed", "1"); } catch(e) {}
 
   // Hide SWT's own floating box when TCC is detected — TCC owns the UI.
-  // TCC can load well after SWT (Firebase auth, API calls) so we poll indefinitely
-  // at a low rate rather than giving up after a fixed timeout.
+  // Poll until TCC is detected — no timeout.
   (function hideSwtBoxIfTcc() {
     function tryHide() {
       try {
-        if (window.__tccRunning) {
+        if (_xw.__tccRunning) {
           const b = document.getElementById("hospital-box");
           if (b) b.style.display = "none";
           return true;
@@ -791,11 +807,27 @@
       return false;
     }
     if (tryHide()) return;
-    // Poll every 500ms until TCC is detected (no timeout — TCC always loads eventually)
     const iv = setInterval(() => {
       try { if (tryHide()) clearInterval(iv); } catch(e) { clearInterval(iv); }
     }, 500);
   })();
+
+  // Inherit TCC's API key after a short delay — gives TCC time to write it first.
+  // Only runs if SWT has no key of its own.
+  setTimeout(() => {
+    try {
+      if (!apiKey) {
+        const inherited = (localStorage.getItem("tcc_api_key") || "").trim();
+        if (inherited) {
+          apiKey = inherited;
+          GM_setValue(STORAGE_API_KEY, apiKey);
+          if (_xw.__swtBridge) _xw.__swtBridge.apiKey = apiKey;
+          refreshKeyDisplay();
+          setStatus("Running...");
+        }
+      }
+    } catch(e) {}
+  }, 3000);
 
   tryEarlyInject();  // inject sort bar as soon as DOM is ready, no fetch delay
   scan();
