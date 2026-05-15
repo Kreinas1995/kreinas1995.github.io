@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.8.6
+// @version      2.8.7
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
 // @match        https://www.torn.com/factions.php*
@@ -10,10 +10,11 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
+// @grant        unsafeWindow
 // @connect      api.torn.com
-// @run-at       document-idle
 // @downloadURL  https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/Syphs-War-Timers.user.js
 // @updateURL    https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/Syphs-War-Timers.user.js
+// @run-at       document-idle
 // ==/UserScript==
 
 (function () {
@@ -62,7 +63,7 @@
 
   _xw.__swtBridge = {
     installed:    true,
-    version:      "2.8.6",
+    version:      "2.8.7",
     enabled,
     showKey,
     sortEnabled,
@@ -148,8 +149,8 @@
       vertical-align: middle !important;
     }
 
-    /* Center the status cell itself when we own it */
-    [data-orig-html] {
+    /* Center the status cell itself when we own it — scoped to avoid hitting other elements */
+    td[data-orig-html], .statusField[data-orig-html], [class*="status"][data-orig-html] {
       text-align: center !important;
       display: flex !important;
       align-items: center !important;
@@ -197,7 +198,7 @@
       color:#fff; font-size:12px; cursor:pointer; transition:background .15s ease;
     }
     #hospital-button:hover { background:rgba(255,255,255,.22); }
-    .hidden { display:none; }
+    #hospital-box .hidden { display:none; }
   `);
 
   // ─── Floating box ───────────────────────────────────────────────────────────
