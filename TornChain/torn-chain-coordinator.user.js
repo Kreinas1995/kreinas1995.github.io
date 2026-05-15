@@ -24,6 +24,7 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
+// @grant        unsafeWindow
 // @connect      api.torn.com
 // @connect      firebaseio.com
 // @connect      syph-s-war-overhaul-default-rtdb.firebaseio.com
