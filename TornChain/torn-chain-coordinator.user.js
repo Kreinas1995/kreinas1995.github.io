@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.9.6
+// @version      5.9.7
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -365,7 +365,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.9.6";
+  const CURRENT_VERSION  = "5.9.7";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -633,7 +633,9 @@
         viewMode = ss !== null ? parseInt(ss) : 0;
       } catch(_) { viewMode = 0; }
     } else {
-      viewMode = _gmGet(SK_VIEW_MODE, 1);
+      // Never fall back to localStorage for viewMode — stale value (icon/mini) with
+      // empty GM storage leaves the panel invisible. Always default to 0 (full).
+      viewMode = 0;
     }
   }
 
