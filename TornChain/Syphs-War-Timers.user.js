@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.8.1
+// @version      2.8.2
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
 // @match        https://www.torn.com/factions.php*
@@ -57,7 +57,7 @@
 
   window.__swtBridge = {
     installed:    true,
-    version:      "2.8.1",
+    version:      "2.8.2",
     enabled,
     showKey,
     sortEnabled,
@@ -777,21 +777,23 @@
   try { localStorage.setItem("swt_installed", "1"); } catch(e) {}
 
   // Hide SWT's own floating box when TCC is detected — TCC owns the UI.
-  // Poll briefly to handle TCC loading slightly after SWT.
+  // TCC can load well after SWT (Firebase auth, API calls) so we poll indefinitely
+  // at a low rate rather than giving up after a fixed timeout.
   (function hideSwtBoxIfTcc() {
-    const box = document.getElementById("hospital-box");
-    if (window.__tccRunning && box) {
-      box.style.display = "none";
-      return;
-    }
-    // Check up to 5s, then give up and show the box normally
-    let attempts = 0;
-    const iv = setInterval(() => {
+    function tryHide() {
       try {
-        const b = document.getElementById("hospital-box");
-        if (window.__tccRunning && b) { b.style.display = "none"; clearInterval(iv); return; }
-        if (++attempts >= 10) clearInterval(iv);
-      } catch(e) { clearInterval(iv); }
+        if (window.__tccRunning) {
+          const b = document.getElementById("hospital-box");
+          if (b) b.style.display = "none";
+          return true;
+        }
+      } catch(e) {}
+      return false;
+    }
+    if (tryHide()) return;
+    // Poll every 500ms until TCC is detected (no timeout — TCC always loads eventually)
+    const iv = setInterval(() => {
+      try { if (tryHide()) clearInterval(iv); } catch(e) { clearInterval(iv); }
     }, 500);
   })();
 
