@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.9.7
+// @version      5.9.8
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -81,12 +81,21 @@
   // ── Cross-script shared window ───────────────────────────────────────────
   // Tampermonkey on Firefox sandboxes each script's `window`. Use unsafeWindow
   // (the real page window) so TCC and SWT can see each other's properties.
-  const _xw = (typeof unsafeWindow !== "undefined") ? unsafeWindow : window;
+  // Wrapped in try/catch: accessing unsafeWindow properties can throw a security
+  // exception in TM's sandbox when multiple scripts run on the same page.
+  let _xw = window;
+  try { if (typeof unsafeWindow !== "undefined") _xw = unsafeWindow; } catch(_) {}
 
   // ── Singleton guard ───────────────────────────────────────────────────────
-  // Allow takeover if panel isn't in DOM (previous instance crashed before appending).
-  if (_xw.__tccRunning && document.getElementById("chain-panel")) return;
-  _xw.__tccRunning = true;
+  try {
+    if (_xw.__tccRunning && document.getElementById("chain-panel")) return;
+    _xw.__tccRunning = true;
+  } catch(_) {
+    // If unsafeWindow access throws, fall back to window-scoped guard
+    if (window.__tccRunning && document.getElementById("chain-panel")) return;
+    window.__tccRunning = true;
+    _xw = window;
+  }
 
   // Shared debug state — readable by all scopes within this IIFE without window hacks
   const _dbg = {
@@ -173,7 +182,7 @@
     rafActive:   true,
   };
 
-  (function _bgRafBoot() {
+  try { (function _bgRafBoot() {
     function _bgRafLoop(now) {
       if (!_bg.rafActive) return;
       const gap = now - _bg.lastRafTime;
@@ -195,7 +204,7 @@
     requestAnimationFrame(_bgRafLoop);
     // No setInterval flush needed — _bgSavePersisted is called from _xhrTracked
     // on every XHR call (debounced, min 2s between writes) so counts are saved continuously.
-  })();
+  })(); } catch(_) {}
 
   function _bgResetPersisted() {
     _bg.freezeCount = 0; _bg.freezeLog = [];
@@ -365,7 +374,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.9.7";
+  const CURRENT_VERSION  = "5.9.8";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
