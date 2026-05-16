@@ -1,10 +1,14 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.8.7
+// @version      2.8.9
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
+// @match        https://www.torn.com/*
 // @match        https://www.torn.com/factions.php*
+// @match        https://www.torn.com/index.php*
+// @match        https://www.torn.com/loader.php*
+// @match        https://www.torn.com/page.php*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -63,7 +67,7 @@
 
   _xw.__swtBridge = {
     installed:    true,
-    version:      "2.8.7",
+    version:      "2.8.9",
     enabled,
     showKey,
     sortEnabled,
@@ -830,9 +834,14 @@
     } catch(e) {}
   }, 3000);
 
-  tryEarlyInject();  // inject sort bar as soon as DOM is ready, no fetch delay
-  scan();
-  setInterval(() => { try { scan(); } catch(e) { console.warn("[SWT] scan error", e); } }, 5000);
-  setInterval(() => { try { updatePageTimers(); } catch(e) { console.warn("[SWT] timer error", e); } }, 1000);
+  // Scan/sort bar/timers work on faction pages and target/enemy lists
+  const _swtActivePage = location.href.includes("factions.php") ||
+    (location.href.includes("page.php") && location.href.includes("sid=list"));
+  if (_swtActivePage) {
+    tryEarlyInject();
+    scan();
+    setInterval(() => { try { scan(); } catch(e) { console.warn("[SWT] scan error", e); } }, 5000);
+    setInterval(() => { try { updatePageTimers(); } catch(e) { console.warn("[SWT] timer error", e); } }, 1000);
+  }
 
 })();
