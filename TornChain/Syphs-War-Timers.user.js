@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.8.9
+// @version      2.8.10
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
 // @match        https://www.torn.com/*
@@ -67,7 +67,7 @@
 
   _xw.__swtBridge = {
     installed:    true,
-    version:      "2.8.9",
+    version:      "2.8.10",
     enabled,
     showKey,
     sortEnabled,
@@ -317,6 +317,18 @@
       row.querySelector(".status") ||
       row.querySelector('[class*="status"]') ||
       row.querySelector('span[title*="Status"]') ||
+      // List pages (targets/enemies/friends): last <td> contains status text
+      (() => {
+        if (row.tagName !== "TR") return null;
+        const tds = Array.from(row.querySelectorAll("td"));
+        // Find td whose text content matches known status strings
+        const statusTd = tds.find(td => {
+          const t = td.textContent.trim().toLowerCase();
+          return t === "okay" || t === "hospital" || t === "jail" || t === "fallen" ||
+                 t === "traveling" || t === "abroad" || t === "federal" || t === "federal jail";
+        });
+        return statusTd || null;
+      })() ||
       null
     );
   }
@@ -391,19 +403,26 @@
       font-size:12px !important; color:#fff !important;
       cursor:default !important; box-sizing:border-box !important;
     `;
-    bar.innerHTML = `
-      <input type="checkbox" id="hosp-sort-cb" ${sortEnabled ? "checked" : ""}
+    // Wrap content in a <td colspan="99"> so it works in both <li> and <tr> contexts
+    const _barIsRow = bar.tagName === "TR";
+    const _barInner = `<input type="checkbox" id="hosp-sort-cb" ${sortEnabled ? "checked" : ""}
         style="width:15px;height:15px;margin:0;cursor:pointer;accent-color:#ffcc66;flex-shrink:0;">
-      <label for="hosp-sort-cb" style="cursor:pointer;line-height:1;white-space:nowrap;">
-        War Sorting
-      </label>
+      <label for="hosp-sort-cb" style="cursor:pointer;line-height:1;white-space:nowrap;">War Sorting</label>
       <div style="margin-left:auto;display:flex;gap:6px;font-size:11px;font-weight:700;font-family:monospace;">
         <span style="color:#ff4444">&gt;45m</span>
         <span style="color:#ff8c00">15-45m</span>
         <span style="color:#ffcc66">5-15m</span>
         <span style="color:#44ff88">&lt;5m</span>
-      </div>
-    `;
+      </div>`;
+    if (_barIsRow) {
+      const td = document.createElement("td");
+      td.setAttribute("colspan", "99");
+      td.style.cssText = "display:flex !important;align-items:center !important;gap:8px !important;padding:4px 10px !important;";
+      td.innerHTML = _barInner;
+      bar.appendChild(td);
+    } else {
+      bar.innerHTML = _barInner;
+    }
     parent.insertBefore(bar, firstRow);
     sortBarInjected = true;
 
@@ -477,7 +496,6 @@
       if (!userId) continue;
       const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement;
       if (!row || row.id === "hosp-sort-bar") continue;
-      // Only sort rows that have a status cell — excludes chain log, attack log, etc.
       if (!findStatusNodeForRow(row)) continue;
       const parent = row.parentElement;
       if (!parent) continue;
@@ -489,13 +507,39 @@
       const ranked = group.map(e => ({ ...e, ...getRowSortKey(e.userId) }));
       ranked.sort((a, b) => a.tier !== b.tier ? a.tier - b.tier : a.val - b.val);
 
-      const indices    = ranked.map(e => Array.from(parent.children).indexOf(e.row));
-      const anchorIndex = Math.min(...indices.filter(i => i >= 0));
+      // Collect all children snapshot before moving anything
+      const allChildren = Array.from(parent.children);
+      const userRowSet  = new Set(group.map(e => e.row));
 
-      for (let i = 0; i < ranked.length; i++) {
-        const refNode = parent.children[anchorIndex + i] || null;
-        if (refNode !== ranked[i].row) parent.insertBefore(ranked[i].row, refNode);
+      // Pull user rows out in sorted order, then reinsert preserving non-user rows
+      // Non-user rows (stats estimates, dividers) stay anchored to the user row
+      // they follow. Build a merged sequence: for each user row, append any
+      // immediately-following non-user sibling rows with it.
+      const userOrder = ranked.map(e => e.row);
+
+      // Build map: userRow → trailing non-user rows that follow it originally
+      const trailers = new Map();
+      for (const userRow of userOrder) trailers.set(userRow, []);
+      let lastUserRow = null;
+      for (const child of allChildren) {
+        if (child.id === "hosp-sort-bar") continue;
+        if (userRowSet.has(child)) { lastUserRow = child; }
+        else if (lastUserRow && trailers.has(lastUserRow)) {
+          trailers.get(lastUserRow).push(child);
+        }
       }
+
+      // Find anchor in parent
+      const indices = ranked.map(e => allChildren.indexOf(e.row));
+      const anchorRow = allChildren[Math.min(...indices.filter(i => i >= 0))];
+
+      // Reinsert: sorted user rows + their trailers
+      const frag = document.createDocumentFragment();
+      for (const userRow of userOrder) {
+        frag.appendChild(userRow);
+        for (const trailer of trailers.get(userRow)) frag.appendChild(trailer);
+      }
+      parent.insertBefore(frag, anchorRow);
     }
   }
 
