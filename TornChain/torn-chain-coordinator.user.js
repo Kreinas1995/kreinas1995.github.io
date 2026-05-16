@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.9.9
+// @version      5.9.10
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -87,11 +87,28 @@
   try { if (typeof unsafeWindow !== "undefined") _xw = unsafeWindow; } catch(_) {}
 
   // ── Singleton guard ───────────────────────────────────────────────────────
+  // Also handle Firefox bfcache: when user navigates back, the frozen JS context
+  // is restored with __tccRunning=true and the old panel still in DOM. The script
+  // won't re-run from scratch — instead we listen for the pageshow event and
+  // remove the stale panel so the script can reinitialise cleanly.
+  try {
+    window.addEventListener("pageshow", e => {
+      try {
+        if (e.persisted) {
+          // Page restored from bfcache — remove stale panel and clear flag
+          const stale = document.getElementById("chain-panel");
+          if (stale) stale.remove();
+          try { _xw.__tccRunning = false; } catch(_) {}
+          window.__tccRunning = false;
+        }
+      } catch(_) {}
+    });
+  } catch(_) {}
+
   try {
     if (_xw.__tccRunning && document.getElementById("chain-panel")) return;
     _xw.__tccRunning = true;
   } catch(_) {
-    // If unsafeWindow access throws, fall back to window-scoped guard
     if (window.__tccRunning && document.getElementById("chain-panel")) return;
     window.__tccRunning = true;
     _xw = window;
@@ -374,7 +391,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.9.9";
+  const CURRENT_VERSION  = "5.9.10";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
