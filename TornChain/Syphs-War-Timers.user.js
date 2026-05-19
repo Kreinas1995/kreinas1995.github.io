@@ -1,14 +1,11 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.8.10
+// @version      2.8.7
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
 // @match        https://www.torn.com/*
 // @match        https://www.torn.com/factions.php*
-// @match        https://www.torn.com/index.php*
-// @match        https://www.torn.com/loader.php*
-// @match        https://www.torn.com/page.php*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -16,18 +13,17 @@
 // @grant        GM_addStyle
 // @grant        unsafeWindow
 // @connect      api.torn.com
+// @run-at       document-idle
 // @downloadURL  https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/Syphs-War-Timers.user.js
 // @updateURL    https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/Syphs-War-Timers.user.js
-// @run-at       document-idle
 // ==/UserScript==
 
 (function () {
   "use strict";
 
   // ── Cross-script shared window ───────────────────────────────────────────────
-  // Tampermonkey on Firefox sandboxes each script's `window`. Use unsafeWindow
-  // so SWT and TCC can see each other's properties.
-  const _xw = (typeof unsafeWindow !== "undefined") ? unsafeWindow : window;
+  let _xw = window;
+  try { if (typeof unsafeWindow !== "undefined") _xw = unsafeWindow; } catch(_) {}
 
   // ─── Storage keys ────────────────────────────────────────────────────────────
   const STORAGE_API_KEY      = "torn_public_api_key";
@@ -67,7 +63,7 @@
 
   _xw.__swtBridge = {
     installed:    true,
-    version:      "2.8.10",
+    version:      "2.8.0",
     enabled,
     showKey,
     sortEnabled,
@@ -153,8 +149,8 @@
       vertical-align: middle !important;
     }
 
-    /* Center the status cell itself when we own it — scoped to avoid hitting other elements */
-    td[data-orig-html], .statusField[data-orig-html], [class*="status"][data-orig-html] {
+    /* Center the status cell itself when we own it */
+    [data-orig-html] {
       text-align: center !important;
       display: flex !important;
       align-items: center !important;
@@ -301,8 +297,8 @@
 
   function formatCountryLabel(cached) {
     const country = (cached.country || "Abroad").trim();
-    if (cached.traveling === "leaving")   return `➡️ ${country}`;   // Torn → Destination
-    if (cached.traveling === "returning") return `${country} ⬅️`;   // Destination → Torn
+    if (cached.traveling === "leaving")   return `➡️ ${country}`;
+    if (cached.traveling === "returning") return `${country} ⬅️`;
     return country;
   }
 
@@ -317,18 +313,6 @@
       row.querySelector(".status") ||
       row.querySelector('[class*="status"]') ||
       row.querySelector('span[title*="Status"]') ||
-      // List pages (targets/enemies/friends): last <td> contains status text
-      (() => {
-        if (row.tagName !== "TR") return null;
-        const tds = Array.from(row.querySelectorAll("td"));
-        // Find td whose text content matches known status strings
-        const statusTd = tds.find(td => {
-          const t = td.textContent.trim().toLowerCase();
-          return t === "okay" || t === "hospital" || t === "jail" || t === "fallen" ||
-                 t === "traveling" || t === "abroad" || t === "federal" || t === "federal jail";
-        });
-        return statusTd || null;
-      })() ||
       null
     );
   }
@@ -356,7 +340,7 @@
   }
 
   function restoreAllCells() {
-    for (const a of document.querySelectorAll('a[href*="profiles.php?XID="]')) {
+    for (const a of _pageProfileLinks()) {
       const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement;
       if (!row) continue;
       const statusNode = findStatusNodeForRow(row);
@@ -379,7 +363,7 @@
   function injectSortBar() {
     if (sortBarInjected || document.getElementById("hosp-sort-bar")) return;
 
-    const links = Array.from(document.querySelectorAll('a[href*="profiles.php?XID="]'));
+    const links = Array.from(_pageProfileLinks());
     let firstRow = null;
     for (const a of links) {
       const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr");
@@ -403,26 +387,19 @@
       font-size:12px !important; color:#fff !important;
       cursor:default !important; box-sizing:border-box !important;
     `;
-    // Wrap content in a <td colspan="99"> so it works in both <li> and <tr> contexts
-    const _barIsRow = bar.tagName === "TR";
-    const _barInner = `<input type="checkbox" id="hosp-sort-cb" ${sortEnabled ? "checked" : ""}
+    bar.innerHTML = `
+      <input type="checkbox" id="hosp-sort-cb" ${sortEnabled ? "checked" : ""}
         style="width:15px;height:15px;margin:0;cursor:pointer;accent-color:#ffcc66;flex-shrink:0;">
-      <label for="hosp-sort-cb" style="cursor:pointer;line-height:1;white-space:nowrap;">War Sorting</label>
+      <label for="hosp-sort-cb" style="cursor:pointer;line-height:1;white-space:nowrap;">
+        War Sorting
+      </label>
       <div style="margin-left:auto;display:flex;gap:6px;font-size:11px;font-weight:700;font-family:monospace;">
         <span style="color:#ff4444">&gt;45m</span>
         <span style="color:#ff8c00">15-45m</span>
         <span style="color:#ffcc66">5-15m</span>
         <span style="color:#44ff88">&lt;5m</span>
-      </div>`;
-    if (_barIsRow) {
-      const td = document.createElement("td");
-      td.setAttribute("colspan", "99");
-      td.style.cssText = "display:flex !important;align-items:center !important;gap:8px !important;padding:4px 10px !important;";
-      td.innerHTML = _barInner;
-      bar.appendChild(td);
-    } else {
-      bar.innerHTML = _barInner;
-    }
+      </div>
+    `;
     parent.insertBefore(bar, firstRow);
     sortBarInjected = true;
 
@@ -435,7 +412,7 @@
 
   // ─── Original order stamping ────────────────────────────────────────────────
   function stampOriginalOrder() {
-    const links = Array.from(document.querySelectorAll('a[href*="profiles.php?XID="]'));
+    const links = Array.from(_pageProfileLinks());
     for (const a of links) {
       const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement;
       if (!row || row.id === "hosp-sort-bar" || row.dataset.originalIndex !== undefined) continue;
@@ -488,7 +465,7 @@
   }
 
   function sortAllRows() {
-    const links    = Array.from(document.querySelectorAll('a[href*="profiles.php?XID="]'));
+    const links    = Array.from(_pageProfileLinks());
     const byParent = new Map();
 
     for (const a of links) {
@@ -496,6 +473,7 @@
       if (!userId) continue;
       const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement;
       if (!row || row.id === "hosp-sort-bar") continue;
+      // Only sort rows that have a status cell — excludes chain log, attack log, etc.
       if (!findStatusNodeForRow(row)) continue;
       const parent = row.parentElement;
       if (!parent) continue;
@@ -507,44 +485,18 @@
       const ranked = group.map(e => ({ ...e, ...getRowSortKey(e.userId) }));
       ranked.sort((a, b) => a.tier !== b.tier ? a.tier - b.tier : a.val - b.val);
 
-      // Collect all children snapshot before moving anything
-      const allChildren = Array.from(parent.children);
-      const userRowSet  = new Set(group.map(e => e.row));
+      const indices    = ranked.map(e => Array.from(parent.children).indexOf(e.row));
+      const anchorIndex = Math.min(...indices.filter(i => i >= 0));
 
-      // Pull user rows out in sorted order, then reinsert preserving non-user rows
-      // Non-user rows (stats estimates, dividers) stay anchored to the user row
-      // they follow. Build a merged sequence: for each user row, append any
-      // immediately-following non-user sibling rows with it.
-      const userOrder = ranked.map(e => e.row);
-
-      // Build map: userRow → trailing non-user rows that follow it originally
-      const trailers = new Map();
-      for (const userRow of userOrder) trailers.set(userRow, []);
-      let lastUserRow = null;
-      for (const child of allChildren) {
-        if (child.id === "hosp-sort-bar") continue;
-        if (userRowSet.has(child)) { lastUserRow = child; }
-        else if (lastUserRow && trailers.has(lastUserRow)) {
-          trailers.get(lastUserRow).push(child);
-        }
+      for (let i = 0; i < ranked.length; i++) {
+        const refNode = parent.children[anchorIndex + i] || null;
+        if (refNode !== ranked[i].row) parent.insertBefore(ranked[i].row, refNode);
       }
-
-      // Find anchor in parent
-      const indices = ranked.map(e => allChildren.indexOf(e.row));
-      const anchorRow = allChildren[Math.min(...indices.filter(i => i >= 0))];
-
-      // Reinsert: sorted user rows + their trailers
-      const frag = document.createDocumentFragment();
-      for (const userRow of userOrder) {
-        frag.appendChild(userRow);
-        for (const trailer of trailers.get(userRow)) frag.appendChild(trailer);
-      }
-      parent.insertBefore(frag, anchorRow);
     }
   }
 
   function restoreOriginalOrder() {
-    const links    = Array.from(document.querySelectorAll('a[href*="profiles.php?XID="]'));
+    const links    = Array.from(_pageProfileLinks());
     const byParent = new Map();
     for (const a of links) {
       const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement;
@@ -587,40 +539,28 @@
           const until = data?.states?.hospital_timestamp || 0;
 
           // Abroad: direction inferred from status.description
-          // Torn description formats (may vary by version):
-          // Leaving:   "Traveling to Switzerland"
-          //            "Traveling from Torn to South Africa"
-          // Returning: "Returning to Torn from Switzerland"
-          //            "Traveling from Canada to Torn"
-          // Static:    "In Switzerland"
+          // Torn descriptions: "Traveling to Switzerland", "Returning to Torn from Switzerland", "In Switzerland"
           const desc = (data?.status?.description || "").toLowerCase();
-          const rawDesc = data?.status?.description || "";
           let traveling = null;
           let country   = null;
           if (state === "abroad") {
-            // Returning: ends with "to Torn" or contains "returning"
-            if (desc.includes("returning") || /to torn$/i.test(desc)) {
+            if (desc.includes("returning")) {
               traveling = "returning";
-              // "Traveling from Canada to Torn" → extract between "from" and "to Torn"
-              // "Returning to Torn from Switzerland" → extract after last "from"
-              const m1 = rawDesc.match(/from\s+(.+?)\s+to\s+torn/i);
-              const m2 = rawDesc.match(/from\s+(.+)$/i);
-              country = (m1 ? m1[1] : m2 ? m2[1] : null);
-              if (country) country = country.replace(/\s*to\s+torn\s*$/i, "").trim();
-              if (!country) country = "Abroad";
-            } else if (desc.includes("traveling") || desc.includes("to ")) {
+              // "Returning to Torn from Switzerland" — extract after "from"
+              const m = data.status.description.match(/from\s+(.+)$/i);
+              country = m ? m[1].trim() : "Torn";
+            } else if (desc.includes("traveling to")) {
               traveling = "leaving";
-              // "Traveling to Switzerland" → after last "to "
-              // "Traveling from Torn to South Africa" → after last "to "
-              const m = rawDesc.match(/to\s+(?!torn\b)(.+)$/i);
+              // "Traveling to Switzerland" — extract after "to"
+              const m = data.status.description.match(/traveling to\s+(.+)$/i);
               country = m ? m[1].trim() : null;
-              if (!country) country = rawDesc.replace(/traveling.*?to\s*/i, "").trim() || "Abroad";
             } else if (desc.startsWith("in ")) {
+              // Static abroad: "In Switzerland"
               traveling = null;
-              const m = rawDesc.match(/^in\s+(.+)$/i);
+              const m = data.status.description.match(/^in\s+(.+)$/i);
               country = m ? m[1].trim() : null;
             }
-            if (!country) country = rawDesc || "Abroad";
+            if (!country) country = data?.status?.description || "Abroad";
           }
 
           // Respect: profile doesn't expose faction respect for other users
@@ -715,7 +655,7 @@
   function collectAllUsers() {
     const seen    = new Set();
     const userIds = [];
-    for (const a of document.querySelectorAll('a[href*="profiles.php?XID="]')) {
+    for (const a of _pageProfileLinks()) {
       const userId = getUserIdFromProfileLink(a);
       if (!userId || seen.has(userId)) continue;
       const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement;
@@ -743,7 +683,7 @@
     if (!isEnemyPage() && !showFriendly) return;
     const now = Date.now() / 1000;
 
-    for (const a of document.querySelectorAll('a[href*="profiles.php?XID="]')) {
+    for (const a of _pageProfileLinks()) {
       const userId = getUserIdFromProfileLink(a);
       if (!userId) continue;
       const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement;
@@ -804,6 +744,12 @@
     if (sortEnabled) sortAllRows();
   }
 
+  // ─── Helper: page profile links excluding TCC panel ───────────────────────
+  function _pageProfileLinks() {
+    return Array.from(_pageProfileLinks())
+      .filter(a => !a.closest('#chain-panel'));
+  }
+
   // ─── Main loop ──────────────────────────────────────────────────────────────
   let scanRunning = false;
 
@@ -839,53 +785,28 @@
   refreshKeyDisplay();
   setStatus(apiKey ? "Running..." : "No API key set");
 
-  // Write cross-page installed signal so TCC can detect SWT on any Torn page
-  try { localStorage.setItem("swt_installed", "1"); } catch(e) {}
-
   // Hide SWT's own floating box when TCC is detected — TCC owns the UI.
-  // Poll until TCC is detected — no timeout.
+  // Poll briefly to handle TCC loading slightly after SWT.
   (function hideSwtBoxIfTcc() {
-    function tryHide() {
-      try {
-        if (_xw.__tccRunning) {
-          const b = document.getElementById("hospital-box");
-          if (b) b.style.display = "none";
-          return true;
-        }
-      } catch(e) {}
-      return false;
+    const box = document.getElementById("hospital-box");
+    if (_xw.__tccRunning && box) {
+      box.style.display = "none";
+      return;
     }
-    if (tryHide()) return;
+    // Check up to 5s, then give up and show the box normally
+    let attempts = 0;
     const iv = setInterval(() => {
-      try { if (tryHide()) clearInterval(iv); } catch(e) { clearInterval(iv); }
+      try {
+        const b = document.getElementById("hospital-box");
+        if (_xw.__tccRunning && b) { b.style.display = "none"; clearInterval(iv); return; }
+        if (++attempts >= 10) clearInterval(iv);
+      } catch(e) { clearInterval(iv); }
     }, 500);
   })();
 
-  // Inherit TCC's API key after a short delay — gives TCC time to write it first.
-  // Only runs if SWT has no key of its own.
-  setTimeout(() => {
-    try {
-      if (!apiKey) {
-        const inherited = (localStorage.getItem("tcc_api_key") || "").trim();
-        if (inherited) {
-          apiKey = inherited;
-          GM_setValue(STORAGE_API_KEY, apiKey);
-          if (_xw.__swtBridge) _xw.__swtBridge.apiKey = apiKey;
-          refreshKeyDisplay();
-          setStatus("Running...");
-        }
-      }
-    } catch(e) {}
-  }, 3000);
-
-  // Scan/sort bar/timers work on faction pages and target/enemy lists
-  const _swtActivePage = location.href.includes("factions.php") ||
-    (location.href.includes("page.php") && location.href.includes("sid=list"));
-  if (_swtActivePage) {
-    tryEarlyInject();
-    scan();
-    setInterval(() => { try { scan(); } catch(e) { console.warn("[SWT] scan error", e); } }, 5000);
-    setInterval(() => { try { updatePageTimers(); } catch(e) { console.warn("[SWT] timer error", e); } }, 1000);
-  }
+  tryEarlyInject();  // inject sort bar as soon as DOM is ready, no fetch delay
+  scan();
+  setInterval(() => { try { scan(); } catch(e) { console.warn("[SWT] scan error", e); } }, 5000);
+  setInterval(() => { try { updatePageTimers(); } catch(e) { console.warn("[SWT] timer error", e); } }, 1000);
 
 })();
