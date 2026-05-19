@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.8.7
+// @version      2.8.17
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
 // @match        https://www.torn.com/*
@@ -63,7 +63,7 @@
 
   _xw.__swtBridge = {
     installed:    true,
-    version:      "2.8.0",
+    version:      (typeof GM_info !== "undefined" ? GM_info.script.version : "?"),
     enabled,
     showKey,
     sortEnabled,
@@ -112,6 +112,8 @@
       refreshKeyDisplay();
     },
     getApiKeyMasked() { return maskKey(apiKey); },
+    lastScanCount: 0,
+    lastStatus: "",
   };
 
   // ─── Cache ──────────────────────────────────────────────────────────────────
@@ -231,7 +233,7 @@
   const bodyEl   = document.getElementById("hospital-body");
   const toggleEl = document.getElementById("hospital-toggle");
 
-  function setStatus(msg) { statusEl.textContent = msg; }
+  function setStatus(msg) { if (_xw.__swtBridge) _xw.__swtBridge.lastStatus = msg; if (statusEl) statusEl.textContent = msg; }
 
   function maskKey(k) {
     if (!k) return "";
@@ -297,8 +299,8 @@
 
   function formatCountryLabel(cached) {
     const country = (cached.country || "Abroad").trim();
-    if (cached.traveling === "leaving")   return `➡️ ${country}`;
-    if (cached.traveling === "returning") return `${country} ⬅️`;
+    if (cached.traveling === "leaving")   return `→ ${country}`;
+    if (cached.traveling === "returning") return `${country} ←`;
     return country;
   }
 
@@ -309,12 +311,21 @@
   }
 
   function findStatusNodeForRow(row) {
-    return (
-      row.querySelector(".status") ||
-      row.querySelector('[class*="status"]') ||
-      row.querySelector('span[title*="Status"]') ||
-      null
+    // Faction war list: <div class="status left hospital not-ok">
+    const byClass = row.querySelector(".status");
+    if (byClass) return byClass;
+
+    // Targets/enemies/friends list (React):
+    // Structure: div.[hashed] > span.user-red-status|user-green-status|user-blue-status
+    // The semantic span class is stable; the parent div class is a CSS module hash.
+    // Find the span and return its parentElement (the container div we inject into).
+    const semanticSpan = row.querySelector(
+      "span.user-red-status, span.user-green-status, span.user-blue-status, span.user-gray-status, span[class*='user-'][class*='-status']"
     );
+    if (semanticSpan) return semanticSpan.parentElement;
+
+    // Fallback
+    return row.querySelector('span[title*="Status"]') || null;
   }
 
   // ─── Span inject / restore ──────────────────────────────────────────────────
@@ -540,27 +551,29 @@
 
           // Abroad: direction inferred from status.description
           // Torn descriptions: "Traveling to Switzerland", "Returning to Torn from Switzerland", "In Switzerland"
-          const desc = (data?.status?.description || "").toLowerCase();
+          const desc    = (data?.status?.description || "").toLowerCase();
+          const rawDesc = data?.status?.description || "";
           let traveling = null;
           let country   = null;
           if (state === "abroad") {
-            if (desc.includes("returning")) {
+            // Formats: "Traveling to X", "Traveling from Torn to X",
+            //          "Returning to Torn from X", "Traveling from X to Torn", "In X"
+            if (desc.includes("returning") || /to torn/i.test(desc)) {
               traveling = "returning";
-              // "Returning to Torn from Switzerland" — extract after "from"
-              const m = data.status.description.match(/from\s+(.+)$/i);
-              country = m ? m[1].trim() : "Torn";
-            } else if (desc.includes("traveling to")) {
+              const m1 = rawDesc.match(/from\s+(.+?)\s+to\s+torn/i);
+              const m2 = rawDesc.match(/from\s+(.+)$/i);
+              country = m1 ? m1[1].trim() : m2 ? m2[1].replace(/\s*to\s+torn\s*$/i,"").trim() : "Abroad";
+            } else if (desc.includes("traveling") || desc.includes("to ")) {
               traveling = "leaving";
-              // "Traveling to Switzerland" — extract after "to"
-              const m = data.status.description.match(/traveling to\s+(.+)$/i);
-              country = m ? m[1].trim() : null;
+              // Extract everything after the last "to " that isn't "Torn"
+              const m = rawDesc.match(/to\s+(?!torn\b)(.+)$/i);
+              country = m ? m[1].trim() : rawDesc.replace(/traveling.*?to\s*/i,"").trim() || "Abroad";
             } else if (desc.startsWith("in ")) {
-              // Static abroad: "In Switzerland"
               traveling = null;
-              const m = data.status.description.match(/^in\s+(.+)$/i);
+              const m = rawDesc.match(/^in\s+(.+)$/i);
               country = m ? m[1].trim() : null;
             }
-            if (!country) country = data?.status?.description || "Abroad";
+            if (!country) country = rawDesc || "Abroad";
           }
 
           // Respect: profile doesn't expose faction respect for other users
@@ -655,7 +668,9 @@
   function collectAllUsers() {
     const seen    = new Set();
     const userIds = [];
-    for (const a of _pageProfileLinks()) {
+    const _links = _pageProfileLinks();
+    if (_xw.__swtBridge) _xw.__swtBridge.lastScanCount = 0;
+    for (const a of _links) {
       const userId = getUserIdFromProfileLink(a);
       if (!userId || seen.has(userId)) continue;
       const row = a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement;
@@ -673,6 +688,7 @@
         delete playerCache[userId];
       }
     }
+    if (_xw.__swtBridge) _xw.__swtBridge.lastScanCount = userIds.length;
     return userIds;
   }
 
@@ -746,7 +762,7 @@
 
   // ─── Helper: page profile links excluding TCC panel ───────────────────────
   function _pageProfileLinks() {
-    return Array.from(_pageProfileLinks())
+    return Array.from(document.querySelectorAll('a[href*="profiles.php?XID="]'))
       .filter(a => !a.closest('#chain-panel'));
   }
 
