@@ -2638,7 +2638,8 @@
           `<span style="color:#778">Faction</span><span style="color:#aaa">${factionId || "—"}</span>` +
           `<span style="color:#778">Auth uid</span><span style="color:#aaa;font-size:9px">${fbUid ? fbUid.slice(0,8)+"…" : "—"}</span>` +
           `<span style="color:#778">TornPDA</span><span style="color:${isTornPDA ? "#44ff88" : "#556"}">${isTornPDA ? "yes ✓" : "no"}</span>` +
-          `<span style="color:#778">Key stored</span><span style="color:${tornApiKey ? "#44ff88" : "#ff8844"}">${tornApiKey ? "yes ✓" : "missing ✗"}</span>`;
+          `<span style="color:#778">Key stored</span><span style="color:${tornApiKey ? "#44ff88" : "#ff8844"}">${tornApiKey ? "yes ✓" : "missing ✗"}</span>` +
+          (() => { const b = _xw.__swtBridge; const col = b ? "#44ff88" : "#556"; const ver = b ? `v${b.version||"?"}` : "not detected"; const extra = b && b.lastScanCount !== undefined ? ` · ${b.lastScanCount} users · ${b.lastStatus||""}` : ""; return `<span style="color:#778">SWT bridge</span><span style="color:${col}">${ver}${extra}</span>`; })();
       }
 
       // ── Freeze log pane ──
