@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Syph's War Timers
 // @namespace    https://torn.com/
-// @version      2.8.17
+// @version      2.9.0
 // @description  Hospital timers + abroad labels with directionality, multi-tier war sorting, color-coded urgency, ALIVE on release.
 // @author       Sypharius [2348580]
 // @match        https://www.torn.com/*
@@ -372,6 +372,8 @@
   let sortBarInjected = false;
 
   function injectSortBar() {
+    // When TCC is present it owns the sort UI — skip the standalone sort bar
+    if (_xw.__tccRunning) return;
     if (sortBarInjected || document.getElementById("hosp-sort-bar")) return;
 
     const links = Array.from(_pageProfileLinks());
@@ -589,7 +591,8 @@
     });
   }
 
-  const CACHE_TTL_MS   = 60_000;
+  const CACHE_TTL_MS      = 60_000;  // 60s cache for hospital/abroad
+  const CACHE_TTL_OKAY_MS = 120_000; // 120s cache for okay/traveling (changes less often)
   const CHUNK_SIZE     = 15;
   const CHUNK_DELAY_MS = 4_000;
 
@@ -620,7 +623,9 @@
     for (const id of userIds) {
       if (inFlight.has(id)) continue;
       const c = playerCache[id];
-      if (c && (now - c.ts) < CACHE_TTL_MS) continue;
+      const ttl = (c && (c.state === "hospital" || c.state === "abroad"))
+        ? CACHE_TTL_MS : CACHE_TTL_OKAY_MS;
+      if (c && (now - c.ts) < ttl) continue;
 
       const a = document.querySelector(`a[href*="XID=${id}"]`);
       const row = a && (a.closest("li") || a.closest('[class*="member"]') || a.closest("tr") || a.parentElement);
@@ -694,7 +699,7 @@
 
   // ─── Tick: update displays ──────────────────────────────────────────────────
   function updatePageTimers() {
-    if (!enabled) return;
+    if (document.hidden || !enabled) return;
     if (isEnemyPage() && !showEnemy) return;
     if (!isEnemyPage() && !showFriendly) return;
     const now = Date.now() / 1000;
@@ -771,6 +776,7 @@
 
   async function scan() {
     if (scanRunning) return;
+    if (document.hidden) return;
     // Bail early if disabled or page type is filtered out
     if (!enabled) { restoreAllCells(); return; }
     if (isEnemyPage() && !showEnemy) { restoreAllCells(); return; }
@@ -824,5 +830,8 @@
   scan();
   setInterval(() => { try { scan(); } catch(e) { console.warn("[SWT] scan error", e); } }, 5000);
   setInterval(() => { try { updatePageTimers(); } catch(e) { console.warn("[SWT] timer error", e); } }, 1000);
+  document.addEventListener("visibilitychange", () => {
+    try { if (!document.hidden) scan(); } catch(e) {}
+  });
 
 })();
