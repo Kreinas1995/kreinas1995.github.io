@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.10.2
+// @version      5.11.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -369,7 +369,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.10.2";
+  const CURRENT_VERSION  = "5.11.1";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -536,6 +536,7 @@
   const SK_SHOW_DONE_HITS   = "chain_show_done_hits";      // bool: show done hits in list
   const SK_COMPACT_MODE     = "chain_compact_mode";         // bool: reduce row height
   const SK_NOTIFY_SOUND     = "chain_notify_sound";         // bool: play sound when hit due
+  const SK_NOTIFY_SOUND_TYPE = "chain_notify_sound_type";    // string: beep|double|low|ding
   const SK_TIMER_FUDGE_USR  = "chain_timer_fudge";          // int: seconds offset on timer
   const SK_PANEL_OPACITY    = "chain_panel_opacity";         // number: 0.6–1.0
   const SK_WARN_THRESHOLD   = "chain_warn_threshold";        // int: seconds for warn color (default 90)
@@ -645,6 +646,7 @@
   let settShowDoneHits   = _gmGet(SK_SHOW_DONE_HITS,   true);
   let settCompactMode    = _gmGet(SK_COMPACT_MODE,     false);
   let settNotifySound    = _gmGet(SK_NOTIFY_SOUND,     false);
+  let settNotifySoundType = _gmGet(SK_NOTIFY_SOUND_TYPE, "beep");
   let settTimerFudge     = _gmGet(SK_TIMER_FUDGE_USR,  0);
   let settPanelOpacity   = _gmGet(SK_PANEL_OPACITY,    0.96);
   let settWarnThreshold  = _gmGet(SK_WARN_THRESHOLD,   90);
@@ -677,19 +679,29 @@
   })();
   // Notification sound (AudioContext, created lazily)
   let _notifyAudioCtx    = null;
-  function playDueSound() {
-    if (!settNotifySound) return;
+  function _playTone(freq1, freq2, dur, vol, delay) {
     try {
       if (!_notifyAudioCtx) _notifyAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const ctx = _notifyAudioCtx;
-      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      const t   = ctx.currentTime + (delay || 0);
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.18, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+      osc.frequency.setValueAtTime(freq1, t);
+      if (freq2) osc.frequency.exponentialRampToValueAtTime(freq2, t + dur * 0.5);
+      gain.gain.setValueAtTime(vol, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      osc.start(t); osc.stop(t + dur);
     } catch { /**/ }
+  }
+
+  function playDueSound() {
+    if (!settNotifySound) return;
+    const type = settNotifySoundType || "beep";
+    if      (type === "beep")   { _playTone(880, 440, 0.30, 0.18); }
+    else if (type === "double") { _playTone(880, 660, 0.15, 0.18); _playTone(880, 660, 0.15, 0.18, 0.22); }
+    else if (type === "low")    { _playTone(330, 220, 0.40, 0.22); }
+    else if (type === "ding")   { _playTone(1047, 1047, 0.60, 0.15); }
   }
 
   let ownName       = "Me";
@@ -1538,7 +1550,6 @@
         <span id="chain-sync-dot" title="Sync status"></span>
         <button id="chain-presence-btn" class="chain-hbtn" title="Who's online" style="display:inline-flex!important;align-items:center!important;gap:3px!important;font-size:13px!important;padding:4px 10px!important;">👥<span id="chain-online-count" style="font-size:13px;color:#44ff88;font-weight:700;min-width:14px;text-align:center;line-height:1;"></span></button>
         <button id="chain-gear-btn" class="chain-hbtn" title="Settings">⚙️</button>
-        <button id="chain-swt-btn" class="chain-hbtn" title="Syph's War Timers" style="display:none!important;">⚕</button>
         <button id="chain-view-btn" class="chain-hbtn" title="Cycle view">▦</button>
       </div>
 
@@ -1740,6 +1751,15 @@
               <span class="chain-sett-desc">Short beep when your queued hit window opens</span>
               <input type="checkbox" id="sett-sound" class="chain-sett-toggle">
             </label>
+            <label class="chain-sett-row" id="sett-sound-type-row" style="display:none">
+              <span class="chain-sett-label">Alert sound</span>
+              <select id="sett-sound-type" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:6px;color:#ddd;font-size:11px;padding:3px 6px;cursor:pointer;">
+                <option value="beep">Beep (descending)</option>
+                <option value="double">Double beep</option>
+                <option value="low">Low tone</option>
+                <option value="ding">Ding</option>
+              </select>
+            </label>
 
             <label class="chain-sett-row">
               <span class="chain-sett-label">Auto-expand to full when due</span>
@@ -1772,6 +1792,49 @@
             <div id="chain-sett-status" style="font-size:10px;color:#44ff88;min-height:13px;text-align:center;padding-bottom:2px;"></div>
           </div>
 
+          <!-- Section: Syph Scripts -->
+          <div class="chain-sett-section-hdr" data-section="syph-scripts"><span class="chain-sett-section-arrow">▶</span>⚕ Syph Scripts</div>
+          <div class="chain-sett-section-body" id="chain-sett-body-syph-scripts">
+            <div id="swt-not-installed" style="font-size:11px;color:#556;padding:6px 0 4px;">
+              Syph's War Timers not detected.
+              <a href="https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/Syphs-War-Timers.user.js"
+                 target="_blank" style="color:#44ff88;text-decoration:none;">↓ Install</a>
+            </div>
+            <div id="swt-installed-section" style="display:none;flex-direction:column;gap:0;">
+              <div style="font-size:11px;color:#44ff88;font-weight:700;padding:4px 0 8px;" id="swt-version-label">⚕ Syph's War Timers</div>
+
+              <label class="chain-sett-row" style="padding:6px 0 4px;border-bottom:1px solid rgba(255,255,255,.07);">
+                <span class="chain-sett-label" style="font-weight:700;">Enable War Timers</span>
+                <input type="checkbox" id="swt-enabled-cb" class="chain-sett-toggle">
+              </label>
+
+              <div style="font-size:10px;font-weight:700;color:#556;letter-spacing:.4px;text-transform:uppercase;padding:8px 0 3px;">Faction Pages</div>
+              <label class="chain-sett-row">
+                <span class="chain-sett-label">Show on friendly pages <span class="chain-sett-desc">(your faction)</span></span>
+                <input type="checkbox" id="swt-friendly-cb" class="chain-sett-toggle">
+              </label>
+              <label class="chain-sett-row">
+                <span class="chain-sett-label">Show on enemy pages <span class="chain-sett-desc">(other factions)</span></span>
+                <input type="checkbox" id="swt-enemy-cb" class="chain-sett-toggle">
+              </label>
+
+              <div style="font-size:10px;font-weight:700;color:#556;letter-spacing:.4px;text-transform:uppercase;padding:8px 0 3px;">Sorting</div>
+              <label class="chain-sett-row">
+                <span class="chain-sett-label">War sort <span class="chain-sett-desc">(hospitalised first)</span></span>
+                <input type="checkbox" id="swt-sort-cb" class="chain-sett-toggle">
+              </label>
+
+              <div style="font-size:10px;font-weight:700;color:#556;letter-spacing:.4px;text-transform:uppercase;padding:8px 0 3px;">API Key</div>
+              <div style="display:flex;align-items:center;gap:6px;padding:2px 0 4px;">
+                <span id="swt-key-display" style="font-family:monospace;font-size:11px;color:#aaa;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span>
+                <button id="swt-key-show-btn" class="chain-sett-action-btn" title="Show/hide" style="flex-shrink:0;min-width:28px;">👁</button>
+                <button id="swt-key-clear-btn" class="chain-sett-action-btn" style="flex-shrink:0;">Clear</button>
+              </div>
+              <button id="swt-key-set-btn" class="chain-sett-action-btn" style="width:100%;padding:5px 0;font-size:11px;margin-bottom:4px;">Set API Key…</button>
+              <div id="swt-status" style="font-size:10px;color:#44ff88;min-height:13px;text-align:center;padding:2px 0;"></div>
+            </div>
+          </div>
+
           <div class="chain-sett-section-hdr" data-section="companions"><span class="chain-sett-section-arrow">▶</span>📦 Install Companion Scripts</div>
           <div class="chain-sett-section-body" id="chain-sett-body-companions">
             <div style="padding:6px 0 4px;font-size:11px;color:#aaa;line-height:1.4;">
@@ -1796,47 +1859,7 @@
       </div>
     </div>
 
-    <!-- SWT popover -->
-    <div id="chain-swt-popover" class="chain-popover" style="left:8px;right:8px;border:1px solid rgba(68,255,136,.25);max-height:85vh;overflow:hidden;">
-      <div style="font-size:12px;font-weight:700;color:#44ff88;letter-spacing:.3px;flex-shrink:0;">⚕ Syph's War Timers</div>
-      <div style="display:flex;flex-direction:column;gap:0;overflow-y:auto;flex:1;padding-top:4px;">
 
-        <!-- Master toggle -->
-        <div class="chain-sett-row" style="padding:8px 0 6px;border-bottom:1px solid rgba(255,255,255,.07);">
-          <label class="chain-sett-label" style="font-size:12px;font-weight:700;color:#eee;">Enable War Timers</label>
-          <input type="checkbox" id="swt-enabled-cb" class="chain-sett-cb">
-        </div>
-
-        <!-- Faction page filters -->
-        <div style="font-size:10px;font-weight:700;color:#556;letter-spacing:.4px;text-transform:uppercase;padding:8px 0 4px;">Faction Pages</div>
-        <div class="chain-sett-row">
-          <label class="chain-sett-label">Show on friendly pages <span class="chain-sett-desc">(your faction)</span></label>
-          <input type="checkbox" id="swt-friendly-cb" class="chain-sett-cb">
-        </div>
-        <div class="chain-sett-row">
-          <label class="chain-sett-label">Show on enemy pages <span class="chain-sett-desc">(other factions)</span></label>
-          <input type="checkbox" id="swt-enemy-cb" class="chain-sett-cb">
-        </div>
-
-        <!-- Sorting -->
-        <div style="font-size:10px;font-weight:700;color:#556;letter-spacing:.4px;text-transform:uppercase;padding:8px 0 4px;">Sorting</div>
-        <div class="chain-sett-row">
-          <label class="chain-sett-label">War sort <span class="chain-sett-desc">(hospitalised first)</span></label>
-          <input type="checkbox" id="swt-sort-cb" class="chain-sett-cb">
-        </div>
-
-        <!-- API Key -->
-        <div style="font-size:10px;font-weight:700;color:#556;letter-spacing:.4px;text-transform:uppercase;padding:8px 0 4px;">API Key</div>
-        <div style="display:flex;align-items:center;gap:6px;padding:2px 0 6px;">
-          <span id="swt-key-display" style="font-family:monospace;font-size:11px;color:#aaa;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span>
-          <button id="swt-key-show-btn" class="chain-sett-action-btn" title="Show/hide key" style="flex-shrink:0;min-width:28px;">👁</button>
-          <button id="swt-key-clear-btn" class="chain-sett-action-btn" title="Clear key" style="flex-shrink:0;">Clear</button>
-        </div>
-        <button id="swt-key-set-btn" class="chain-sett-action-btn" style="width:100%;padding:6px 0;font-size:11px;">Set API Key…</button>
-        <div id="swt-status" style="font-size:10px;color:#44ff88;min-height:13px;text-align:center;padding:4px 0 2px;"></div>
-      </div>
-      <button id="chain-swt-close" style="padding:5px 0;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#888;flex-shrink:0;margin-top:6px;">Close</button>
-    </div>
 
     <div id="chain-timer-bar">
       <span id="chain-timer-label">⛓ Chain</span>
@@ -2093,7 +2116,6 @@
      document.getElementById("chain-trackerdata-popover"),
      document.getElementById("chain-gear-menu"),
      document.getElementById("chain-settings-popover"),
-     document.getElementById("chain-swt-popover"),
     ].forEach(p => p && p.classList.remove("open"));
   }
 
@@ -2369,7 +2391,11 @@
     _gWire("chain-gmenu-settings", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
       const sp = document.getElementById("chain-settings-popover");
-      if (sp) { closeAllPopovers(); sp.classList.add("open"); if (window._chainOpenSettings) window._chainOpenSettings(); }
+      if (sp) {
+        closeAllPopovers(); sp.classList.add("open");
+        if (window._chainOpenSettings) window._chainOpenSettings();
+        if (window._swtRefreshPanel) window._swtRefreshPanel();
+      }
     });
     _gWire("chain-gmenu-debug", e => {
       e.stopPropagation(); gearMenu.classList.remove("open");
@@ -2381,110 +2407,82 @@
   const settingsClose = document.getElementById("chain-settings-close");
   if (settingsClose) settingsClose.onclick = closeAllPopovers;
 
-  // ── SWT integration ──────────────────────────────────────────────────────
-  (function wireSwtIntegration() {
-    const swtBtn      = document.getElementById("chain-swt-btn");
-    const swtPopover  = document.getElementById("chain-swt-popover");
-    const swtClose    = document.getElementById("chain-swt-close");
-    const swtStatus   = document.getElementById("swt-status");
+  // ── Syph Scripts wiring (in Settings panel) ─────────────────────────────
+  (function wireSyphScripts() {
+    const notInstalled  = document.getElementById("swt-not-installed");
+    const installedSect = document.getElementById("swt-installed-section");
+    const versionLabel  = document.getElementById("swt-version-label");
+    const enabledCb     = document.getElementById("swt-enabled-cb");
+    const friendlyCb    = document.getElementById("swt-friendly-cb");
+    const enemyCb       = document.getElementById("swt-enemy-cb");
+    const sortCb        = document.getElementById("swt-sort-cb");
+    const keyDisplay    = document.getElementById("swt-key-display");
+    const keyShowBtn    = document.getElementById("swt-key-show-btn");
+    const keyClearBtn   = document.getElementById("swt-key-clear-btn");
+    const keySetBtn     = document.getElementById("swt-key-set-btn");
+    const statusEl      = document.getElementById("swt-status");
 
-    if (!swtBtn || !swtPopover) return;
-
-    // Close button
-    if (swtClose) swtClose.onclick = closeAllPopovers;
-
-    // Open popover on button click
-    swtBtn.addEventListener("click", e => {
-      e.stopPropagation();
-      const isOpen = swtPopover.classList.contains("open");
-      closeAllPopovers();
-      if (!isOpen) {
-        refreshSwtPanel();
-        swtPopover.classList.add("open");
+    function refreshSwyPanel() {
+      const b = _xw.__swtBridge;
+      if (!b) {
+        if (notInstalled) notInstalled.style.display = "";
+        if (installedSect) installedSect.style.display = "none";
+        return;
       }
-    });
-
-    function setSwtStatus(msg, color) {
-      if (!swtStatus) return;
-      swtStatus.textContent = msg;
-      swtStatus.style.color = color || "#44ff88";
-      if (msg) setTimeout(() => { if (swtStatus.textContent === msg) swtStatus.textContent = ""; }, 2500);
+      if (notInstalled) notInstalled.style.display = "none";
+      if (installedSect) installedSect.style.display = "flex";
+      if (versionLabel) versionLabel.textContent = `⚕ Syph's War Timers v${b.version||"?"}`;
+      if (enabledCb)  enabledCb.checked  = b.enabled;
+      if (friendlyCb) friendlyCb.checked = b.showFriendly;
+      if (enemyCb)    enemyCb.checked    = b.showEnemy;
+      if (sortCb)     sortCb.checked     = b.sortEnabled;
+      if (keyDisplay) keyDisplay.textContent = b.apiKey
+        ? (b.showKey ? b.apiKey : b.getApiKeyMasked()) : "No key set";
     }
 
-    function refreshSwtPanel() {
-      const bridge = _xw.__swtBridge;
-      if (!bridge) return;
+    function wireSwtCb(el, setter) {
+      if (!el) return;
+      function apply() { try { const b = _xw.__swtBridge; if (b) { b[setter](el.checked); showSwtStatus("Saved"); } } catch(e) {} }
+      el.addEventListener("change", apply);
+      el.addEventListener("click", () => setTimeout(apply, 0));
+    }
+    wireSwtCb(enabledCb,  "setEnabled");
+    wireSwtCb(friendlyCb, "setShowFriendly");
+    wireSwtCb(enemyCb,    "setShowEnemy");
+    wireSwtCb(sortCb,     "setSort");
 
-      const enabledCb  = document.getElementById("swt-enabled-cb");
-      const friendlyCb = document.getElementById("swt-friendly-cb");
-      const enemyCb    = document.getElementById("swt-enemy-cb");
-      const sortCb     = document.getElementById("swt-sort-cb");
-      const keyDisplay = document.getElementById("swt-key-display");
-
-      if (enabledCb)  enabledCb.checked  = bridge.enabled;
-      if (friendlyCb) friendlyCb.checked = bridge.showFriendly;
-      if (enemyCb)    enemyCb.checked    = bridge.showEnemy;
-      if (sortCb)     sortCb.checked     = bridge.sortEnabled;
-      if (keyDisplay) {
-        keyDisplay.textContent = bridge.apiKey
-          ? (bridge.showKey ? bridge.apiKey : bridge.getApiKeyMasked())
-          : "No key set";
+    if (keyShowBtn) keyShowBtn.onclick = () => {
+      try { const b = _xw.__swtBridge; if (b) { b.setShowKey(!b.showKey); refreshSwyPanel(); } } catch(e) {}
+    };
+    if (keyClearBtn) keyClearBtn.onclick = () => {
+      try { const b = _xw.__swtBridge; if (b) { b.setApiKey(""); refreshSwyPanel(); showSwtStatus("Cleared"); } } catch(e) {}
+    };
+    if (keySetBtn) keySetBtn.onclick = () => {
+      const k = prompt("Enter your Torn public API key:");
+      if (k && k.trim()) {
+        try { const b = _xw.__swtBridge; if (b) { b.setApiKey(k.trim()); refreshSwyPanel(); showSwtStatus("Key saved"); } } catch(e) {}
       }
+    };
+
+    function showSwtStatus(msg) {
+      if (!statusEl) return;
+      statusEl.textContent = msg;
+      setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ""; }, 2000);
     }
 
-    function wireCheckboxSWT(id, setter) {
-      const cb = document.getElementById(id);
-      if (!cb) return;
-      cb.addEventListener("change", () => {
-        try {
-          const bridge = _xw.__swtBridge;
-          if (bridge) { bridge[setter](cb.checked); setSwtStatus("Saved"); }
-        } catch(e) { console.warn("[TCC/SWT]", e); }
-      });
-    }
+    // Refresh panel whenever settings popover opens
+    window._swtRefreshPanel = refreshSwyPanel;
 
-    wireCheckboxSWT("swt-enabled-cb",  "setEnabled");
-    wireCheckboxSWT("swt-friendly-cb", "setShowFriendly");
-    wireCheckboxSWT("swt-enemy-cb",    "setShowEnemy");
-    wireCheckboxSWT("swt-sort-cb",     "setSort");
-
-    const showBtn  = document.getElementById("swt-key-show-btn");
-    const clearBtn = document.getElementById("swt-key-clear-btn");
-    const setBtn   = document.getElementById("swt-key-set-btn");
-
-    if (showBtn) showBtn.onclick = () => {
-      try {
-        const bridge = _xw.__swtBridge;
-        if (bridge) { bridge.setShowKey(!bridge.showKey); refreshSwtPanel(); }
-      } catch(e) {}
-    };
-
-    if (clearBtn) clearBtn.onclick = () => {
-      try {
-        const bridge = _xw.__swtBridge;
-        if (bridge) { bridge.setApiKey(""); refreshSwtPanel(); setSwtStatus("Key cleared", "#ff8888"); }
-      } catch(e) {}
-    };
-
-    if (setBtn) setBtn.onclick = () => {
-      try {
-        const bridge = _xw.__swtBridge;
-        const current = bridge?.apiKey || "";
-        const input = prompt("Enter your Torn Public API key for Syph's War Timers:", current);
-        if (input === null) return;
-        if (bridge) { bridge.setApiKey(input); refreshSwtPanel(); setSwtStatus("Key saved"); }
-      } catch(e) {}
-    };
-
-    // ── Detection poll — show button when SWT is installed ─────────────────
+    // Detection poll — show installed section when bridge detected
     let swtFound = false;
+    let _swtPollIv = null;
     function checkSwtPresence() {
       try {
         if (swtFound) return;
         if (_xw.__swtBridge?.installed) {
           swtFound = true;
-          swtBtn.style.removeProperty("display");
-          // If TCC's factionId is available, share it with SWT
+          if (_swtPollIv) { clearInterval(_swtPollIv); _swtPollIv = null; }
+          refreshSwyPanel();
           if (typeof factionId !== "undefined" && factionId && _xw.__swtBridge) {
             _xw.__swtBridge.tccFactionId = factionId;
           }
@@ -2492,8 +2490,12 @@
       } catch(e) {}
     }
 
-    checkSwtPresence();
-    setInterval(() => { try { checkSwtPresence(); } catch(e) {} }, 2000);
+    const _swtCanBeActive = /factions\.php/.test(location.pathname) ||
+      (/page\.php/.test(location.pathname) && /sid=list/.test(location.search));
+    if (_swtCanBeActive) {
+      checkSwtPresence();
+      _swtPollIv = setInterval(() => { try { checkSwtPresence(); } catch(e) {} }, 2000);
+    }
   })();
 
   // ── Settings: wire all controls ──────────────────────────────────────────
@@ -2599,7 +2601,7 @@
     }
 
     function _dbgRender() {
-      if (!_dbgPanel) return;
+      if (!_dbgPanel || document.hidden) return;
       const _pn = performance.now();
 
       // DOM timer (display source)
@@ -3042,8 +3044,24 @@
       if (presencePopover && presencePopover.classList.contains("open")) renderPresence();
     });
     wireCheckbox("sett-sound", v => {
-      settNotifySound = v; _gmSet(SK_NOTIFY_SOUND, v); if (v) playDueSound();
+      settNotifySound = v; _gmSet(SK_NOTIFY_SOUND, v);
+      const tr = document.getElementById("sett-sound-type-row");
+      if (tr) tr.style.display = v ? "" : "none";
+      if (v) playDueSound();
     });
+    // Sound type selector
+    (() => {
+      const sel = document.getElementById("sett-sound-type");
+      if (!sel) return;
+      sel.value = settNotifySoundType || "beep";
+      sel.onchange = () => {
+        settNotifySoundType = sel.value;
+        _gmSet(SK_NOTIFY_SOUND_TYPE, settNotifySoundType);
+        playDueSound();
+      };
+      const tr = document.getElementById("sett-sound-type-row");
+      if (tr) tr.style.display = settNotifySound ? "" : "none";
+    })();
     wireCheckbox("sett-auto-expand", v => {
       settAutoExpandDue = v; _gmSet(SK_AUTO_EXPAND_DUE, v);
     });
@@ -3121,13 +3139,13 @@
     });
     document.getElementById("sett-reset-all")?.addEventListener("click", () => {
       if (!confirm("Reset ALL settings to defaults?")) return;
-      [SK_SHOW_DONE_HITS, SK_COMPACT_MODE, SK_NOTIFY_SOUND, SK_TIMER_FUDGE_USR,
+      [SK_SHOW_DONE_HITS, SK_COMPACT_MODE, SK_NOTIFY_SOUND, SK_NOTIFY_SOUND_TYPE, SK_TIMER_FUDGE_USR,
        SK_PANEL_OPACITY, SK_WARN_THRESHOLD, SK_DANGER_THRESHOLD, SK_SHOW_BONUS_ALERT,
        SK_MINI_SHOW_COUNT, SK_AUTO_EXPAND_DUE, SK_DEBUG_CONSOLE, SK_SHOW_BROWSER,
        SK_PANEL_W, SK_PANEL_H,
        SK_POS_X_FULL, SK_POS_Y_FULL, SK_POS_X_ICON, SK_POS_Y_ICON, SK_POS_X_MINI, SK_POS_Y_MINI
       ].forEach(k => _gmSet(k, null));
-      settShowDoneHits = true; settCompactMode = false; settNotifySound = false;
+      settShowDoneHits = true; settCompactMode = false; settNotifySound = false; settNotifySoundType = "beep";
       settTimerFudge = 0; settPanelOpacity = 0.96; settWarnThreshold = 90;
       settDangerThreshold = 30; settShowBonusAlert = true; settMiniShowCount = true;
       settAutoExpandDue = false; settDebugConsole = false; settShowBrowser = true;
@@ -4610,6 +4628,7 @@
   let _memberVersionToWrite   = CURRENT_VERSION;  // safe default: our own version
 
   function fbHeartbeat() {
+    if (document.hidden) return;
     if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
     const now = Date.now();
     const lobbyUrl = P.lobbyMe();
