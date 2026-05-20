@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.11.1
+// @version      5.11.2
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -369,7 +369,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.11.1";
+  const CURRENT_VERSION  = "5.11.2";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -639,6 +639,13 @@
       } catch(_) { viewMode = 0; }
     } else {
       viewMode = 0; // Default full panel — never restore icon/mini from stale LS
+    }
+    // On fresh install or version change, always start in full mode
+    // so users don't see the panel "disappear" after an update
+    const _savedVer = GM_getValue("chain_last_version", null);
+    if (_savedVer !== CURRENT_VERSION) {
+      viewMode = 0;
+      GM_setValue("chain_last_version", CURRENT_VERSION);
     }
   }
 
@@ -6982,15 +6989,6 @@
         if(!data||data.error){resetBtn();alert(`Torn API error: ${data?.error?.error||"Unknown"}`);return;}
         const state=(data?.status?.state||"").toLowerCase();
         if(["abroad","traveling","jail","federal","fallen"].some(s=>state.includes(s))){resetBtn();alert(`${targetName} is ${state} — cannot be scheduled.`);return;}
-        // War gating — if we're in a ranked war, only allow queuing opponents
-        if (inRankedWar && warOpponentFactionIds.size > 0) {
-          const targetFactionId = String(data?.faction?.faction_id || "0");
-          if (targetFactionId === "0" || !warOpponentFactionIds.has(targetFactionId)) {
-            resetBtn();
-            alert(`${targetName} is not in a war opponent faction — only war targets can be queued during a ranked war.`);
-            return;
-          }
-        }
         scheduleAndWrite(data,targetId,targetName,attackUrl,btn);
       },
       onerror()  { resetBtn(); alert("Network error."); },
