@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.11.2
+// @version      5.11.4
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -83,12 +83,17 @@
   try { if (typeof unsafeWindow !== "undefined") _xw = unsafeWindow; } catch(_) {}
 
   // ── Singleton guard ───────────────────────────────────────────────────────
+  // Guards against two TCC instances running in the same page lifetime.
+  // Reset on pagehide so a refresh always gets a clean boot — unsafeWindow
+  // persists across soft refreshes in Firefox+TM, causing the flag to stay set.
   try {
     if (_xw.__tccRunning && document.getElementById("chain-panel")) return;
     _xw.__tccRunning = true;
+    window.addEventListener("pagehide", () => { try { _xw.__tccRunning = false; } catch(_) {} }, { once: true });
   } catch(_) {
     if (window.__tccRunning && document.getElementById("chain-panel")) return;
     window.__tccRunning = true;
+    window.addEventListener("pagehide", () => { try { window.__tccRunning = false; } catch(_) {} }, { once: true });
     _xw = window;
   }
 
@@ -369,7 +374,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.11.2";
+  const CURRENT_VERSION  = "5.11.4";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
