@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.0.3
+// @version      6.0.4
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -82,12 +82,19 @@
   let _xw = window;
   try { if (typeof unsafeWindow !== "undefined") _xw = unsafeWindow; } catch(_) {}
 
-  // ── Singleton guard removed ───────────────────────────────────────────────
-  // TM 5.5.0 Firefox re-injects on every SPA navigation. Any guard that bails
-  // early prevents the panel from being recreated after React clears the DOM.
-  // We rely on document-idle timing — by the time TM injects, React has already
-  // rendered, so a second injection means a new page and we always need to boot.
+  // ── Singleton guard ───────────────────────────────────────────────────────
+  // TM 5.5.0 re-injects on pushState URL changes (e.g. Torn chain counter).
+  // Guard: if our panel is already in the DOM and was put there < 4s ago,
+  // this is a same-page duplicate injection — bail. If panel is absent or old,
+  // React has rebuilt the DOM and we need a fresh boot.
   try { _xw.__tccRunning = true; } catch(_) {}
+  {
+    const _existingPanel = document.getElementById("chain-panel");
+    if (_existingPanel) {
+      const _age = Date.now() - (parseInt(_existingPanel.dataset.bootTime || 0));
+      if (_age < 4000) return; // injected < 4s ago on same page — genuine duplicate
+    }
+  }
 
   // Shared debug state — readable by all scopes within this IIFE without window hacks
   const _dbg = {
@@ -366,7 +373,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.0.3";
+  const CURRENT_VERSION  = "6.0.4";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -1873,6 +1880,7 @@
     </div>
     <div id="chain-icon-btn" title="Tap to expand">⛓<span id="chain-icon-badge"></span></div>
     <div id="chain-resize-handle"></div>`;
+  panel.dataset.bootTime = Date.now();
   document.body.appendChild(panel);
 
   // ── Element refs ──────────────────────────────────────────────────────────
