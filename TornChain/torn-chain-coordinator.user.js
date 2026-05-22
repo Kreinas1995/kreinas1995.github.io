@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      5.9.9
+// @version      6.0.3
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -82,15 +82,12 @@
   let _xw = window;
   try { if (typeof unsafeWindow !== "undefined") _xw = unsafeWindow; } catch(_) {}
 
-  // ── Singleton guard ───────────────────────────────────────────────────────
-  try {
-    if (_xw.__tccRunning && document.getElementById("chain-panel")) return;
-    _xw.__tccRunning = true;
-  } catch(_) {
-    if (window.__tccRunning && document.getElementById("chain-panel")) return;
-    window.__tccRunning = true;
-    _xw = window;
-  }
+  // ── Singleton guard removed ───────────────────────────────────────────────
+  // TM 5.5.0 Firefox re-injects on every SPA navigation. Any guard that bails
+  // early prevents the panel from being recreated after React clears the DOM.
+  // We rely on document-idle timing — by the time TM injects, React has already
+  // rendered, so a second injection means a new page and we always need to boot.
+  try { _xw.__tccRunning = true; } catch(_) {}
 
   // Shared debug state — readable by all scopes within this IIFE without window hacks
   const _dbg = {
@@ -369,7 +366,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "5.9.9";
+  const CURRENT_VERSION  = "6.0.3";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
