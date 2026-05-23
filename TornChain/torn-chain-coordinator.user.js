@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.0.4
+// @version      6.1.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -82,19 +82,65 @@
   let _xw = window;
   try { if (typeof unsafeWindow !== "undefined") _xw = unsafeWindow; } catch(_) {}
 
-  // ── Singleton guard ───────────────────────────────────────────────────────
-  // TM 5.5.0 re-injects on pushState URL changes (e.g. Torn chain counter).
-  // Guard: if our panel is already in the DOM and was put there < 4s ago,
-  // this is a same-page duplicate injection — bail. If panel is absent or old,
-  // React has rebuilt the DOM and we need a fresh boot.
-  try { _xw.__tccRunning = true; } catch(_) {}
+  // ── Singleton + bfcache guard ─────────────────────────────────────────────
+  // Firefox Android bfcache: on reload, the old DOM is restored (including
+  // #chain-panel) and Tampermonkey re-runs the script. We detect a bfcache
+  // restore by checking a JS-heap reference that bfcache cannot freeze:
+  // a property on the window object set only when THIS script instance ran.
+  // If the property is missing, the panel in the DOM is a bfcache ghost.
   {
-    const _existingPanel = document.getElementById("chain-panel");
-    if (_existingPanel) {
-      const _age = Date.now() - (parseInt(_existingPanel.dataset.bootTime || 0));
-      if (_age < 4000) return; // injected < 4s ago on same page — genuine duplicate
+    const _existing = document.getElementById("chain-panel");
+    if (_existing) {
+      const _liveRef = (() => { try { return _xw.__tccPanelRef; } catch(_) { return null; } })();
+      if (_liveRef === _existing &&
+          document.querySelector("#mainContainer, #torn-app, .content-wrapper")) {
+        // Panel was injected by this exact JS context — genuine singleton, skip boot
+        return;
+      }
+      // Panel is a bfcache ghost or from a different context — remove and re-boot
+      _existing.remove();
+      try { _xw.__tccPanelRef = null; } catch(_) {}
     }
   }
+  try { _xw.__tccRunning = true; } catch(_) {}
+
+  // ── Boot diagnostic ───────────────────────────────────────────────────────
+  const _diagStep = (function() {
+    try {
+      const k = "tcc_boot_n";
+      const n = parseInt(localStorage.getItem(k)||"0") + 1;
+      localStorage.setItem(k, n);
+      let _el = null;
+      function _getEl() {
+        if (_el && document.body.contains(_el)) return _el;
+        _el = document.getElementById("tcc-boot-diag");
+        if (!_el) {
+          _el = document.createElement("div");
+          _el.id = "tcc-boot-diag";
+          _el.style.cssText = "position:fixed;bottom:4px;left:4px;z-index:2147483647;background:#0a0a14;color:#44ff88;font-size:10px;font-family:monospace;padding:3px 7px;border-radius:4px;border:1px solid #224;pointer-events:none;max-width:90vw;display:none";
+          if (document.body) document.body.appendChild(_el);
+          else document.addEventListener("DOMContentLoaded", () => document.body && document.body.appendChild(_el));
+        }
+        return _el;
+      }
+      let _steps = ["boot#"+n];
+      function step(s) {
+        try { _steps.push(s); _getEl().textContent = _steps.join(" > "); } catch(_) {}
+      }
+      step("start");
+      // Show diag only if TCC panel hasn't loaded after 5s
+      setTimeout(() => {
+        try {
+          if (!document.getElementById("chain-panel")) {
+            const el = document.getElementById("tcc-boot-diag");
+            if (el) el.style.display = "";
+          }
+        } catch(_) {}
+      }, 5000);
+
+      return step;
+    } catch(_) { return function(){}; }
+  })();
 
   // Shared debug state — readable by all scopes within this IIFE without window hacks
   const _dbg = {
@@ -106,7 +152,7 @@
   // Detect localStorage availability once — before _bg block since _bgLoadPersisted uses it.
   // Opera GX, some Chromium builds, and sandboxed contexts block localStorage even
   // when not on TornPDA. Test it rather than assume.
-  const _lsAvailable = (() => {
+  _diagStep("ls"); const _lsAvailable = (() => {
     if (typeof localStorage === "undefined") return false;
     try {
       const k = "__tcc_ls_test__";
@@ -272,6 +318,15 @@
     if (!details.method || details.method.toUpperCase() === "GET") {
       bustUrl += (bustUrl.includes("?") ? "&" : "?") + "_cb=" + Date.now();
     }
+    if (bustUrl.includes("api.torn.com")) {
+      const _m=(details.method||"GET").toUpperCase(),_c=new AbortController(),_t=setTimeout(()=>_c.abort(),details.timeout||15000);
+      const _o={method:_m,credentials:"omit",signal:_c.signal};
+      if(details.headers)_o.headers=details.headers;
+      if(details.data&&_m!=="GET")_o.body=details.data;
+      fetch(bustUrl,_o).then(r=>r.text().then(text=>{clearTimeout(_t);if(details.onload)details.onload({status:r.status,responseText:text});}))
+        .catch(e=>{clearTimeout(_t);_bg.xhrErr++;_bgSavePersisted();if(e&&e.name==="AbortError"){if(origTimeout)origTimeout({});}else{if(origErr)origErr({error:e&&e.message});}});
+      return;
+    }
     const wrapped = Object.assign({}, details, {
       url:       bustUrl,
       onerror:   function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); },
@@ -373,7 +428,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.0.4";
+  const CURRENT_VERSION  = "6.1.0";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -499,7 +554,7 @@
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
   const CHAIN_POLL_IDLE_MS   = 30000; // slow poll when no chain active — saves ~10 API calls/min/user
-  const PRESENCE_HEARTBEAT   = 15000;
+  const PRESENCE_HEARTBEAT   = 30000;
   const PRESENCE_TIMEOUT     = 90000;   // 90s — 6× heartbeat interval, tolerates dropped beats
   const HIT_DELAY_MS         = 4 * 60 * 1000;
   const HIT_INTERVAL         = 5 * 60 * 1000;
@@ -665,7 +720,7 @@
   // but only if the previous session wrote to the same LS key. By re-writing every
   // setting on every boot we ensure both stores are fresh regardless of which one
   // was authoritative this load — so the *next* navigation always has a valid fallback.
-  (function _resyncSettings() {
+  _diagStep("rsync"); try { (function _resyncSettings() {
     _gmSet(SK_SHOW_DONE_HITS,   settShowDoneHits);
     _gmSet(SK_COMPACT_MODE,     settCompactMode);
     _gmSet(SK_NOTIFY_SOUND,     settNotifySound);
@@ -678,7 +733,7 @@
     _gmSet(SK_AUTO_EXPAND_DUE,  settAutoExpandDue);
     _gmSet(SK_DEBUG_CONSOLE,    settDebugConsole);
     _gmSet(SK_SHOW_BROWSER,     settShowBrowser);
-  })();
+  })(); } catch(_e) { console.warn("[ChainCoord] resync failed:", _e && _e.message); }
   // Notification sound (AudioContext, created lazily)
   let _notifyAudioCtx    = null;
   function playDueSound() {
@@ -766,30 +821,23 @@
   let _startTimeCorrected  = false; // true once chain.start has corrected our warmup estimate
   let _cachedSessionRestored = false; // true when session was pre-loaded from GM cache
 
-  // ── Restore session state from GM storage ────────────────────────────────
-  // Restoring chainSessionId/chainStartTime lets applyPatch render scraped hits
-  // immediately on page reload without waiting for Firebase. The values are
-  // treated as provisional — if Firebase delivers a different session ID,
-  // handleRemoteSession will overwrite them. If Firebase confirms the same ID,
-  // we keep the restored cursor and skip a redundant backfill poll.
-  {
+  _diagStep("sess"); // ── Restore session state from GM storage
+  // Wrapped in try/catch — GM_getValue can throw on Firefox Android during page transitions
+  try {
     const cachedId    = GM_getValue(SK_SESSION_ID,    "") || "";
     const cachedStart = GM_getValue(SK_SESSION_START, "") || "";
     const cachedCursor= GM_getValue(SK_ATTACK_CURSOR, "") || "";
     if (cachedId && cachedStart) {
       const startMs = Number(cachedStart);
       const ageMs   = Date.now() - startMs;
-      // Only restore if session is less than 2 hours old (same guard as handleRemoteSession)
       if (ageMs < 2 * 60 * 60 * 1000 && ageMs > 0) {
         chainSessionId  = cachedId;
         chainStartTime  = startMs;
         if (cachedCursor) _lastAttackEnded = Number(cachedCursor);
-        // Fire an immediate incremental poll once factionId is available (boot completes).
-        // Without this, new hits since the cached cursor wait up to 7s for the first interval tick.
         _cachedSessionRestored = true;
       }
     }
-  }
+  } catch(_e) { console.warn("[ChainCoord] session restore failed:", _e && _e.message); }
 
   // ── Persist session state helper ──────────────────────────────────────────
   function persistSession() {
@@ -807,7 +855,7 @@
   const auth = () => fbToken ? `?auth=${fbToken}` : "";
   const fBase = () => `${FIREBASE_DB_URL}/factions/${factionId}`;
 
-  const P = {
+  _diagStep("paths"); const P = {
     root:        () => `${fBase()}.json${auth()}`,
     // Legacy flat hits path — used only for migration detection
     hits:        () => `${fBase()}/hits.json${auth()}`,
@@ -843,7 +891,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  CSS
   // ══════════════════════════════════════════════════════════════════════════
-  GM_addStyle(`
+  _diagStep("css"); try { GM_addStyle(`
     .chain-target-btn {
       display:inline-flex !important; align-items:center !important; justify-content:center !important;
       margin-left:4px !important; padding:0 5px !important; height:22px !important; min-width:22px !important;
@@ -1491,10 +1539,12 @@
     .chain-tracker-section-hdr { font-size:10px; font-weight:700; color:#445; letter-spacing:.4px; text-transform:uppercase; padding:4px 2px 2px; margin-top:4px; border-top:1px solid rgba(255,255,255,.06); }
     .chain-tracker-section-hdr:first-child { border-top:none; margin-top:0; }
   `);
+  } catch(_e) { console.warn("[ChainCoord] GM_addStyle failed:", _e && _e.message); }
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Panel HTML
   // ══════════════════════════════════════════════════════════════════════════
+  _diagStep("panel");
   const panel = document.createElement("div");
   panel.id = "chain-panel";
   // Boot: restore position for the current viewMode from per-mode keys.
@@ -1880,11 +1930,22 @@
     </div>
     <div id="chain-icon-btn" title="Tap to expand">⛓<span id="chain-icon-badge"></span></div>
     <div id="chain-resize-handle"></div>`;
-  panel.dataset.bootTime = Date.now();
-  document.body.appendChild(panel);
+  _diagStep("inject"); document.body.appendChild(panel);
+  try { _xw.__tccPanelRef = panel; } catch(_) {}  // JS-heap ref bfcache cannot freeze
+
+  // Re-append panel if React evicts it on SPA navigation (TM doesn't re-inject)
+  setInterval(function() {
+    try {
+      if (document.body && !document.body.contains(panel)) {
+        document.body.appendChild(panel);
+        try { applyViewMode(); } catch(_) {}
+        try { scheduleRender(); } catch(_) {}
+      }
+    } catch(_) {}
+  }, 500);
 
   // ── Element refs ──────────────────────────────────────────────────────────
-  const panelBody       = document.getElementById("chain-panel-body");
+  _diagStep("refs"); const panelBody       = document.getElementById("chain-panel-body");
   const viewBtn         = document.getElementById("chain-view-btn");
   const clearBtn        = document.getElementById("chain-clear-btn");
   const outsideBtn      = document.getElementById("chain-outside-btn");
@@ -2067,7 +2128,7 @@
     applyViewMode();
   });
 
-  applyViewMode();
+  _diagStep("vm"); applyViewMode();
 
   // ── Sync dot ──────────────────────────────────────────────────────────────
   function setSyncDot(s) {
@@ -2502,7 +2563,7 @@
   })();
 
   // ── Settings: wire all controls ──────────────────────────────────────────
-  (function wireSettings() {
+  _diagStep("wire"); (function wireSettings() {
     function applyPanelOpacity(v) {
       panel.style.setProperty("background", `rgba(16,18,24,${v})`, "important");
     }
@@ -2817,6 +2878,35 @@
       copyTopDiv.innerHTML =
         `<button id="tcc-dbg-copy" style="flex:1;background:rgba(100,160,255,.15);border:1px solid rgba(100,160,255,.3);color:#88bbff;border-radius:4px;padding:3px 0;font-size:10px;cursor:pointer;font-family:monospace">Copy report</button>`;
       bodyWrap.appendChild(copyTopDiv);
+
+      // ── Banner debug toggle ──
+      const bannerToggleDiv = document.createElement("div");
+      Object.assign(bannerToggleDiv.style, {
+        display: "flex", alignItems: "center", gap: "6px",
+        padding: "3px 10px", flexShrink: "0",
+        borderBottom: "1px solid rgba(255,255,255,.06)",
+        fontSize: "10px", fontFamily: "monospace", color: "#778",
+      });
+      const _bannerChecked = document.getElementById("chain-banner-debug")?.style.display !== "none";
+      bannerToggleDiv.innerHTML =
+        `<input type="checkbox" id="tcc-dbg-banner-toggle" ${_bannerChecked ? "checked" : ""} style="margin:0">` +
+        `<label for="tcc-dbg-banner-toggle" style="cursor:pointer;color:#778;user-select:none">Show debug error banner in panel</label>`;
+      bodyWrap.appendChild(bannerToggleDiv);
+      // Wire toggle
+      setTimeout(() => {
+        const cb = document.getElementById("tcc-dbg-banner-toggle");
+        if (cb) cb.addEventListener("change", () => {
+          const banner = document.getElementById("chain-banner-debug");
+          if (banner) {
+            if (cb.checked) {
+              // Only show if it has content
+              if (banner.textContent.trim()) banner.style.display = "";
+            } else {
+              banner.style.display = "none";
+            }
+          }
+        });
+      }, 50);
 
       // ── Console log area ──
       const logDiv = document.createElement("div");
@@ -4778,7 +4868,7 @@
 
     // Then every 3 seconds
     // Poll every 3s — halves network + parse load vs 1.5s with no noticeable UX difference
-    ssePollInterval = setInterval(fbPollOnce, 3000);
+    ssePollInterval = setInterval(fbPollOnce, 5000);
     // Version poll is low-priority — run every 30s, offset by 2s to stagger with main poll
     setTimeout(() => { if (!versionPollInterval) versionPollInterval = setInterval(fbPollClientVersions, 30000); }, 2000);
   }
@@ -4857,6 +4947,7 @@
             console.warn("[ChainCoord] Poll parse error:", e.message || String(e), "| response:", snippet);
           }
         } else {
+          pollInFlight = false;
           setSyncDot("error");
           if (r.status === 401 || r.status === 403) {
             // Could be expired token or whitelist denial.
@@ -6968,15 +7059,7 @@
         if(!data||data.error){resetBtn();alert(`Torn API error: ${data?.error?.error||"Unknown"}`);return;}
         const state=(data?.status?.state||"").toLowerCase();
         if(["abroad","traveling","jail","federal","fallen"].some(s=>state.includes(s))){resetBtn();alert(`${targetName} is ${state} — cannot be scheduled.`);return;}
-        // War gating — if we're in a ranked war, only allow queuing opponents
-        if (inRankedWar && warOpponentFactionIds.size > 0) {
-          const targetFactionId = String(data?.faction?.faction_id || "0");
-          if (targetFactionId === "0" || !warOpponentFactionIds.has(targetFactionId)) {
-            resetBtn();
-            alert(`${targetName} is not in a war opponent faction — only war targets can be queued during a ranked war.`);
-            return;
-          }
-        }
+
         scheduleAndWrite(data,targetId,targetName,attackUrl,btn);
       },
       onerror()  { resetBtn(); alert("Network error."); },
@@ -7534,52 +7617,36 @@
               return;
             }
 
-            const lobbyBootstrapUrl = P.lobbyMe();
-            showBanner("chain-banner-status", true, "Connecting…");
-            fbRequest({
-              method:"PUT", url: lobbyBootstrapUrl,
-              headers:{"Content-Type":"application/json"},
-              data: JSON.stringify({ name: ownName, tornId: ownId, factionId: factionId, lastSeen: Date.now(), browser: _browserTag, version: CURRENT_VERSION }),
-              timeout:10000,
-              onload(r) {
-                if (r.status>=200 && r.status<300) {
-                  setSyncDot("live");
-                  showBanner("chain-banner-status", false); _clearConnectWatchdog();
-                  fbCleanOwnLobbyEntries();
-                  fbRegisterMember();
-                  fbProbeOwner();
-                  checkForUpdate();
-                  fbCheckWhitelist(allowed => {
-                    if (!allowed) {
-                      showBanner("chain-banner-locked", true);
-                      setSyncDot("error");
-                      return;
-                    }
-                    showBanner("chain-banner-locked", false);
-                    fbStartMainListener();
-                    _wireVisibilityCatchup();
-                    pollFactionChain();
-                    // Start at idle rate — _maybeRescheduleChainPoll switches to 5.3s once a chain is detected
-                    _chainPollIsActive = false;
-                    if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_IDLE_MS);
-                    if (!attackPollInterval)  attackPollInterval  = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
-                    if (_cachedSessionRestored) { _cachedSessionRestored = false; pollFactionAttacks(); }
-                    if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 30000);
-                    if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
-                    if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
-                    if (IS_ATTACK_PAGE) setTimeout(pollFactionChain, 2000);
-                  });
-                } else {
-                  setSyncDot("error");
-                  showBanner("chain-banner-status", false); _clearConnectWatchdog();
-                  let msg = r.responseText;
-                  try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
-                  showBanner("chain-banner-debug", true, "❌ Lobby check-in failed "+r.status+": "+msg);
-                  console.warn("[ChainCoord] Lobby check-in failed", r.status, r.responseText);
-                }
-              },
-              onerror(e)  { setSyncDot("error"); showBanner("chain-banner-status", false); _clearConnectWatchdog(); showBanner("chain-banner-debug", true, "❌ Lobby check-in network error | err=" + JSON.stringify(e||{})); },
-              ontimeout() { setSyncDot("error"); showBanner("chain-banner-status", false); _clearConnectWatchdog(); showBanner("chain-banner-debug", true, "❌ Lobby check-in timed out"); },
+            function _doLobby(n) {
+              fbRequest({ method:"PUT", url:P.lobbyMe(), headers:{"Content-Type":"application/json"},
+                data:JSON.stringify({name:ownName,tornId:ownId,factionId:factionId,lastSeen:Date.now(),browser:_browserTag,version:CURRENT_VERSION}),
+                timeout:10000,
+                onload(r){ if(!(r.status>=200&&r.status<300)&&n<3) setTimeout(()=>_doLobby(n+1),3000); },
+                onerror(){ if(n<3) setTimeout(()=>_doLobby(n+1),3000); },
+                ontimeout(){ if(n<3) setTimeout(()=>_doLobby(n+1),3000); },
+              });
+            }
+            _doLobby(0);
+            setSyncDot("live");
+            showBanner("chain-banner-status", false); _clearConnectWatchdog();
+            fbCleanOwnLobbyEntries();
+            fbRegisterMember();
+            fbProbeOwner();
+            checkForUpdate();
+            fbCheckWhitelist(allowed => {
+              if (!allowed) { showBanner("chain-banner-locked", true); setSyncDot("error"); return; }
+              showBanner("chain-banner-locked", false);
+              fbStartMainListener();
+              _wireVisibilityCatchup();
+              pollFactionChain();
+              _chainPollIsActive = false;
+              if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_IDLE_MS);
+              if (!attackPollInterval)  attackPollInterval  = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
+              if (_cachedSessionRestored) { _cachedSessionRestored = false; pollFactionAttacks(); }
+              if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 30000);
+              if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
+              if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
+              if (IS_ATTACK_PAGE) setTimeout(pollFactionChain, 2000);
             });
 
             if (!heartbeatInterval) heartbeatInterval = setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
@@ -7739,7 +7806,7 @@
       fetchOwnProfile();
     }
   } else {
-    fetchOwnProfile();
+    _diagStep("fp"); fetchOwnProfile();
   }
   if (!isTornPDA) injectTargetButtons();
   updateVersionUI();   // set initial badge state before Firebase connects
