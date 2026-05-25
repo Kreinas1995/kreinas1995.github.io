@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.1.0
+// @version      6.2.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -473,7 +473,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.1.0";
+  const CURRENT_VERSION  = "6.2.0";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -641,7 +641,12 @@
   const SK_COMPACT_MODE     = "chain_compact_mode";         // bool: reduce row height
   const SK_NOTIFY_SOUND     = "chain_notify_sound";         // bool: play sound when hit due
   const SK_TIMER_FUDGE_USR  = "chain_timer_fudge";          // int: seconds offset on timer
-  const SK_PANEL_OPACITY    = "chain_panel_opacity";         // number: 0.6–1.0
+  const SK_PANEL_OPACITY    = "chain_panel_opacity";         // number: 0.25–1.0
+  const SK_HIGH_CONTRAST    = "chain_high_contrast";          // bool
+  const SK_COLOR_THEME      = "chain_color_theme";            // string: dark|light|cyber|medieval
+  const SK_WARN_PING        = "chain_warn_ping";              // bool: enable timer warning pings
+  const SK_WARN_PING_SOUND  = "chain_warn_ping_sound";        // string: sine|square|sawtooth|beep
+  const SK_WARN_PING_INTV   = "chain_warn_ping_interval";     // int: min seconds between pings
   const SK_WARN_THRESHOLD   = "chain_warn_threshold";        // int: seconds for warn color (default 90)
   const SK_DANGER_THRESHOLD = "chain_danger_threshold";      // int: seconds for danger color (default 30)
   const SK_SHOW_BONUS_ALERT = "chain_show_bonus_alert";      // bool: highlight bonus hits
@@ -753,6 +758,11 @@
   let settPanelOpacity   = _gmGet(SK_PANEL_OPACITY,    0.96);
   let settWarnThreshold  = _gmGet(SK_WARN_THRESHOLD,   90);
   let settDangerThreshold= _gmGet(SK_DANGER_THRESHOLD, 30);
+  let settHighContrast   = _gmGet(SK_HIGH_CONTRAST,    false);
+  let settColorTheme     = _gmGet(SK_COLOR_THEME,      "dark");
+  let settWarnPing       = _gmGet(SK_WARN_PING,        true);
+  let settWarnPingSound  = _gmGet(SK_WARN_PING_SOUND,  "sine");
+  let settWarnPingIntv   = _gmGet(SK_WARN_PING_INTV,   4);
   let settShowBonusAlert = _gmGet(SK_SHOW_BONUS_ALERT, true);
   let settMiniShowCount  = _gmGet(SK_MINI_SHOW_COUNT,  true);
   let settAutoExpandDue  = _gmGet(SK_AUTO_EXPAND_DUE,  false);
@@ -773,6 +783,11 @@
     _gmSet(SK_PANEL_OPACITY,    settPanelOpacity);
     _gmSet(SK_WARN_THRESHOLD,   settWarnThreshold);
     _gmSet(SK_DANGER_THRESHOLD, settDangerThreshold);
+    _gmSet(SK_HIGH_CONTRAST,    settHighContrast);
+    _gmSet(SK_COLOR_THEME,      settColorTheme);
+    _gmSet(SK_WARN_PING,        settWarnPing);
+    _gmSet(SK_WARN_PING_SOUND,  settWarnPingSound);
+    _gmSet(SK_WARN_PING_INTV,   settWarnPingIntv);
     _gmSet(SK_SHOW_BONUS_ALERT, settShowBonusAlert);
     _gmSet(SK_MINI_SHOW_COUNT,  settMiniShowCount);
     _gmSet(SK_AUTO_EXPAND_DUE,  settAutoExpandDue);
@@ -1019,6 +1034,28 @@
       line-height:14px; display:none;
     }
     #chain-pill-badge.visible { display:inline-block !important; }
+
+    /* ── High contrast mode ─────────────────────────────────────────────────*/
+    #chain-panel.high-contrast .ct-ok     { color:#55ff99 !important; text-shadow:0 0 6px rgba(0,200,100,0.5) !important; font-weight:700 !important; }
+    #chain-panel.high-contrast .ct-warn   { color:#ffdd44 !important; text-shadow:0 0 6px rgba(255,200,0,0.5) !important; font-weight:700 !important; }
+    #chain-panel.high-contrast .ct-danger { color:#ff4466 !important; text-shadow:0 0 6px rgba(255,50,80,0.6) !important; font-weight:700 !important; }
+    #chain-panel.high-contrast .chain-hit-row { border-bottom:1px solid rgba(255,255,255,0.15) !important; }
+    /* Light theme */
+    #chain-panel[data-theme="light"] { color:#1a1a2a !important; border:1px solid rgba(0,0,0,0.15) !important; }
+    #chain-panel[data-theme="light"] #chain-panel-header { background:rgba(240,242,250,0.98) !important; border-bottom:1px solid rgba(0,0,0,0.1) !important; }
+    #chain-panel[data-theme="light"] #chain-panel-body { color:#1a1a2a !important; }
+    #chain-panel[data-theme="light"] .chain-sett-label { color:#333 !important; }
+    #chain-panel[data-theme="light"] .chain-sett-desc { color:#777 !important; }
+    #chain-panel[data-theme="light"] .chain-hit-row { border-bottom:1px solid rgba(0,0,0,0.07) !important; }
+    #chain-panel[data-theme="light"] select, #chain-panel[data-theme="light"] input[type=range] { background:#f0f2f6 !important; color:#222 !important; border-color:#ccc !important; }
+    /* Cyber theme */
+    #chain-panel[data-theme="cyber"] { border:1px solid rgba(0,255,200,0.35) !important; box-shadow:0 0 24px rgba(0,255,200,0.12), 0 8px 32px rgba(0,0,0,0.8) !important; }
+    #chain-panel[data-theme="cyber"] #chain-panel-header { border-bottom:1px solid rgba(0,255,200,0.18) !important; }
+    #chain-panel[data-theme="cyber"] .chain-api-btn { border-color:rgba(0,255,200,0.4) !important; color:rgba(0,255,200,0.9) !important; }
+    /* Medieval theme */
+    #chain-panel[data-theme="medieval"] { border:1px solid rgba(180,140,60,0.45) !important; box-shadow:0 4px 24px rgba(0,0,0,0.85) !important; }
+    #chain-panel[data-theme="medieval"] #chain-panel-header { border-bottom:1px solid rgba(180,140,60,0.28) !important; }
+    #chain-panel[data-theme="medieval"] .chain-api-btn { border-color:rgba(180,140,60,0.5) !important; color:rgba(200,170,90,0.9) !important; }
 
     /* ── view-icon: single ⛓ button, chat-bar height ── */
     #chain-panel.view-icon {
@@ -1788,11 +1825,28 @@
 
             <div class="chain-sett-row chain-sett-row-slider">
               <span class="chain-sett-label">Panel opacity</span>
-              <span class="chain-sett-desc">Background transparency of the panel</span>
+              <span class="chain-sett-desc">Background transparency (25–100%)</span>
               <div class="chain-sett-slider-wrap">
-                <input type="range" id="sett-opacity" class="chain-sett-slider" min="50" max="100" step="5">
+                <input type="range" id="sett-opacity" class="chain-sett-slider" min="25" max="100" step="5">
                 <span id="sett-opacity-val" class="chain-sett-slider-val">96%</span>
               </div>
+            </div>
+
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">High contrast</span>
+              <span class="chain-sett-desc">Bolder text and glow effects for readability at low opacity</span>
+              <input type="checkbox" id="sett-high-contrast" class="chain-sett-toggle">
+            </label>
+
+            <div class="chain-sett-row">
+              <span class="chain-sett-label">Color theme</span>
+              <span class="chain-sett-desc">Panel color scheme</span>
+              <select id="sett-theme" style="margin-top:4px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.15);color:#ccc;border-radius:4px;padding:3px 6px;font-size:11px;cursor:pointer;width:100%">
+                <option value="dark">🌑 Dark (default)</option>
+                <option value="light">☀️ Light</option>
+                <option value="cyber">⚡ Cyber</option>
+                <option value="medieval">⚔️ Medieval</option>
+              </select>
             </div>
 
           </div>
@@ -1845,6 +1899,34 @@
               <span class="chain-sett-desc">Switch from mini/icon to full view when it's your hit</span>
               <input type="checkbox" id="sett-auto-expand" class="chain-sett-toggle">
             </label>
+
+            <label class="chain-sett-row">
+              <span class="chain-sett-label">Chain timer warning pings</span>
+              <span class="chain-sett-desc">Audio alert when chain timer is low</span>
+              <input type="checkbox" id="sett-warn-ping" class="chain-sett-toggle">
+            </label>
+
+            <div id="sett-warn-ping-opts" style="display:none;flex-direction:column;gap:0;padding-left:4px;border-left:2px solid rgba(255,255,255,0.08);margin:2px 0 4px 0">
+              <div class="chain-sett-row">
+                <span class="chain-sett-label" style="font-size:10px">Ping sound</span>
+                <select id="sett-warn-ping-sound" style="margin-top:3px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.15);color:#ccc;border-radius:4px;padding:3px 6px;font-size:11px;cursor:pointer;width:100%">
+                  <option value="sine">🔔 Soft bell (sine)</option>
+                  <option value="square">📢 Sharp beep (square)</option>
+                  <option value="sawtooth">🔊 Buzz (sawtooth)</option>
+                  <option value="chime">🎵 Double chime</option>
+                </select>
+              </div>
+              <div class="chain-sett-row chain-sett-row-slider">
+                <span class="chain-sett-label" style="font-size:10px">Min seconds between pings</span>
+                <div class="chain-sett-slider-wrap">
+                  <input type="range" id="sett-warn-ping-intv" class="chain-sett-slider" min="1" max="15" step="1">
+                  <span id="sett-warn-ping-intv-val" class="chain-sett-slider-val">4s</span>
+                </div>
+              </div>
+              <div style="padding:3px 0">
+                <button id="sett-warn-ping-test" style="background:rgba(68,170,255,0.15);border:1px solid rgba(68,170,255,0.3);color:#88bbff;border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer">▶ Test sound</button>
+              </div>
+            </div>
 
           </div>
 
@@ -2609,8 +2691,39 @@
 
   // ── Settings: wire all controls ──────────────────────────────────────────
   _diagStep("wire"); (function wireSettings() {
+    // ── Theme definitions ────────────────────────────────────────────────────
+    const THEMES = {
+      dark:     { bg:"16,18,24",  header:"22,24,32",  accent:"68,170,255",  text:"224,224,224", subtext:"120,130,150", ok:"68,255,136",  warn:"255,204,68",  danger:"255,85,85",  border:"255,255,255,0.08" },
+      light:    { bg:"240,242,246", header:"255,255,255", accent:"30,100,200", text:"30,30,40",   subtext:"100,110,130", ok:"20,160,80",   warn:"180,120,0",   danger:"200,40,40",  border:"0,0,0,0.12" },
+      cyber:    { bg:"5,8,20",    header:"8,12,30",   accent:"0,255,200",   text:"200,255,240", subtext:"60,180,140",  ok:"0,255,180",   warn:"255,200,0",   danger:"255,50,100", border:"0,255,200,0.15" },
+      medieval: { bg:"20,14,8",   header:"30,20,10",  accent:"180,140,60",  text:"220,200,160", subtext:"130,110,80",  ok:"140,200,80",  warn:"220,160,40",  danger:"200,80,40",  border:"180,140,60,0.2" },
+    };
+
+    function applyTheme(theme) {
+      const t = THEMES[theme] || THEMES.dark;
+      const p = panel;
+      const op = settPanelOpacity;
+      p.style.setProperty("--ct-bg",      `rgba(${t.bg},${op})`,      "important");
+      p.style.setProperty("--ct-header",  `rgba(${t.header},${op})`,  "important");
+      p.style.setProperty("--ct-accent",  `rgb(${t.accent})`,         "important");
+      p.style.setProperty("--ct-text",    `rgb(${t.text})`,           "important");
+      p.style.setProperty("--ct-subtext", `rgb(${t.subtext})`,        "important");
+      p.style.setProperty("--ct-ok",      `rgb(${t.ok})`,             "important");
+      p.style.setProperty("--ct-warn",    `rgb(${t.warn})`,           "important");
+      p.style.setProperty("--ct-danger",  `rgb(${t.danger})`,         "important");
+      p.style.setProperty("--ct-border",  `rgba(${t.border})`,        "important");
+      p.style.setProperty("background",   `rgba(${t.bg},${op})`,      "important");
+      p.dataset.theme = theme;
+    }
+
+    function applyHighContrast(on) {
+      panel.classList.toggle("high-contrast", on);
+    }
+
     function applyPanelOpacity(v) {
-      panel.style.setProperty("background", `rgba(16,18,24,${v})`, "important");
+      const t = THEMES[settColorTheme] || THEMES.dark;
+      panel.style.setProperty("background", `rgba(${t.bg},${v})`, "important");
+      panel.style.setProperty("--ct-bg",    `rgba(${t.bg},${v})`, "important");
     }
     function applyCompactMode(on) {
       if (on) {
@@ -3140,6 +3253,21 @@
 
       if (sop)  { sop.value  = Math.round(settPanelOpacity * 100); }
       if (sopv) { sopv.textContent = Math.round(settPanelOpacity * 100) + "%"; }
+      // New controls
+      const shc  = document.getElementById("sett-high-contrast");
+      const sthm = document.getElementById("sett-theme");
+      const swp  = document.getElementById("sett-warn-ping");
+      const swpo = document.getElementById("sett-warn-ping-opts");
+      const swps = document.getElementById("sett-warn-ping-sound");
+      const swpi = document.getElementById("sett-warn-ping-intv");
+      const swpiv= document.getElementById("sett-warn-ping-intv-val");
+      if (shc)  shc.checked  = settHighContrast;
+      if (sthm) sthm.value   = settColorTheme;
+      if (swp)  swp.checked  = settWarnPing;
+      if (swpo) swpo.style.display = settWarnPing ? "flex" : "none";
+      if (swps) swps.value   = settWarnPingSound;
+      if (swpi) { swpi.value = settWarnPingIntv; }
+      if (swpiv){ swpiv.textContent = settWarnPingIntv + "s"; }
       if (sw)   { sw.value   = settWarnThreshold; }
       if (swv)  { swv.textContent  = settWarnThreshold + "s"; }
       if (sdg)  { sdg.value  = settDangerThreshold; }
@@ -3189,6 +3317,29 @@
     });
     wireCheckbox("sett-debug-console", v => {
       settDebugConsole = v; _gmSet(SK_DEBUG_CONSOLE, v); applyDebugConsole(v);
+    });
+    wireCheckbox("sett-high-contrast", v => {
+      settHighContrast = v; _gmSet(SK_HIGH_CONTRAST, v); applyHighContrast(v);
+    });
+    wireCheckbox("sett-warn-ping", v => {
+      settWarnPing = v; _gmSet(SK_WARN_PING, v);
+      const opts = document.getElementById("sett-warn-ping-opts");
+      if (opts) opts.style.display = v ? "flex" : "none";
+    });
+    document.getElementById("sett-theme")?.addEventListener("change", e => {
+      settColorTheme = e.target.value; _gmSet(SK_COLOR_THEME, settColorTheme);
+      applyTheme(settColorTheme);
+    });
+    document.getElementById("sett-warn-ping-sound")?.addEventListener("change", e => {
+      settWarnPingSound = e.target.value; _gmSet(SK_WARN_PING_SOUND, settWarnPingSound);
+    });
+    document.getElementById("sett-warn-ping-intv")?.addEventListener("input", e => {
+      settWarnPingIntv = parseInt(e.target.value); _gmSet(SK_WARN_PING_INTV, settWarnPingIntv);
+      const v = document.getElementById("sett-warn-ping-intv-val");
+      if (v) v.textContent = settWarnPingIntv + "s";
+    });
+    document.getElementById("sett-warn-ping-test")?.addEventListener("click", () => {
+      _playChainWarningBeep("warn", true);
     });
 
     // ── Collapsible section headers ───────────────────────────────────────────
@@ -3281,6 +3432,8 @@
 
     // Apply initial settings on boot
     applyPanelOpacity(settPanelOpacity);
+    applyTheme(settColorTheme);
+    applyHighContrast(settHighContrast);
     applyCompactMode(settCompactMode);
     applyMiniCountVisibility(settMiniShowCount);
     applyDebugConsole(settDebugConsole);
@@ -6009,23 +6162,37 @@
   //  Chain timer UI
   // ══════════════════════════════════════════════════════════════════════════
   // ── Chain timer audio warning ──────────────────────────────────────────────
-  let _lastBeepAt = 0;  // prevent repeated beeps
-  function _playChainWarningBeep(urgency) {
-    // urgency: "warn" (at warn threshold) or "danger" (at danger threshold)
+  let _lastBeepAt = 0;
+  function _playChainWarningBeep(urgency, force) {
+    if (!force && !settWarnPing) return;
     const now = Date.now();
-    if (now - _lastBeepAt < 4000) return;  // max one beep per 4s
+    const intv = (settWarnPingIntv || 4) * 1000;
+    if (!force && now - _lastBeepAt < intv) return;
     _lastBeepAt = now;
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.type = "sine";
-      osc.frequency.value = urgency === "danger" ? 880 : 660;
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.4);
+      const sound = settWarnPingSound || "sine";
+      const freq  = urgency === "danger" ? 880 : 660;
+      if (sound === "chime") {
+        // Double chime: two notes
+        [freq, freq * 1.25].forEach((f, i) => {
+          const osc = ctx.createOscillator(); const g = ctx.createGain();
+          osc.connect(g); g.connect(ctx.destination);
+          osc.type = "sine"; osc.frequency.value = f;
+          const t = ctx.currentTime + i * 0.18;
+          g.gain.setValueAtTime(0.28, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+          osc.start(t); osc.stop(t + 0.35);
+        });
+      } else {
+        const osc = ctx.createOscillator(); const g = ctx.createGain();
+        osc.connect(g); g.connect(ctx.destination);
+        osc.type = sound === "beep" ? "square" : sound;
+        osc.frequency.value = freq;
+        g.gain.setValueAtTime(sound === "square" ? 0.18 : 0.3, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+      }
     } catch(_) {}
   }
 
