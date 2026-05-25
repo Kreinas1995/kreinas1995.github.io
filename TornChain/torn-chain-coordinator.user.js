@@ -142,6 +142,51 @@
     } catch(_) { return function(){}; }
   })();
 
+  // ── attackData fetch interceptor ──────────────────────────────────────────
+  // Intercepts Torn's own sid=attackData fetch responses on the attack page.
+  // Provides real-time chain count and timer with zero API cache lag.
+  // Read-only — original response is cloned, never modified.
+  // Compliant: data from a page the user manually loaded and is actively viewing.
+  (function _installAttackDataInterceptor() {
+    try {
+      const _tw = (typeof unsafeWindow !== "undefined") ? unsafeWindow : window;
+      if (_tw.__tccAttackIntercepted) return;
+      _tw.__tccAttackIntercepted = true;
+      const _origFetch = _tw.fetch;
+      _tw.fetch = async function(...args) {
+        const response = await _origFetch.apply(this, args);
+        try {
+          const url = typeof args[0] === "string" ? args[0]
+            : (args[0] && typeof args[0].url === "string") ? args[0].url : "";
+          if (url.includes("sid=attackData") && !document.hidden) {
+            response.clone().json().then(json => {
+              try {
+                const db = json?.DB ?? json;
+                const att = db?.attackerUser;
+                if (!att) return;
+                const chain    = att.chain    ?? 0;
+                const chainEnd = att.chainEnd ?? 0; // Unix seconds
+                if (chain > 0) {
+                  liveChainCount  = chain;
+                  if (chainEnd > 0) {
+                    liveChainSecs   = chainEnd - Date.now() / 1000;
+                    lastTimerReadAt = performance.now();
+                  }
+                  scheduleRender();
+                  console.log("[ChainCoord] attackData: chain=" + chain +
+                    (chainEnd ? " t=" + Math.round(chainEnd - Date.now()/1000) + "s" : ""));
+                }
+              } catch(_) {}
+            }).catch(() => {});
+          }
+        } catch(_) {}
+        return response;
+      };
+    } catch(_e) {
+      console.warn("[ChainCoord] attackData interceptor failed:", _e && _e.message);
+    }
+  })();
+
   // Shared debug state — readable by all scopes within this IIFE without window hacks
   const _dbg = {
     verbosePoll:      false,
@@ -320,7 +365,7 @@
     }
     if (bustUrl.includes("api.torn.com")) {
       const _m=(details.method||"GET").toUpperCase(),_c=new AbortController(),_t=setTimeout(()=>_c.abort(),details.timeout||15000);
-      const _o={method:_m,credentials:"omit",signal:_c.signal};
+      const _o={method:_m,credentials:"omit",signal:_c.signal,cache:"no-store"};
       if(details.headers)_o.headers=details.headers;
       if(details.data&&_m!=="GET")_o.body=details.data;
       fetch(bustUrl,_o).then(r=>r.text().then(text=>{clearTimeout(_t);if(details.onload)details.onload({status:r.status,responseText:text});}))
@@ -3848,31 +3893,41 @@
   // Sets isOwner and refreshes the gear menu — no UI shown on failure.
   function fbProbeOwner() {
     if (!fbToken || !fbUid) return;
-    // Probe owner status by attempting a write to /bugTracker — only the owner can write.
-    // We write a sentinel key then immediately delete it. A 200 confirms owner access;
-    // a 401/403 means not the owner. This works with the current rules without any
-    // rules change — /bugTracker write requires tornId === '2348580' server-side.
-    const sentinelKey = `_ownerProbe_${fbUid}`;
-    const sentinelUrl = `${FIREBASE_DB_URL}/bugTracker/${sentinelKey}.json?auth=${fbToken}`;
-    fbRequest({
-      method: "PUT", url: sentinelUrl,
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify(1),
+    // v6.1.0: Use a read-only probe instead of write sentinel to avoid polluting /bugTracker.
+    // Read /whitelist — only the owner's tornId passes the Firebase rules check for this path.
+    // A 200 confirms owner; 401/403 means not the owner. No writes, no cleanup needed.
+    _xhrTracked({
+      method: "GET",
+      url: `${FIREBASE_DB_URL}/whitelist.json?auth=${fbToken}&_cb=${Date.now()}`,
       timeout: 10000,
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
-          // Confirmed owner — clean up sentinel immediately
-          fbRequest({ method: "DELETE", url: sentinelUrl, timeout: 5000,
-            onload(){}, onerror(){}, ontimeout(){} });
           ownerProbeResult = true;
           isOwner = true;
           updateClearBtn();
           if (!ownerCleanupInterval) ownerCleanupInterval = setInterval(fbCleanOwnLobbyEntries, 2 * 60 * 1000);
+          // Clean up any stale ownerProbe entries left by old versions
+          try {
+            _xhrTracked({ method: "GET", url: `${FIREBASE_DB_URL}/bugTracker.json?auth=${fbToken}&_cb=${Date.now()}`, timeout: 8000,
+              onload(r2) {
+                try {
+                  const data = JSON.parse(r2.responseText);
+                  if (data && typeof data === "object") {
+                    Object.keys(data).filter(k => k.startsWith("_ownerProbe_")).forEach(k => {
+                      fbRequest({ method: "DELETE", url: `${FIREBASE_DB_URL}/bugTracker/${k}.json?auth=${fbToken}`, timeout: 5000,
+                        onload(){}, onerror(){}, ontimeout(){} });
+                    });
+                  }
+                } catch(_) {}
+              },
+              onerror(){}, ontimeout(){},
+            });
+          } catch(_) {}
         } else {
           ownerProbeResult = false;
         }
       },
-      onerror()  { /* leave null — transient, tracker can retry */ },
+      onerror()  { /* leave null — transient */ },
       ontimeout(){ /* leave null */ },
     });
   }
@@ -4868,7 +4923,7 @@
 
     // Then every 3 seconds
     // Poll every 3s — halves network + parse load vs 1.5s with no noticeable UX difference
-    ssePollInterval = setInterval(fbPollOnce, 5000);
+    ssePollInterval = setInterval(fbPollOnce, 4000);  // v6.1.0: 4s — faster than 5s, lighter than original 3s
     // Version poll is low-priority — run every 30s, offset by 2s to stagger with main poll
     setTimeout(() => { if (!versionPollInterval) versionPollInterval = setInterval(fbPollClientVersions, 30000); }, 2000);
   }
@@ -5953,6 +6008,27 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Chain timer UI
   // ══════════════════════════════════════════════════════════════════════════
+  // ── Chain timer audio warning ──────────────────────────────────────────────
+  let _lastBeepAt = 0;  // prevent repeated beeps
+  function _playChainWarningBeep(urgency) {
+    // urgency: "warn" (at warn threshold) or "danger" (at danger threshold)
+    const now = Date.now();
+    if (now - _lastBeepAt < 4000) return;  // max one beep per 4s
+    _lastBeepAt = now;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.value = urgency === "danger" ? 880 : 660;
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } catch(_) {}
+  }
+
   function updateChainTimerUI() {
     const count = liveChainCount;
     const pillCount = document.getElementById("chain-pill-count");
@@ -6001,6 +6077,9 @@
       chainTimerVal.textContent = txt; pillTimer.textContent = txt;
       const cls = disp<=settDangerThreshold?"ct-danger":disp<=settWarnThreshold?"ct-warn":"ct-ok";
       chainTimerVal.className=cls; pillTimer.className=cls;
+      // Audio warning — beep when crossing danger or warn thresholds
+      if (disp <= settDangerThreshold) _playChainWarningBeep("danger");
+      else if (disp <= settWarnThreshold) _playChainWarningBeep("warn");
     }
     if (count!==null) {
       chainCountBadge.textContent=count;
