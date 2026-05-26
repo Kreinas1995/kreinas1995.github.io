@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.2.0
+// @version      6.2.1
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -355,13 +355,20 @@
     const origErr     = details.onerror;
     const origTimeout = details.ontimeout;
     // ViolentMonkey/Opera accumulates a per-URL response cache for GM_xmlhttpRequest.
-    // After a long chain session this cache grows large and persists even after the
-    // script is disabled, causing CPU lag until Opera is reinstalled. Fix: append a
-    // monotonic cache-bust param to every GET URL so VM never serves a stale cached
-    // response. Both Firebase REST and Torn API silently ignore unknown query params.
+    // Some VM builds ignore query params when matching cache keys — using a random
+    // param NAME (not just value) defeats this. We also add Cache-Control headers
+    // to every GM request to prevent browser-level caching on top of VM's cache.
     let bustUrl = details.url || "";
     if (!details.method || details.method.toUpperCase() === "GET") {
-      bustUrl += (bustUrl.includes("?") ? "&" : "?") + "_cb=" + Date.now();
+      // Random param name ensures VM cache miss even if it strips query values
+      const _rk = "_" + Math.random().toString(36).slice(2, 7);
+      bustUrl += (bustUrl.includes("?") ? "&" : "?") + _rk + "=" + Date.now();
+    }
+    // Add no-cache headers to all GM GET requests
+    if (!details.method || details.method.toUpperCase() === "GET") {
+      if (!details.headers) details = Object.assign({}, details, { headers: {} });
+      details.headers["Cache-Control"] = "no-cache, no-store";
+      details.headers["Pragma"] = "no-cache";
     }
     if (bustUrl.includes("api.torn.com")) {
       const _m=(details.method||"GET").toUpperCase(),_c=new AbortController(),_t=setTimeout(()=>_c.abort(),details.timeout||15000);
@@ -473,7 +480,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.2.0";
+  const CURRENT_VERSION  = "6.2.1";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -1036,10 +1043,48 @@
     #chain-pill-badge.visible { display:inline-block !important; }
 
     /* ── High contrast mode ─────────────────────────────────────────────────*/
-    #chain-panel.high-contrast .ct-ok     { color:#55ff99 !important; text-shadow:0 0 6px rgba(0,200,100,0.5) !important; font-weight:700 !important; }
-    #chain-panel.high-contrast .ct-warn   { color:#ffdd44 !important; text-shadow:0 0 6px rgba(255,200,0,0.5) !important; font-weight:700 !important; }
-    #chain-panel.high-contrast .ct-danger { color:#ff4466 !important; text-shadow:0 0 6px rgba(255,50,80,0.6) !important; font-weight:700 !important; }
-    #chain-panel.high-contrast .chain-hit-row { border-bottom:1px solid rgba(255,255,255,0.15) !important; }
+    #chain-panel.high-contrast .ct-ok,
+    #chain-panel.high-contrast #chain-timer-value.ct-ok,
+    #chain-panel.high-contrast #chain-pill-timer.ct-ok     { color:#00ff88 !important; text-shadow:0 0 8px rgba(0,255,136,0.8) !important; font-weight:800 !important; }
+    #chain-panel.high-contrast .ct-warn,
+    #chain-panel.high-contrast #chain-timer-value.ct-warn,
+    #chain-panel.high-contrast #chain-pill-timer.ct-warn   { color:#ffee00 !important; text-shadow:0 0 8px rgba(255,220,0,0.8) !important; font-weight:800 !important; }
+    #chain-panel.high-contrast .ct-danger,
+    #chain-panel.high-contrast #chain-timer-value.ct-danger,
+    #chain-panel.high-contrast #chain-pill-timer.ct-danger { color:#ff2244 !important; text-shadow:0 0 8px rgba(255,40,80,0.9) !important; font-weight:800 !important; }
+    #chain-panel.high-contrast .chain-hit-row { border-bottom:1px solid rgba(255,255,255,0.2) !important; }
+    #chain-panel.high-contrast .chain-hit-claimer { font-weight:700 !important; }
+    #chain-panel.high-contrast #chain-panel-header { border-bottom:2px solid rgba(255,255,255,0.2) !important; }
+    #chain-panel.high-contrast { border-width:2px !important; }
+    #chain-panel.high-contrast #chain-panel-body { color:#f0f0f0 !important; }
+    #chain-panel.high-contrast .chain-col-hdr { color:#aaa !important; font-weight:700 !important; }
+    #chain-panel.high-contrast .chain-no-hits,
+    #chain-panel.high-contrast .chain-banner-text,
+    #chain-panel.high-contrast [class*="chain-no-"],
+    #chain-panel.high-contrast [class*="chain-status"],
+    #chain-panel.high-contrast [class*="chain-banner"] { color:#ddd !important; font-weight:600 !important; }
+    #chain-panel.high-contrast .chain-hit-target { color:#fff !important; font-weight:600 !important; }
+    #chain-panel.high-contrast .chain-hit-window { color:#ccc !important; }
+    #chain-panel.high-contrast #chain-hit-count { color:#fff !important; font-weight:800 !important; }
+    /* All subdued/grey text readable in high contrast */
+    #chain-panel.high-contrast .chain-banner { color:#eee !important; font-weight:600 !important; }
+    #chain-panel.high-contrast #chain-panel-body * { color:inherit; }
+    #chain-panel.high-contrast .chain-hit-target  { color:#ffffff !important; }
+    #chain-panel.high-contrast .chain-col-hdr-target,
+    #chain-panel.high-contrast .chain-col-hdr-claimer,
+    #chain-panel.high-contrast .chain-col-hdr-window { color:#bbb !important; font-weight:700 !important; }
+    #chain-panel.high-contrast #chain-timer-value.ct-none { color:#888 !important; }
+    #chain-panel.high-contrast .chain-no-hits-msg,
+    #chain-panel.high-contrast [class*="chain-info"],
+    #chain-panel.high-contrast [class*="chain-subtext"],
+    #chain-panel.high-contrast [class*="chain-label"] { color:#ccc !important; font-weight:600 !important; }
+    /* Boost all faded colours */
+    #chain-panel.high-contrast [style*="color:#445"],
+    #chain-panel.high-contrast [style*="color: #445"],
+    #chain-panel.high-contrast [style*="color:#556"],
+    #chain-panel.high-contrast [style*="color: #556"],
+    #chain-panel.high-contrast [style*="color:#667"],
+    #chain-panel.high-contrast [style*="color:#778"] { color:#bbb !important; }
     /* Light theme */
     #chain-panel[data-theme="light"] { color:#1a1a2a !important; border:1px solid rgba(0,0,0,0.15) !important; }
     #chain-panel[data-theme="light"] #chain-panel-header { background:rgba(240,242,250,0.98) !important; border-bottom:1px solid rgba(0,0,0,0.1) !important; }
@@ -1049,9 +1094,30 @@
     #chain-panel[data-theme="light"] .chain-hit-row { border-bottom:1px solid rgba(0,0,0,0.07) !important; }
     #chain-panel[data-theme="light"] select, #chain-panel[data-theme="light"] input[type=range] { background:#f0f2f6 !important; color:#222 !important; border-color:#ccc !important; }
     /* Cyber theme */
-    #chain-panel[data-theme="cyber"] { border:1px solid rgba(0,255,200,0.35) !important; box-shadow:0 0 24px rgba(0,255,200,0.12), 0 8px 32px rgba(0,0,0,0.8) !important; }
-    #chain-panel[data-theme="cyber"] #chain-panel-header { border-bottom:1px solid rgba(0,255,200,0.18) !important; }
-    #chain-panel[data-theme="cyber"] .chain-api-btn { border-color:rgba(0,255,200,0.4) !important; color:rgba(0,255,200,0.9) !important; }
+    #chain-panel[data-theme="cyber"] {
+      background:rgba(0,8,20,0.96) !important;
+      border:1px solid rgba(0,255,180,0.5) !important;
+      box-shadow:0 0 30px rgba(0,255,180,0.15), 0 0 60px rgba(0,100,255,0.1), 0 8px 32px rgba(0,0,0,0.9) !important;
+    }
+    #chain-panel[data-theme="cyber"] #chain-panel-header {
+      background:rgba(0,15,35,0.98) !important;
+      border-bottom:1px solid rgba(0,255,180,0.25) !important;
+    }
+    #chain-panel[data-theme="cyber"] #chain-timer-bar {
+      background:rgba(0,15,35,0.95) !important;
+      border-bottom:1px solid rgba(0,255,180,0.12) !important;
+    }
+    #chain-panel[data-theme="cyber"] #chain-timer-value,
+    #chain-panel[data-theme="cyber"] #chain-pill-timer { color:#00ffb8 !important; }
+    #chain-panel[data-theme="cyber"] #chain-timer-value.ct-ok  { color:#00ffb8 !important; text-shadow:0 0 10px rgba(0,255,180,0.6) !important; }
+    #chain-panel[data-theme="cyber"] #chain-timer-value.ct-warn { color:#ffcc00 !important; text-shadow:0 0 10px rgba(255,200,0,0.5) !important; }
+    #chain-panel[data-theme="cyber"] #chain-timer-value.ct-danger { color:#ff2255 !important; text-shadow:0 0 10px rgba(255,30,80,0.6) !important; }
+    #chain-panel[data-theme="cyber"] .chain-api-btn { border-color:rgba(0,255,180,0.5) !important; color:rgba(0,255,180,0.95) !important; }
+    #chain-panel[data-theme="cyber"] .chain-hit-claimer { color:rgba(0,220,160,0.9) !important; }
+    #chain-panel[data-theme="cyber"] .chain-hit-row { border-bottom:1px solid rgba(0,255,180,0.08) !important; }
+    #chain-panel[data-theme="cyber"] #chain-panel-body { color:#c0ffe8 !important; }
+    #chain-panel[data-theme="cyber"] .chain-sett-label { color:#80ffcc !important; }
+    #chain-panel[data-theme="cyber"] .chain-sett-desc { color:#447766 !important; }
     /* Medieval theme */
     #chain-panel[data-theme="medieval"] { border:1px solid rgba(180,140,60,0.45) !important; box-shadow:0 4px 24px rgba(0,0,0,0.85) !important; }
     #chain-panel[data-theme="medieval"] #chain-panel-header { border-bottom:1px solid rgba(180,140,60,0.28) !important; }
@@ -4046,12 +4112,13 @@
   // Sets isOwner and refreshes the gear menu — no UI shown on failure.
   function fbProbeOwner() {
     if (!fbToken || !fbUid) return;
-    // v6.1.0: Use a read-only probe instead of write sentinel to avoid polluting /bugTracker.
-    // Read /whitelist — only the owner's tornId passes the Firebase rules check for this path.
-    // A 200 confirms owner; 401/403 means not the owner. No writes, no cleanup needed.
+    // v6.2.0: Probe owner by reading /bugs — Firebase rules restrict this to tornId=2348580 only.
+    // /whitelist is readable by all authenticated users so can't be used as a probe.
+    // /bugs read requires tornId === OWNER_ID server-side. No writes needed.
+    const OWNER_ID = "2348580";
     _xhrTracked({
       method: "GET",
-      url: `${FIREBASE_DB_URL}/whitelist.json?auth=${fbToken}&_cb=${Date.now()}`,
+      url: `${FIREBASE_DB_URL}/bugs.json?auth=${fbToken}&_cb=${Date.now()}`,
       timeout: 10000,
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
