@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.2.1
+// @version      6.2.2
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -187,6 +187,63 @@
     }
   })();
 
+  // ── Cross-tab leader election ─────────────────────────────────────────────
+  // Only the "leader" tab runs Firebase/Torn API polls. Other tabs receive
+  // updates via localStorage events. This prevents VM cache buildup from
+  // multiple tabs each making independent GM_xmlhttpRequest calls.
+  // Leader is determined by a timestamp heartbeat — the tab with the most
+  // recent heartbeat wins. If a leader goes silent for >8s, another tab takes over.
+  const _TAB_ID       = Math.random().toString(36).slice(2);
+  const _TAB_LOCK_KEY = "tcc_tab_leader";
+  const _TAB_HB_KEY   = "tcc_tab_leader_hb";
+  let   _isLeaderTab  = false;
+  let   _tabHbInterval= null;
+
+  function _claimLeader() {
+    try {
+      localStorage.setItem(_TAB_LOCK_KEY, _TAB_ID);
+      localStorage.setItem(_TAB_HB_KEY, Date.now());
+      _isLeaderTab = true;
+    } catch(_) { _isLeaderTab = true; } // if LS unavailable, always lead
+  }
+
+  function _checkLeader() {
+    try {
+      const currentLeader = localStorage.getItem(_TAB_LOCK_KEY);
+      const lastHb        = parseInt(localStorage.getItem(_TAB_HB_KEY) || "0");
+      const leaderSilent  = Date.now() - lastHb > 8000;
+      if (!currentLeader || currentLeader === _TAB_ID) {
+        _claimLeader();
+      } else if (leaderSilent) {
+        // Leader went silent — take over
+        _claimLeader();
+      } else {
+        _isLeaderTab = false;
+      }
+    } catch(_) { _isLeaderTab = true; }
+  }
+
+  function _startTabElection() {
+    _checkLeader();
+    // Heartbeat — keep renewing if we're the leader
+    _tabHbInterval = setInterval(() => {
+      if (_isLeaderTab) {
+        try { localStorage.setItem(_TAB_HB_KEY, Date.now()); } catch(_) {}
+      } else {
+        _checkLeader(); // check if leader died
+      }
+    }, 3000);
+    // Release lock when tab closes
+    window.addEventListener("beforeunload", () => {
+      try {
+        if (_isLeaderTab) {
+          localStorage.removeItem(_TAB_LOCK_KEY);
+          localStorage.removeItem(_TAB_HB_KEY);
+        }
+      } catch(_) {}
+    });
+  }
+
   // Shared debug state — readable by all scopes within this IIFE without window hacks
   const _dbg = {
     verbosePoll:      false,
@@ -364,23 +421,24 @@
       const _rk = "_" + Math.random().toString(36).slice(2, 7);
       bustUrl += (bustUrl.includes("?") ? "&" : "?") + _rk + "=" + Date.now();
     }
-    // Add no-cache headers to all GM GET requests
-    if (!details.method || details.method.toUpperCase() === "GET") {
-      if (!details.headers) details = Object.assign({}, details, { headers: {} });
-      details.headers["Cache-Control"] = "no-cache, no-store";
-      details.headers["Pragma"] = "no-cache";
-    }
     if (bustUrl.includes("api.torn.com")) {
+      // api.torn.com: use native fetch, NO Cache-Control headers (Torn CDN rejects them)
       const _m=(details.method||"GET").toUpperCase(),_c=new AbortController(),_t=setTimeout(()=>_c.abort(),details.timeout||15000);
       const _o={method:_m,credentials:"omit",signal:_c.signal,cache:"no-store"};
-      if(details.headers)_o.headers=details.headers;
+      // Only pass headers explicitly set by the caller — never add Cache-Control here
+      if(details.headers&&Object.keys(details.headers).length>0)_o.headers=details.headers;
       if(details.data&&_m!=="GET")_o.body=details.data;
       fetch(bustUrl,_o).then(r=>r.text().then(text=>{clearTimeout(_t);if(details.onload)details.onload({status:r.status,responseText:text});}))
         .catch(e=>{clearTimeout(_t);_bg.xhrErr++;_bgSavePersisted();if(e&&e.name==="AbortError"){if(origTimeout)origTimeout({});}else{if(origErr)origErr({error:e&&e.message});}});
       return;
     }
+    // GM path (Firebase/Google) — safe to add no-cache headers here
+    const _gmHeaders = Object.assign({}, details.headers || {});
+    _gmHeaders["Cache-Control"] = "no-cache, no-store";
+    _gmHeaders["Pragma"] = "no-cache";
     const wrapped = Object.assign({}, details, {
       url:       bustUrl,
+      headers:   _gmHeaders,
       onerror:   function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); },
       ontimeout: function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origTimeout) origTimeout.apply(this, a); },
     });
@@ -477,10 +535,13 @@
   // ╚══════════════════════════════════════════════════════════════════════════╝
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
+  // SSE proxy URL — Cloud Function that fans out Firebase events to all clients.
+  // Set to null to force REST polling fallback (for debugging or if proxy is down).
+  const TCC_SSE_PROXY_URL = "https://us-central1-syph-s-war-overhaul.cloudfunctions.net/tccSse";
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.2.1";
+  const CURRENT_VERSION  = "6.2.2";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -4881,6 +4942,15 @@
     });
   }
 
+  function _restartSseAfterTokenRefresh() {
+    // Called after token refresh — SSE needs new token to reconnect
+    if (_sseConn) {
+      console.log("[ChainCoord] Token refreshed — restarting SSE");
+      _stopSse();
+      setTimeout(_startSse, 1000);
+    }
+  }
+
   function fbRefreshIdToken() {
     if (!fbRefreshToken) return;
     let _settled = false;
@@ -4981,6 +5051,7 @@
 
   function fbHeartbeat() {
     if (!factionId || !ownId || !fbUid || !fbConfigured()) return;
+    if (!_isLeaderTab) return;  // one heartbeat per faction, not per tab
     const now = Date.now();
     const lobbyUrl = P.lobbyMe();
     if (!lobbyUrl) return;
@@ -5133,19 +5204,109 @@
     _cachedTimerEl = null;
   }
 
+  // ── SSE connection state ──────────────────────────────────────────────────
+  let _sseConn        = null;   // active EventSource connection
+  let _sseRetries     = 0;      // consecutive SSE failures
+  let _sseActive      = false;  // true if SSE is delivering events
+
+  function _stopSse() {
+    if (_sseConn) { try { _sseConn.close(); } catch(_) {} _sseConn = null; }
+    _sseActive = false;
+  }
+
+  function _startSse() {
+    if (!fbToken || !factionId || !TCC_SSE_PROXY_URL) return false;
+    if (!_isLeaderTab) return false;
+    _stopSse();
+
+    const sid   = chainSessionId || "";
+    const paths = "pending,session,members" + (sid ? ",done" : "");
+    const url   = `${TCC_SSE_PROXY_URL}?faction=${factionId}&token=${encodeURIComponent(fbToken)}&paths=${paths}${sid?"&sid="+sid:""}`;
+
+    try {
+      const es = new EventSource(url);
+      _sseConn = es;
+
+      es.addEventListener("connected", e => {
+        _sseActive  = true;
+        _sseRetries = 0;
+        setSyncDot("live");
+        console.log("[ChainCoord] SSE connected");
+        // Stop REST polling — SSE is delivering
+        if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
+      });
+
+      es.addEventListener("patch", e => {
+        try {
+          const { path, data } = JSON.parse(e.data);
+          queuePatch(path, data);
+          setSyncDot("live");
+          showBanner("chain-banner-debug", false);
+          if (_dbg.recordPoll) _dbg.recordPoll();
+        } catch(err) { console.warn("[ChainCoord] SSE parse err:", err.message); }
+      });
+
+      es.onerror = () => {
+        _sseActive = false;
+        setSyncDot("error");
+        _sseRetries++;
+        console.warn("[ChainCoord] SSE error, retry", _sseRetries);
+        _stopSse();
+        if (_sseRetries >= 3) {
+          // SSE consistently failing — fall back to REST polling
+          console.warn("[ChainCoord] SSE failed 3x — falling back to REST polling");
+          _startRestPolling();
+        } else {
+          // Retry SSE after backoff
+          setTimeout(_startSse, Math.min(5000 * _sseRetries, 30000));
+        }
+      };
+
+      return true;
+    } catch(err) {
+      console.warn("[ChainCoord] SSE init failed:", err.message);
+      return false;
+    }
+  }
+
+  function _startRestPolling() {
+    if (ssePollInterval) return;
+    fbPollOnce();
+    ssePollInterval = setInterval(fbPollOnce, 6000);
+  }
+
   function fbStartMainListener() {
     if (!factionId || !fbConfigured()) return;
     if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
+    _stopSse();
 
-    // Immediate first fetch
-    fbPollOnce();
     fbPollClientVersions();
-
-    // Then every 3 seconds
-    // Poll every 3s — halves network + parse load vs 1.5s with no noticeable UX difference
-    ssePollInterval = setInterval(fbPollOnce, 4000);  // v6.1.0: 4s — faster than 5s, lighter than original 3s
-    // Version poll is low-priority — run every 30s, offset by 2s to stagger with main poll
     setTimeout(() => { if (!versionPollInterval) versionPollInterval = setInterval(fbPollClientVersions, 30000); }, 2000);
+
+    // Try SSE proxy first — falls back to REST automatically on failure
+    if (TCC_SSE_PROXY_URL && !isTornPDA) {
+      const sseStarted = _startSse();
+      if (!sseStarted) _startRestPolling();
+      // REST poll runs alongside SSE for the first 10s as warmup, then SSE takes over
+      fbPollOnce();
+      const warmupTimer = setTimeout(() => {
+        if (_sseActive && ssePollInterval) {
+          clearInterval(ssePollInterval);
+          ssePollInterval = null;
+          console.log("[ChainCoord] SSE active — REST polling stopped");
+        }
+      }, 10000);
+      // If SSE never connects, start REST polling
+      setTimeout(() => {
+        if (!_sseActive && !ssePollInterval) {
+          console.warn("[ChainCoord] SSE not active after 10s — starting REST polling");
+          _startRestPolling();
+        }
+      }, 10000);
+    } else {
+      // TornPDA or SSE proxy not configured — REST only
+      _startRestPolling();
+    }
   }
 
   // Catch-up poll: fires immediately when the tab becomes visible again after being hidden.
@@ -5160,95 +5321,81 @@
     });
   }
 
-  let pollInFlight = false;
+  let pollInFlight        = false;
+  let _pollTickCount      = 0;
+  let _lastHitsResponse   = null;
+  let _lastSessionResponse= null;
+  let _lastMembersResponse= null;
+  let _lastDoneResponse   = null;
   function fbPollOnce() {
     if (!factionId || !fbConfigured()) return;
-    if (document.hidden) return;  // skip while tab hidden — catchup fires on visibilitychange
-    if (pollInFlight) return;  // skip if previous poll hasn't returned yet
+    if (document.hidden) return;
+    if (!_isLeaderTab) return;
+    if (pollInFlight) return;
     pollInFlight = true;
+    _pollTickCount = (_pollTickCount || 0) + 1;
+    setSyncDot("syncing");
 
-    // TornPDA: Firebase GETs have silent callbacks — route through proxy
-    if (isTornPDA && TCC_PROXY_URL) {
-      _tccProxy("GET", P.root(), null,
-        (r) => {
-          pollInFlight = false;
-          if (r && r.status >= 200 && r.status < 300) {
-            try {
-              if (r.responseText === lastPollResponse) { setSyncDot("live"); return; }
-              lastPollResponse = r.responseText;
-              const data = JSON.parse(r.responseText);
-              queuePatch("/", data);
-              if (_dbg.recordPoll) _dbg.recordPoll();
-              setSyncDot("live");
-              showBanner("chain-banner-debug", false);
-            } catch(e) { console.warn("[ChainCoord] Poll parse error", e); }
-          } else {
-            setSyncDot("error");
-            console.warn("[ChainCoord] Poll failed", r && r.status);
-          }
+    // v6.2.1 BANDWIDTH FIX: fetch only what changed, not entire faction node.
+    // Pending hits (4s) + session (12s) + members (32s) + done hits (16s when active).
+    // Reduces ~18MB/poll → ~1-5KB/poll = ~95% bandwidth reduction.
+
+    function _fbGet(url, lastResp, setter, patchPath) {
+      if (isTornPDA && TCC_PROXY_URL) {
+        _tccProxy("GET", url, null,
+          r => { if (r && r.status >= 200 && r.status < 300 && r.responseText !== lastResp) {
+            try { setter(r.responseText); queuePatch(patchPath, JSON.parse(r.responseText)); } catch(_) {} } },
+          () => {}, () => {}, 8000);
+        return;
+      }
+      _xhrTracked({
+        method: "GET", url,
+        headers: { "Cache-Control": "no-cache, no-store", "Pragma": "no-cache" },
+        timeout: 8000,
+        onload(r) {
+          if (r.status >= 200 && r.status < 300) {
+            if (r.responseText === lastResp) { setSyncDot("live"); return; }
+            try { setter(r.responseText); queuePatch(patchPath, JSON.parse(r.responseText)); setSyncDot("live"); showBanner("chain-banner-debug", false); if (_dbg.recordPoll) _dbg.recordPoll(); }
+            catch(e) { console.warn("[ChainCoord] parse err:", e.message); }
+          } else if (r.status === 401 || r.status === 403) {
+            if (fbRefreshToken) { fbRefreshIdToken(); if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; } setTimeout(() => fbStartMainListener(), 3000); }
+            else { showBanner("chain-banner-locked", true); if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; } }
+          } else { setSyncDot("error"); }
         },
-        () => { pollInFlight = false; setSyncDot("error"); },
-        () => { pollInFlight = false; setSyncDot("error"); },
-        8000
-      );
-      return;
+        onerror()  { setSyncDot("error"); },
+        ontimeout(){ setSyncDot("error"); },
+      });
     }
 
-    _xhrTracked({
-      method: "GET",
-      url: P.root(),
-      headers: { "Cache-Control": "no-cache, no-store", "Pragma": "no-cache" },
-      timeout: 8000,
-      onload(r) {
-        pollInFlight = false;
-        if (r.status >= 200 && r.status < 300) {
-          try {
-            // Skip full parse+render if response text is identical to last poll.
-            // Firebase caches responses up to 30s server-side, so identical strings
-            // are common between updates. This cuts CPU by ~60% during idle periods.
-            if (r.responseText === lastPollResponse) {
-              setSyncDot("live");
-              return;
-            }
-            lastPollResponse = r.responseText;
-            const data = JSON.parse(r.responseText);
-            queuePatch("/", data);
-            if (_dbg.recordPoll) _dbg.recordPoll();
-            if (_dbg.verbosePoll) console.log("[ChainCoord] Poll OK — status:", r.status, "| bytes:", r.responseText.length, "| changed:", r.responseText !== lastPollResponse);
-            setSyncDot("live");
-            showBanner("chain-banner-debug", false);
-          } catch(e) {
-            const snippet = r.responseText ? r.responseText.slice(0, 120) : "(empty)";
-            console.warn("[ChainCoord] Poll parse error:", e.message || String(e), "| response:", snippet);
-          }
-        } else {
-          pollInFlight = false;
-          setSyncDot("error");
-          if (r.status === 401 || r.status === 403) {
-            // Could be expired token or whitelist denial.
-            // Try refreshing the token first — if that fixes it, it was expiry not whitelist.
-            if (fbRefreshToken) {
-              fbRefreshIdToken();
-              // Restart poll after a short delay to let the refresh complete
-              if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
-              setTimeout(() => { fbStartMainListener(); }, 3000);
-            } else {
-              // No refresh token — must be a genuine permission denial
-              showBanner("chain-banner-locked", true);
-              showBanner("chain-banner-debug", false);
-              if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
-            }
-          } else {
-            let msg = r.responseText;
-            try { msg = JSON.parse(r.responseText).error || msg; } catch { /**/ }
-            showErrorBanner("❌ Poll failed "+r.status+": "+msg);
-            console.warn("[ChainCoord] Poll failed", r.status, r.responseText);
-          }
-        }
-      },
-      onerror()  { pollInFlight=false; setSyncDot("error"); showErrorBanner("❌ Poll network error — check @connect firebaseio.com"); },
-      ontimeout(){ pollInFlight=false; setSyncDot("error"); },
-    });
+    // Smart polling — rate adapts to activity level to minimise Firebase bandwidth.
+    // Active chain   : full rate (4s pending, 12s session, 32s members, 16s done)
+    // No chain       : reduced rate (pending every 2nd tick = 8s, session every 6th = 24s)
+    // Tab hidden     : already blocked above — zero polls
+    const _chainIsActive = !!chainSessionId || !!chainStartTime;
+
+    // Pending hits — always fetch but slower when no chain active
+    const _hitsTick = _chainIsActive ? 1 : 2;
+    if (_pollTickCount % _hitsTick === 0) {
+      _fbGet(P.pendingHits(), _lastHitsResponse, v => _lastHitsResponse = v, "/hits/pending");
+    }
+
+    // Session — every 12s active, every 24s idle
+    const _sessTick = _chainIsActive ? 3 : 6;
+    if (_pollTickCount % _sessTick === 0) {
+      _fbGet(P.session(), _lastSessionResponse, v => _lastSessionResponse = v, "/session");
+    }
+
+    // Member presence — every 32s always (low priority)
+    if (_pollTickCount % 8 === 0) {
+      _fbGet(P.members(), _lastMembersResponse, v => _lastMembersResponse = v, "/members");
+    }
+
+    // Done hits — only when chain active, every 16s
+    if (_chainIsActive && _pollTickCount % 4 === 0 && chainSessionId) {
+      _fbGet(P.doneHits(chainSessionId), _lastDoneResponse, v => _lastDoneResponse = v, "/hits/done/" + chainSessionId);
+    }
+
+    pollInFlight = false;
   }
 
   // ── Patch debounce ────────────────────────────────────────────────────────
@@ -6070,7 +6217,8 @@
 
   function pollFactionChain() {
     if (!tornApiKey || !factionId) return;
-    if (document.hidden) return;  // skip while tab hidden — catchup fires on visibilitychange
+    if (document.hidden) return;
+    if (!_isLeaderTab) return;  // non-leader tabs don't poll — catchup fires on visibilitychange
     if (_chainPollBackoffSkips > 0) { _chainPollBackoffSkips--; return; }
     _xhrTracked({
       method: "GET",
@@ -6232,9 +6380,18 @@
   let _lastBeepAt = 0;
   function _playChainWarningBeep(urgency, force) {
     if (!force && !settWarnPing) return;
+    if (!force && document.hidden) return;  // don't beep in background tabs
     const now = Date.now();
     const intv = (settWarnPingIntv || 4) * 1000;
     if (!force && now - _lastBeepAt < intv) return;
+    // Cross-tab beep dedup: store last beep time in localStorage so other tabs skip it
+    if (!force) {
+      try {
+        const lastShared = parseInt(localStorage.getItem("tcc_last_beep") || "0");
+        if (now - lastShared < intv) return;
+        localStorage.setItem("tcc_last_beep", now);
+      } catch(_) {}
+    }
     _lastBeepAt = now;
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -6375,7 +6532,8 @@
 
   function pollFactionAttacks() {
     if (!tornApiKey || !factionId || !chainStartTime) return;
-    if (document.hidden) return;  // skip while tab hidden
+    if (document.hidden) return;
+    if (!_isLeaderTab) return;  // non-leader tabs don't poll
     if (_attackPollInFlight) return;  // don't stack concurrent paginated polls
     // Backoff: skip this poll tick if we're in a rate-limit cooldown
     if (_attackBackoffSkips > 0) { _attackBackoffSkips--; return; }
@@ -8119,7 +8277,7 @@
       fetchOwnProfile();
     }
   } else {
-    _diagStep("fp"); fetchOwnProfile();
+    _diagStep("fp"); _startTabElection(); fetchOwnProfile();
   }
   if (!isTornPDA) injectTargetButtons();
   updateVersionUI();   // set initial badge state before Firebase connects
