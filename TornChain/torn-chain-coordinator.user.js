@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.2.2
+// @version      6.2.3
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -535,13 +535,11 @@
   // ╚══════════════════════════════════════════════════════════════════════════╝
   const FIREBASE_DB_URL  = "https://syph-s-war-overhaul-default-rtdb.firebaseio.com";
   const FIREBASE_API_KEY = "AIzaSyATeusVjS6_S0JlSVu6su4jghnTRiy2I5w";
-  // SSE proxy URL — Cloud Function that fans out Firebase events to all clients.
-  // Set to null to force REST polling fallback (for debugging or if proxy is down).
-  const TCC_SSE_PROXY_URL = "https://us-central1-syph-s-war-overhaul.cloudfunctions.net/tccSse";
+  // SSE proxy removed — using optimised REST polling (see v6.2.3 changelog)
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.2.2";
+  const CURRENT_VERSION  = "6.2.3";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -5072,6 +5070,7 @@
           // if fbRegisterMember() reads a newer version stored by another device.
           fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: _memberVersionToWrite, browser: _browserTag });
           fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
+          _lastMembersResponse = null; // force fresh members fetch on next poll
         } else {
           heartbeatFailCount++;
           console.warn("[ChainCoord] Heartbeat lobby write failed", r.status, "consecutive:", heartbeatFailCount);
@@ -5204,70 +5203,9 @@
     _cachedTimerEl = null;
   }
 
-  // ── SSE connection state ──────────────────────────────────────────────────
-  let _sseConn        = null;   // active EventSource connection
-  let _sseRetries     = 0;      // consecutive SSE failures
-  let _sseActive      = false;  // true if SSE is delivering events
-
-  function _stopSse() {
-    if (_sseConn) { try { _sseConn.close(); } catch(_) {} _sseConn = null; }
-    _sseActive = false;
-  }
-
-  function _startSse() {
-    if (!fbToken || !factionId || !TCC_SSE_PROXY_URL) return false;
-    if (!_isLeaderTab) return false;
-    _stopSse();
-
-    const sid   = chainSessionId || "";
-    const paths = "pending,session,members" + (sid ? ",done" : "");
-    const url   = `${TCC_SSE_PROXY_URL}?faction=${factionId}&token=${encodeURIComponent(fbToken)}&paths=${paths}${sid?"&sid="+sid:""}`;
-
-    try {
-      const es = new EventSource(url);
-      _sseConn = es;
-
-      es.addEventListener("connected", e => {
-        _sseActive  = true;
-        _sseRetries = 0;
-        setSyncDot("live");
-        console.log("[ChainCoord] SSE connected");
-        // Stop REST polling — SSE is delivering
-        if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
-      });
-
-      es.addEventListener("patch", e => {
-        try {
-          const { path, data } = JSON.parse(e.data);
-          queuePatch(path, data);
-          setSyncDot("live");
-          showBanner("chain-banner-debug", false);
-          if (_dbg.recordPoll) _dbg.recordPoll();
-        } catch(err) { console.warn("[ChainCoord] SSE parse err:", err.message); }
-      });
-
-      es.onerror = () => {
-        _sseActive = false;
-        setSyncDot("error");
-        _sseRetries++;
-        console.warn("[ChainCoord] SSE error, retry", _sseRetries);
-        _stopSse();
-        if (_sseRetries >= 3) {
-          // SSE consistently failing — fall back to REST polling
-          console.warn("[ChainCoord] SSE failed 3x — falling back to REST polling");
-          _startRestPolling();
-        } else {
-          // Retry SSE after backoff
-          setTimeout(_startSse, Math.min(5000 * _sseRetries, 30000));
-        }
-      };
-
-      return true;
-    } catch(err) {
-      console.warn("[ChainCoord] SSE init failed:", err.message);
-      return false;
-    }
-  }
+  // SSE removed — GM_xmlhttpRequest onprogress is inconsistent across
+  // Tampermonkey/Violentmonkey versions and EventSource is blocked by Torn CSP.
+  // Using optimised REST polling with aggressive rate reduction instead.
 
   function _startRestPolling() {
     if (ssePollInterval) return;
@@ -5278,35 +5216,9 @@
   function fbStartMainListener() {
     if (!factionId || !fbConfigured()) return;
     if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
-    _stopSse();
-
     fbPollClientVersions();
     setTimeout(() => { if (!versionPollInterval) versionPollInterval = setInterval(fbPollClientVersions, 30000); }, 2000);
-
-    // Try SSE proxy first — falls back to REST automatically on failure
-    if (TCC_SSE_PROXY_URL && !isTornPDA) {
-      const sseStarted = _startSse();
-      if (!sseStarted) _startRestPolling();
-      // REST poll runs alongside SSE for the first 10s as warmup, then SSE takes over
-      fbPollOnce();
-      const warmupTimer = setTimeout(() => {
-        if (_sseActive && ssePollInterval) {
-          clearInterval(ssePollInterval);
-          ssePollInterval = null;
-          console.log("[ChainCoord] SSE active — REST polling stopped");
-        }
-      }, 10000);
-      // If SSE never connects, start REST polling
-      setTimeout(() => {
-        if (!_sseActive && !ssePollInterval) {
-          console.warn("[ChainCoord] SSE not active after 10s — starting REST polling");
-          _startRestPolling();
-        }
-      }, 10000);
-    } else {
-      // TornPDA or SSE proxy not configured — REST only
-      _startRestPolling();
-    }
+    _startRestPolling();
   }
 
   // Catch-up poll: fires immediately when the tab becomes visible again after being hidden.
@@ -5367,31 +5279,33 @@
       });
     }
 
-    // Smart polling — rate adapts to activity level to minimise Firebase bandwidth.
-    // Active chain   : full rate (4s pending, 12s session, 32s members, 16s done)
-    // No chain       : reduced rate (pending every 2nd tick = 8s, session every 6th = 24s)
-    // Tab hidden     : already blocked above — zero polls
+    // Smart polling — rate adapts to activity level.
+    // Base interval: 15s. Hits scheduled 5min apart so 15s resolution is fine.
+    // Active chain : pending 15s, session 30s, members 60s, done 30s
+    // No chain     : pending 30s, session 60s, members 120s
+    // Tab hidden   : zero polls (blocked above)
     const _chainIsActive = !!chainSessionId || !!chainStartTime;
 
-    // Pending hits — always fetch but slower when no chain active
+    // Pending hits
     const _hitsTick = _chainIsActive ? 1 : 2;
     if (_pollTickCount % _hitsTick === 0) {
       _fbGet(P.pendingHits(), _lastHitsResponse, v => _lastHitsResponse = v, "/hits/pending");
     }
 
-    // Session — every 12s active, every 24s idle
-    const _sessTick = _chainIsActive ? 3 : 6;
+    // Session
+    const _sessTick = _chainIsActive ? 2 : 4;
     if (_pollTickCount % _sessTick === 0) {
       _fbGet(P.session(), _lastSessionResponse, v => _lastSessionResponse = v, "/session");
     }
 
-    // Member presence — every 32s always (low priority)
-    if (_pollTickCount % 8 === 0) {
+    // Members — every 60s always. Also fetch on tick 1 (15s after boot)
+    // to catch presence written by fbRegisterMember after the tick-0 fetch.
+    if (_pollTickCount % 4 === 0 || _pollTickCount === 1) {
       _fbGet(P.members(), _lastMembersResponse, v => _lastMembersResponse = v, "/members");
     }
 
-    // Done hits — only when chain active, every 16s
-    if (_chainIsActive && _pollTickCount % 4 === 0 && chainSessionId) {
+    // Done hits — chain active only, every 30s
+    if (_chainIsActive && _pollTickCount % 2 === 0 && chainSessionId) {
       _fbGet(P.doneHits(chainSessionId), _lastDoneResponse, v => _lastDoneResponse = v, "/hits/done/" + chainSessionId);
     }
 
