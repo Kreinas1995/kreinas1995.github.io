@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.2.3
+// @version      6.2.7
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -439,6 +439,7 @@
     const wrapped = Object.assign({}, details, {
       url:       bustUrl,
       headers:   _gmHeaders,
+      anonymous: true,  // tells Violentmonkey not to cache this response — prevents VM cache accumulation on Opera
       onerror:   function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); },
       ontimeout: function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origTimeout) origTimeout.apply(this, a); },
     });
@@ -539,7 +540,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.2.3";
+  const CURRENT_VERSION  = "6.2.7";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -665,14 +666,14 @@
   // ─── Timing constants ─────────────────────────────────────────────────────
   const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
   const CHAIN_POLL_IDLE_MS   = 30000; // slow poll when no chain active — saves ~10 API calls/min/user
-  const PRESENCE_HEARTBEAT   = 30000;
+  const PRESENCE_HEARTBEAT   = 60000;  // v6.2.4: heartbeat write every 60s
   const PRESENCE_TIMEOUT     = 90000;   // 90s — 6× heartbeat interval, tolerates dropped beats
   const HIT_DELAY_MS         = 4 * 60 * 1000;
   const HIT_INTERVAL         = 5 * 60 * 1000;
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
   const TIMER_FUDGE_SEC      = 0;
-  const ATTACKS_POLL_MS      = 7000;   // 7s — prime vs CHAIN_POLL_MS(5300) and fbPollOnce(3000)
+  const ATTACKS_POLL_MS      = 10000;  // v6.2.5: 10s — offset 1.5s from fb poll, staggered from chain
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
@@ -5208,17 +5209,62 @@
   // Using optimised REST polling with aggressive rate reduction instead.
 
   function _startRestPolling() {
-    if (ssePollInterval) return;
-    fbPollOnce();
-    ssePollInterval = setInterval(fbPollOnce, 6000);
+    // Legacy — now routed through _startFbHitPolling
+    _updateFbHitPollingState();
+  }
+
+  // ── Presence poll (always-on, every 5min) ────────────────────────────────
+  function fbPresencePoll() {
+    if (!factionId || !fbConfigured() || document.hidden || !_isLeaderTab) return;
+    _fbGet(P.members(), _lastMembersResponse, v => { _lastMembersResponse = v; _lastMembersResponse = null; }, "/members", { v: false });
+  }
+
+  // ── Hit polling (only when chain active or hits queued) ───────────────────
+  function _startFbHitPolling() {
+    if (_fbHitPollingActive) return;
+    _fbHitPollingActive = true;
+    _pollTickCount = 0;
+    _lastHitsResponse = null;
+    _lastSessionResponse = null;
+    if (_fbHitPollInterval) clearInterval(_fbHitPollInterval);
+    _fbHitPollInterval = setInterval(fbPollOnce, 10000);
+    fbPollOnce(); // immediate first poll
+    console.log("[ChainCoord] FB hit polling started");
+  }
+
+  function _stopFbHitPolling() {
+    if (!_fbHitPollingActive) return;
+    _fbHitPollingActive = false;
+    if (_fbHitPollInterval) { clearInterval(_fbHitPollInterval); _fbHitPollInterval = null; }
+    console.log("[ChainCoord] FB hit polling stopped");
+  }
+
+  // Check if we should be polling — called after chain state changes
+  function _updateFbHitPollingState() {
+    const hasPending = Object.keys(pendingHitMap).length > 0;
+    const chainOn    = !!chainSessionId || !!chainStartTime;
+    if (chainOn || hasPending) _startFbHitPolling();
+    else _stopFbHitPolling();
   }
 
   function fbStartMainListener() {
     if (!factionId || !fbConfigured()) return;
-    if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; }
+    // Clear old intervals
+    if (ssePollInterval)       { clearInterval(ssePollInterval);       ssePollInterval       = null; }
+    if (_fbHitPollInterval)    { clearInterval(_fbHitPollInterval);    _fbHitPollInterval    = null; }
+    if (_fbPresenceInterval)   { clearInterval(_fbPresenceInterval);   _fbPresenceInterval   = null; }
+    _fbHitPollingActive = false;
+
+    // Version — once on load
     fbPollClientVersions();
-    setTimeout(() => { if (!versionPollInterval) versionPollInterval = setInterval(fbPollClientVersions, 30000); }, 2000);
-    _startRestPolling();
+
+    // Presence — always on, every 5 minutes + immediate boot fetch
+    fbPresencePoll();
+    _fbPresenceInterval = setInterval(fbPresencePoll, 5 * 60 * 1000);
+
+    // Hit polling — staggered start to prevent collision with chain/attack polls
+    // fbPollOnce offset 2s, so at t=0: chain fires, t=2s: fb fires, t=5.3s: attacks fires
+    setTimeout(_updateFbHitPollingState, 2000);
   }
 
   // Catch-up poll: fires immediately when the tab becomes visible again after being hidden.
@@ -5233,12 +5279,17 @@
     });
   }
 
-  let pollInFlight        = false;
-  let _pollTickCount      = 0;
-  let _lastHitsResponse   = null;
-  let _lastSessionResponse= null;
-  let _lastMembersResponse= null;
-  let _lastDoneResponse   = null;
+  let pollInFlight          = false;
+  let _hitsInFlight         = false;
+  let _sessInFlight         = false;
+  let _membersInFlight      = false;
+  let _pollTickCount        = 0;
+  let _lastHitsResponse     = null;
+  let _lastSessionResponse  = null;
+  let _lastMembersResponse  = null;
+  let _fbHitPollingActive   = false;  // true only when chain active or hits queued
+  let _fbHitPollInterval    = null;   // separate interval for hit/session polling
+  let _fbPresenceInterval   = null;   // separate interval for members (always-on, 5min)
   function fbPollOnce() {
     if (!factionId || !fbConfigured()) return;
     if (document.hidden) return;
@@ -5252,12 +5303,16 @@
     // Pending hits (4s) + session (12s) + members (32s) + done hits (16s when active).
     // Reduces ~18MB/poll → ~1-5KB/poll = ~95% bandwidth reduction.
 
-    function _fbGet(url, lastResp, setter, patchPath) {
+    function _fbGet(url, lastResp, setter, patchPath, inFlightRef) {
+      // Per-path inFlight guard — prevents concurrent fetches of the same path
+      if (inFlightRef && inFlightRef.v) return;
+      if (inFlightRef) inFlightRef.v = true;
+      const _done = () => { if (inFlightRef) inFlightRef.v = false; };
       if (isTornPDA && TCC_PROXY_URL) {
         _tccProxy("GET", url, null,
-          r => { if (r && r.status >= 200 && r.status < 300 && r.responseText !== lastResp) {
+          r => { _done(); if (r && r.status >= 200 && r.status < 300 && r.responseText !== lastResp) {
             try { setter(r.responseText); queuePatch(patchPath, JSON.parse(r.responseText)); } catch(_) {} } },
-          () => {}, () => {}, 8000);
+          () => _done(), () => _done(), 8000);
         return;
       }
       _xhrTracked({
@@ -5265,6 +5320,7 @@
         headers: { "Cache-Control": "no-cache, no-store", "Pragma": "no-cache" },
         timeout: 8000,
         onload(r) {
+          _done();
           if (r.status >= 200 && r.status < 300) {
             if (r.responseText === lastResp) { setSyncDot("live"); return; }
             try { setter(r.responseText); queuePatch(patchPath, JSON.parse(r.responseText)); setSyncDot("live"); showBanner("chain-banner-debug", false); if (_dbg.recordPoll) _dbg.recordPoll(); }
@@ -5274,39 +5330,24 @@
             else { showBanner("chain-banner-locked", true); if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; } }
           } else { setSyncDot("error"); }
         },
-        onerror()  { setSyncDot("error"); },
-        ontimeout(){ setSyncDot("error"); },
+        onerror()  { _done(); setSyncDot("error"); },
+        ontimeout(){ _done(); setSyncDot("error"); },
       });
     }
+    // inFlight ref objects — one per path
+    const _ifHits    = { v: false };
+    const _ifSess    = { v: false };
+    const _ifMembers = { v: false };
 
-    // Smart polling — rate adapts to activity level.
-    // Base interval: 15s. Hits scheduled 5min apart so 15s resolution is fine.
-    // Active chain : pending 15s, session 30s, members 60s, done 30s
-    // No chain     : pending 30s, session 60s, members 120s
-    // Tab hidden   : zero polls (blocked above)
-    const _chainIsActive = !!chainSessionId || !!chainStartTime;
+    // Hit/session polling — only runs when chain active or hits queued.
+    // Members are handled by fbPresencePoll (every 5min, separate interval).
+    // pending hits: every tick = 10s
+    // session:      every 3 ticks = 30s
 
-    // Pending hits
-    const _hitsTick = _chainIsActive ? 1 : 2;
-    if (_pollTickCount % _hitsTick === 0) {
-      _fbGet(P.pendingHits(), _lastHitsResponse, v => _lastHitsResponse = v, "/hits/pending");
-    }
+    _fbGet(P.pendingHits(), _lastHitsResponse,   v => _lastHitsResponse   = v, "/hits/pending", _ifHits);
 
-    // Session
-    const _sessTick = _chainIsActive ? 2 : 4;
-    if (_pollTickCount % _sessTick === 0) {
-      _fbGet(P.session(), _lastSessionResponse, v => _lastSessionResponse = v, "/session");
-    }
-
-    // Members — every 60s always. Also fetch on tick 1 (15s after boot)
-    // to catch presence written by fbRegisterMember after the tick-0 fetch.
-    if (_pollTickCount % 4 === 0 || _pollTickCount === 1) {
-      _fbGet(P.members(), _lastMembersResponse, v => _lastMembersResponse = v, "/members");
-    }
-
-    // Done hits — chain active only, every 30s
-    if (_chainIsActive && _pollTickCount % 2 === 0 && chainSessionId) {
-      _fbGet(P.doneHits(chainSessionId), _lastDoneResponse, v => _lastDoneResponse = v, "/hits/done/" + chainSessionId);
+    if (_pollTickCount % 3 === 0) {
+      _fbGet(P.session(), _lastSessionResponse, v => _lastSessionResponse = v, "/session", _ifSess);
     }
 
     pollInFlight = false;
@@ -5728,7 +5769,10 @@
     GM_setValue(SK_SESSION_START, "");
     fbPut(P.session(), { id: chainSessionId, startTime: chainStartTime });
     persistSession();
-    pollFactionAttacks();
+    // Stagger: chain poll fires immediately, attacks offset 1.5s, fb offset 3.5s
+    // Prevents all three intervals colliding at t=0 and every LCM(5.3,7,10)=370s
+    setTimeout(pollFactionAttacks, 1500);
+    setTimeout(_updateFbHitPollingState, 3500);
   }
 
   function onChainEnd() {
@@ -5762,6 +5806,7 @@
     persistSession();
     scheduleRender();
     updateChainTimerUI();
+    _updateFbHitPollingState(); // chain ended — stop polling if no pending hits
   }
 
   function handleRemoteSession(data) {
@@ -8026,7 +8071,8 @@
               pollFactionChain();
               _chainPollIsActive = false;
               if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_IDLE_MS);
-              if (!attackPollInterval)  attackPollInterval  = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
+              // attacks poll only starts when chain is active — saves ~8 API calls/min when idle
+            if (_chainPollIsActive && !attackPollInterval) attackPollInterval = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
               if (_cachedSessionRestored) { _cachedSessionRestored = false; pollFactionAttacks(); }
               if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 30000);
               if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
