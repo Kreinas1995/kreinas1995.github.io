@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.2.7
+// @version      6.3.2
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -173,6 +173,19 @@
                     lastTimerReadAt = performance.now();
                   }
                   scheduleRender();
+                  // Trigger one-shot chain poll to sync count to other pages
+                  if (typeof pollFactionChain === "function") {
+                    setTimeout(pollFactionChain, 500);
+                  }
+                  // Trigger one-shot attacks poll to mark queued hit as done.
+                  // pollFactionAttacks skips IS_ATTACK_PAGE normally, but we
+                  // set _forceAttacksPollOnce to bypass that for this one call.
+                  if (typeof pollFactionAttacks === "function") {
+                    setTimeout(() => {
+                      _forceAttacksPollOnce = true;
+                      pollFactionAttacks();
+                    }, 1500); // 1.5s — give Torn's API time to register the hit
+                  }
                   console.log("[ChainCoord] attackData: chain=" + chain +
                     (chainEnd ? " t=" + Math.round(chainEnd - Date.now()/1000) + "s" : ""));
                 }
@@ -540,7 +553,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.2.7";
+  const CURRENT_VERSION  = "6.3.2";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -664,8 +677,8 @@
   const SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js";
 
   // ─── Timing constants ─────────────────────────────────────────────────────
-  const CHAIN_POLL_MS        = 5300;  // prime-offset vs fbPollOnce(3000) — avoids 10s collision
-  const CHAIN_POLL_IDLE_MS   = 30000; // slow poll when no chain active — saves ~10 API calls/min/user
+  const CHAIN_POLL_MS        = 30000; // v6.2.9: 30s active — DOM observer + attackData handle timer display
+  const CHAIN_POLL_IDLE_MS   = 30000; // 30s idle — same rate, no longer needs to vary
   const PRESENCE_HEARTBEAT   = 60000;  // v6.2.4: heartbeat write every 60s
   const PRESENCE_TIMEOUT     = 90000;   // 90s — 6× heartbeat interval, tolerates dropped beats
   const HIT_DELAY_MS         = 4 * 60 * 1000;
@@ -673,7 +686,7 @@
   const CHAIN_CONFIRM_HITS   = 10;
   const CHAIN_END_DEBOUNCE   = 8000;
   const TIMER_FUDGE_SEC      = 0;
-  const ATTACKS_POLL_MS      = 10000;  // v6.2.5: 10s — offset 1.5s from fb poll, staggered from chain
+  const ATTACKS_POLL_MS      = 30000;  // v6.2.9: 30s — adequate for 5min hit windows, saves 4 calls/min
 
   // ─── GM storage keys ──────────────────────────────────────────────────────
   const SK_API_KEY        = "chain_api_key";
@@ -988,6 +1001,7 @@
     hits:        () => `${fBase()}/hits.json${auth()}`,
     // Phase 2: split pending/done paths
     pendingHits:     ()        => `${fBase()}/hits/pending.json${auth()}`,
+    pendingHitsShallow: ()    => `${fBase()}/hits/pending.json${auth()}&shallow=true`,
     pendingHit:      id        => `${fBase()}/hits/pending/${id}.json${auth()}`,
     pendingHitField: (id, f)   => `${fBase()}/hits/pending/${id}/${f}.json${auth()}`,
     doneHits:        sid       => `${fBase()}/hits/done/${sid}.json${auth()}`,
@@ -1051,6 +1065,7 @@
     #chain-panel {
       position:fixed !important; z-index:999999 !important;
       border-radius:12px !important; background:rgba(16,18,24,.96) !important; color:#e8e8e8 !important;
+      transition:background 0.3s ease !important;
       box-shadow:0 12px 32px rgba(0,0,0,.6) !important; font-family:Arial,Helvetica,sans-serif !important;
       user-select:none !important; overflow:visible !important; display:flex !important;
       flex-direction:column !important;
@@ -1084,6 +1099,10 @@
     #chain-panel.view-mini #chain-panel-body,
     #chain-panel.view-mini #chain-outside-bar,
     #chain-panel.view-mini #chain-resize-handle { display:none !important; }
+    #chain-panel.view-mini #chain-presence-btn  { display:none !important; }
+    #chain-panel.view-mini #chain-gear-btn       { display:none !important; }
+    #chain-panel.view-mini #chain-sync-dot       { display:none !important; }
+    #chain-panel.view-mini #chain-view-btn       { padding:4px 6px !important; }
     #chain-panel.view-icon #chain-whitelist-btn { display:none !important; }
     #chain-panel.view-icon #chain-version-badge { display:none !important; }
     #chain-pill-content { display:none; align-items:center; gap:6px; white-space:nowrap; }
@@ -1624,6 +1643,8 @@
     #chain-bug-btn { font-size:14px !important; line-height:1 !important; }
     #chain-panel.view-mini #chain-bug-btn,
     #chain-panel.view-icon #chain-bug-btn { display:none !important; }
+    /* SWT button always hidden from header — only accessible via gear menu */
+    #chain-swt-btn { display:none !important; }
     #chain-bug-menu {
       display:none; position:absolute; top:36px; right:50px; z-index:1000002;
       background:rgba(20,22,30,.98); border-radius:8px; border:1px solid rgba(255,255,255,.12);
@@ -1800,7 +1821,8 @@
         <span id="chain-sync-dot" title="Sync status"></span>
         <button id="chain-presence-btn" class="chain-hbtn" title="Who's online" style="display:inline-flex!important;align-items:center!important;gap:3px!important;font-size:13px!important;padding:4px 10px!important;">👥<span id="chain-online-count" style="font-size:13px;color:#44ff88;font-weight:700;min-width:14px;text-align:center;line-height:1;"></span></button>
         <button id="chain-gear-btn" class="chain-hbtn" title="Settings">⚙️</button>
-        <button id="chain-swt-btn" class="chain-hbtn" title="Syph's War Timers" style="display:none!important;">⚕</button>
+        <!-- SWT moved to gear menu -->
+        <button id="chain-swt-btn" style="display:none!important;pointer-events:none!important"></button>
         <button id="chain-view-btn" class="chain-hbtn" title="Cycle view">▦</button>
       </div>
 
@@ -1818,6 +1840,8 @@
         <div class="chain-gear-menu-item" id="chain-gmenu-manage" style="display:none">⚙ Permissions</div>
         <div style="height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
         <div class="chain-gear-menu-item" id="chain-gmenu-debug" style="display:none">🔬 Debug Console</div>
+        <div id="chain-gmenu-swt-sep" style="display:none;height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
+        <div class="chain-gear-menu-item" id="chain-gmenu-swt" style="display:none">⚕ Syph's War Timers</div>
         <div style="height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
         <div class="chain-gear-menu-item" id="chain-gmenu-settings">⚙️ Settings</div>
       </div>
@@ -2185,6 +2209,17 @@
     <div id="chain-resize-handle"></div>`;
   _diagStep("inject"); document.body.appendChild(panel);
   try { _xw.__tccPanelRef = panel; } catch(_) {}  // JS-heap ref bfcache cannot freeze
+
+  // Apply saved opacity immediately — before wireSettings so it's guaranteed
+  // even if wireSettings throws partway through. Uses inline style so it wins
+  // over the CSS default regardless of specificity.
+  (function _applyEarlyOpacity() {
+    try {
+      const _op = _gmGet(SK_PANEL_OPACITY, 0.96);
+      panel.style.setProperty("background",
+        `rgba(16,18,24,${_op})`, "important");
+    } catch(_) {}
+  })();
 
   // Re-append panel if React evicts it on SPA navigation (TM doesn't re-inject)
   setInterval(function() {
@@ -2713,6 +2748,15 @@
     if (swtClose) swtClose.onclick = closeAllPopovers;
 
     // Open popover on button click
+    // Wire SWT via gear menu item too
+    const gSwtItem = document.getElementById("chain-gmenu-swt");
+    if (gSwtItem) {
+      gSwtItem.addEventListener("click", () => {
+        closeAllPopovers();
+        swtBtn.click(); // delegate to original handler
+      });
+    }
+
     swtBtn.addEventListener("click", e => {
       e.stopPropagation();
       const isOpen = swtPopover.classList.contains("open");
@@ -2802,7 +2846,12 @@
         if (swtFound) return;
         if (_xw.__swtBridge?.installed) {
           swtFound = true;
-          swtBtn.style.removeProperty("display");
+          // Show SWT in gear menu instead of header button
+          const _gSwt = document.getElementById("chain-gmenu-swt");
+          const _gSwtSep = document.getElementById("chain-gmenu-swt-sep");
+          if (_gSwt) _gSwt.style.removeProperty("display");
+          if (_gSwtSep) _gSwtSep.style.removeProperty("display");
+          // Keep swtBtn hidden — it's now accessed via gear menu only
           // If TCC's factionId is available, share it with SWT
           if (typeof factionId !== "undefined" && factionId && _xw.__swtBridge) {
             _xw.__swtBridge.tccFactionId = factionId;
@@ -2812,7 +2861,18 @@
     }
 
     checkSwtPresence();
-    setInterval(() => { try { checkSwtPresence(); } catch(e) {} }, 2000);
+    // Exponential backoff: 2s, 4s, 8s, 16s, 30s cap — stops entirely once found
+    // Saves 30 wasted checks/min on systems without SWT installed
+    let _swtBackoff = 2000;
+    function _swtRetry() {
+      if (swtFound) return;
+      try { checkSwtPresence(); } catch(e) {}
+      if (!swtFound) {
+        _swtBackoff = Math.min(_swtBackoff * 2, 30000);
+        setTimeout(_swtRetry, _swtBackoff);
+      }
+    }
+    setTimeout(_swtRetry, 2000);
   })();
 
   // ── Settings: wire all controls ──────────────────────────────────────────
@@ -5287,6 +5347,9 @@
   let _lastHitsResponse     = null;
   let _lastSessionResponse  = null;
   let _lastMembersResponse  = null;
+  let _lastShallowKeys      = null;  // JSON of pending hit keys from last shallow check
+  let _hitsShallowInFlight  = false;
+  let _hitsFastMode         = false; // true when claimed hit due within 60s
   let _fbHitPollingActive   = false;  // true only when chain active or hits queued
   let _fbHitPollInterval    = null;   // separate interval for hit/session polling
   let _fbPresenceInterval   = null;   // separate interval for members (always-on, 5min)
@@ -5344,9 +5407,56 @@
     // pending hits: every tick = 10s
     // session:      every 3 ticks = 30s
 
-    _fbGet(P.pendingHits(), _lastHitsResponse,   v => _lastHitsResponse   = v, "/hits/pending", _ifHits);
+    // Hybrid pending hits strategy:
+    // 1. Shallow check (50 bytes) to detect key changes
+    // 2. Full fetch (2KB) only when keys changed
+    // 3. Fast mode (5s effective) when claimed hit due within 60s
+    // 4. Slow mode (30s effective) when next hit is 3+ minutes away
+    (function _smartHitsFetch() {
+      if (_hitsShallowInFlight) return;
 
-    if (_pollTickCount % 3 === 0) {
+      // Determine urgency based on claimed hit timing
+      let nextDueMs = Infinity;
+      if (typeof pendingHitMap === "object") {
+        Object.values(pendingHitMap).forEach(h => {
+          if (h && h.claimedBy === ownName && h.scheduledAt) {
+            const due = h.scheduledAt - Date.now();
+            if (due < nextDueMs) nextDueMs = due;
+          }
+        });
+      }
+
+      const inFastMode   = nextDueMs < 60000;   // <60s to hit: check every 5s (every tick)
+      const inSlowMode   = nextDueMs > 180000 && !chainStartTime; // 3+ min away: every 30s
+
+      if (inSlowMode && _pollTickCount % 3 !== 0) return; // slow: skip 2 of 3 ticks
+      _hitsFastMode = inFastMode;
+
+      // Shallow fetch to detect changes
+      _hitsShallowInFlight = true;
+      _xhrTracked({
+        method: "GET",
+        url: P.pendingHitsShallow(),
+        headers: { "Cache-Control": "no-cache, no-store", "Pragma": "no-cache" },
+        anonymous: true,
+        timeout: 6000,
+        onload(r) {
+          _hitsShallowInFlight = false;
+          if (r.status < 200 || r.status >= 300) return;
+          const shallowKeys = r.responseText;
+          if (shallowKeys === _lastShallowKeys) return; // no change — skip full fetch
+          _lastShallowKeys = shallowKeys;
+          // Keys changed — do full fetch
+          _fbGet(P.pendingHits(), _lastHitsResponse, v => {
+            _lastHitsResponse = v;
+          }, "/hits/pending", _ifHits);
+        },
+        onerror()  { _hitsShallowInFlight = false; },
+        ontimeout(){ _hitsShallowInFlight = false; },
+      });
+    })();
+
+    if (_pollTickCount % 5 === 0) { // every 5 ticks × 10s = 50s
       _fbGet(P.session(), _lastSessionResponse, v => _lastSessionResponse = v, "/session", _ifSess);
     }
 
@@ -5368,6 +5478,12 @@
   let _patchDebounceTimer = null;
   let _pendingPatches     = [];
 
+  let _patchBatchTimer = null;
+  let _patchBatchPending = false;
+  function _flushPatchBatch() {
+    _patchBatchTimer = null;
+    if (_patchBatchPending) { _patchBatchPending = false; scheduleRender(); }
+  }
   function queuePatch(path, data) {
     _pendingPatches.push({ path, data });
     if (_patchDebounceTimer) return;
@@ -5750,6 +5866,7 @@
   //  Session management
   // ══════════════════════════════════════════════════════════════════════════
   function onChainStart(startMs) {
+    const _wasAlreadyActive = !!chainSessionId; // true = page load detection, not new chain
     if (chainSessionId) return; // already have a session — spurious call
 
     const oldSessionId = chainSessionId; // null here but kept for clarity
@@ -5771,7 +5888,13 @@
     persistSession();
     // Stagger: chain poll fires immediately, attacks offset 1.5s, fb offset 3.5s
     // Prevents all three intervals colliding at t=0 and every LCM(5.3,7,10)=370s
-    setTimeout(pollFactionAttacks, 1500);
+    // New chain: staggered polls to avoid burst
+    // Page load detection: fire attacks immediately (no burst risk, chain already active)
+    if (_wasAlreadyActive) {
+      setTimeout(pollFactionAttacks, 1000); // immediate on page load
+    } else {
+      setTimeout(pollFactionAttacks, 1500); // staggered for new chain start
+    }
     setTimeout(_updateFbHitPollingState, 3500);
   }
 
@@ -6163,7 +6286,8 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  Chain API poll — count + session detection
   // ══════════════════════════════════════════════════════════════════════════
-  let _chainPollIsActive    = false; // true = 5.3s rate, false = 30s idle rate
+  let _chainPollIsActive      = false; // true = 5.3s rate, false = 30s idle rate
+  let _forceAttacksPollOnce   = false; // lets attackData interceptor trigger one attacks poll
   let _chainPollBackoffSkips = 0;    // skip N ticks after rate-limit (error 5)
 
   function _maybeRescheduleChainPoll() {
@@ -6492,7 +6616,9 @@
   function pollFactionAttacks() {
     if (!tornApiKey || !factionId || !chainStartTime) return;
     if (document.hidden) return;
-    if (!_isLeaderTab) return;  // non-leader tabs don't poll
+    if (!_isLeaderTab) return;
+    if (IS_ATTACK_PAGE && !_forceAttacksPollOnce) return; // attackData interceptor handles this page
+    _forceAttacksPollOnce = false;
     if (_attackPollInFlight) return;  // don't stack concurrent paginated polls
     // Backoff: skip this poll tick if we're in a rate-limit cooldown
     if (_attackBackoffSkips > 0) { _attackBackoffSkips--; return; }
@@ -6718,6 +6844,14 @@
     _renderScheduled = true;
     requestAnimationFrame(() => { _renderScheduled = false; renderPanel(); });
   }
+  function scheduleRenderLight() {
+    try {
+      const count = getPendingHits().length;
+      if (pillBadge) { pillBadge.textContent = count; pillBadge.classList.toggle("visible", count > 0); }
+      if (iconBadge) { iconBadge.textContent = count; iconBadge.classList.toggle("visible", count > 0); }
+      updateTopBarBadge();
+    } catch(_) {}
+  }
 
   // Track last rendered hit ID list to avoid unnecessary full re-renders
   let lastRenderedIds = "";
@@ -6900,9 +7034,8 @@
   }
 
   function renderPanel() {
-    // syncPendingScheduledAt is NOT called here — the 1s tick calls it every second,
-    // so calling it again in renderPanel (rAF-queued immediately after the tick) was a
-    // redundant double-call on every poll cycle. Removed v5.8.23 to reduce Opera/Edge CPU.
+    // Skip expensive render work when panel body isn't visible
+    if (viewMode !== 0) { scheduleRenderLight(); return; }
     const inner   = document.getElementById("chain-panel-inner");
     const colHead = document.getElementById("chain-col-header");
     const titleEl = document.getElementById("chain-panel-title");
@@ -7152,7 +7285,7 @@
 
     // Re-anchor pending hit scheduledAt values to the live DOM timer so that
     // pendingCountdownMs() ticks smoothly at 1s rather than in Firebase poll steps.
-    if (!document.hidden && viewMode === 0 && chainStartTime) syncPendingScheduledAt();
+    if (!document.hidden && viewMode === 0 && chainStartTime && _isLeaderTab) syncPendingScheduledAt();
 
     // Rapid-retry: if a chain session is active but apiTimerSecs hasn't loaded yet
     // (e.g. first page load before CHAIN_POLL_MS fires), poll immediately every tick
@@ -8074,7 +8207,15 @@
               // attacks poll only starts when chain is active — saves ~8 API calls/min when idle
             if (_chainPollIsActive && !attackPollInterval) attackPollInterval = setInterval(pollFactionAttacks, ATTACKS_POLL_MS);
               if (_cachedSessionRestored) { _cachedSessionRestored = false; pollFactionAttacks(); }
-              if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 30000);
+              // Page load with active chain: fire attacks poll immediately so
+              // "Waiting for Data" clears without waiting for the 30s interval.
+              // Delayed 2s to let Firebase session fetch complete first.
+              setTimeout(() => {
+                if (chainStartTime && !_cachedSessionRestored) {
+                  pollFactionAttacks();
+                }
+              }, 2000);
+              if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 60000); // 60s — only matters for hosp timing
               if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
               if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
               if (IS_ATTACK_PAGE) setTimeout(pollFactionChain, 2000);
