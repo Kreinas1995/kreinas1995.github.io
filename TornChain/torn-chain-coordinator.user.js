@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.3.6
+// @version      6.3.12
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -336,8 +336,12 @@
     firstSeen:   _bgPrev ? _bgPrev.firstSeen : Date.now(),// first ever load (persisted)
     freezeCount: _bgPrev ? _bgPrev.freezeCount : 0,       // cumulative across loads
     freezeLog:   _bgPrev ? _bgPrev.freezeLog   : [],      // persisted freeze events
-    xhrTotal:    _bgPrev ? _bgPrev.xhrTotal    : 0,       // cumulative XHR calls
-    xhrErr:      _bgPrev ? _bgPrev.xhrErr      : 0,       // cumulative XHR errors
+    xhrTotal:    _bgPrev ? _bgPrev.xhrTotal    : 0,
+    xhrErr:      _bgPrev ? _bgPrev.xhrErr      : 0,
+    dlBytes:     0,   // bytes downloaded via GM bridge this session
+    ulBytes:     0,   // bytes uploaded via GM bridge this session
+    dlByPath:    {},  // per-path breakdown
+    sessionStart: Date.now(),
     lastRafTime: 0,
     rafActive:   true,
   };
@@ -391,6 +395,16 @@
       ``,
       `--- Performance (cumulative, survives page navigation) ---`,
       `Freezes (>${BG_FREEZE_MS}ms): ${_bg.freezeCount}`,
+      (function() {
+        const dl = _bg.dlBytes || 0;
+        const ul = _bg.ulBytes || 0;
+        const mins = Math.max(1, Math.round((Date.now() - (_bg.sessionStart || Date.now())) / 60000));
+        const fmt = b => b < 1024 ? b+"B" : b < 1048576 ? (b/1024).toFixed(1)+"KB" : (b/1048576).toFixed(2)+"MB";
+        const byPath = _bg.dlByPath || {};
+        const pathStr = Object.entries(byPath).filter(([,v])=>v>0)
+          .map(([k,v])=>`${k}:${(v/1024).toFixed(0)}KB`).join(" ");
+        return `FB ↓${fmt(dl)} ↑${fmt(ul)} | ${(dl/1024/mins).toFixed(1)}KB/min | ${pathStr}`;
+      })(),
       `XHR calls:   ${_bg.xhrTotal}`,
       `XHR errors:  ${_bg.xhrErr}`,
       `XHR/min:     ${totalMs > 0 ? Math.round(_bg.xhrTotal / (totalMs / 60000)) : 0}`,
@@ -447,10 +461,27 @@
     const _gmHeaders = Object.assign({}, details.headers || {});
     _gmHeaders["Cache-Control"] = "no-cache, no-store";
     _gmHeaders["Pragma"] = "no-cache";
+    const _origOnload = details.onload;
+    const _trackPath = bustUrl.includes("/hits/pending") ? "hits"
+      : bustUrl.includes("/session")  ? "session"
+      : bustUrl.includes("/members")  ? "members"
+      : bustUrl.includes("/lobby")    ? "lobby"
+      : bustUrl.includes("/heartbeat")? "heartbeat"
+      : "other";
     const wrapped = Object.assign({}, details, {
       url:       bustUrl,
       headers:   _gmHeaders,
-      anonymous: true,  // tells Violentmonkey not to cache this response — prevents VM cache accumulation on Opera
+      anonymous: true,
+      onload: function(r) {
+        // Track download bytes
+        const dl = (r.responseText || "").length;
+        const ul = (details.data || "").length;
+        _bg.dlBytes = (_bg.dlBytes || 0) + dl;
+        _bg.ulBytes = (_bg.ulBytes || 0) + ul;
+        _bg.dlByPath = _bg.dlByPath || {};
+        _bg.dlByPath[_trackPath] = (_bg.dlByPath[_trackPath] || 0) + dl;
+        if (_origOnload) _origOnload.apply(this, arguments);
+      },
       onerror:   function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); },
       ontimeout: function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origTimeout) origTimeout.apply(this, a); },
     });
@@ -551,7 +582,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.3.6";
+  const CURRENT_VERSION  = "6.3.12";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -1841,6 +1872,7 @@
         <div class="chain-gear-menu-item" id="chain-gmenu-debug" style="display:none">🔬 Debug Console</div>
         <div id="chain-gmenu-swt-sep" style="display:none;height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
         <div class="chain-gear-menu-item" id="chain-gmenu-swt" style="display:none">⚕ Syph's War Timers</div>
+        <div class="chain-gear-menu-item" id="chain-gmenu-data-analysis" style="display:none">📊 Data Analysis</div>
         <div style="height:1px;background:rgba(255,255,255,.08);margin:2px 4px"></div>
         <div class="chain-gear-menu-item" id="chain-gmenu-settings">⚙️ Settings</div>
       </div>
@@ -2609,6 +2641,138 @@
   // ══════════════════════════════════════════════════════════════════════════
   //  API Popover
   // ══════════════════════════════════════════════════════════════════════════
+  // ── Data Analysis panel ────────────────────────────────────────────────────
+  function openDataAnalysis() {
+    const existing = document.getElementById("tcc-data-analysis");
+    if (existing) { existing.remove(); return; } // toggle
+
+    const box = document.createElement("div");
+    box.id = "tcc-data-analysis";
+    box.style.cssText = [
+      "position:fixed", "top:80px", "right:12px", "width:320px", "max-height:70vh",
+      "background:#0e1018", "border:1px solid rgba(68,170,255,0.3)",
+      "border-radius:10px", "z-index:2147483646", "display:flex",
+      "flex-direction:column", "box-shadow:0 8px 32px rgba(0,0,0,0.8)",
+      "font-family:monospace", "font-size:11px", "color:#ccc",
+    ].join(";");
+
+    box.innerHTML = `
+      <div id="tcc-da-header" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:rgba(68,170,255,0.1);border-bottom:1px solid rgba(68,170,255,0.2);border-radius:10px 10px 0 0;cursor:move;user-select:none">
+        <span style="font-weight:700;color:#88bbff">📊 Data Analysis</span>
+        <button id="tcc-da-close" style="background:none;border:none;color:#666;font-size:14px;cursor:pointer;padding:0 4px">✕</button>
+      </div>
+      <div style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;gap:6px;align-items:center">
+        <button id="tcc-da-analyze" style="flex:1;background:rgba(68,170,255,0.2);border:1px solid rgba(68,170,255,0.4);color:#88bbff;border-radius:5px;padding:5px 0;cursor:pointer;font-size:11px;font-family:monospace">▶ Analyze</button>
+        <span id="tcc-da-status" style="color:#556;font-size:10px">Click Analyze to load data</span>
+      </div>
+      <div id="tcc-da-body" style="overflow-y:auto;flex:1;padding:6px"></div>
+    `;
+    document.body.appendChild(box);
+
+    // Close button
+    document.getElementById("tcc-da-close").onclick = () => box.remove();
+
+    // Drag — mouse + touch
+    const hdr = document.getElementById("tcc-da-header");
+    let _dx=0,_dy=0,_dragging=false;
+    function _dragStart(cx,cy){ _dragging=true; _dx=cx-box.offsetLeft; _dy=cy-box.offsetTop; }
+    function _dragMove(cx,cy){ if(!_dragging)return; box.style.left=(cx-_dx)+"px"; box.style.top=(cy-_dy)+"px"; box.style.right="auto"; }
+    function _dragEnd(){ _dragging=false; }
+    hdr.addEventListener("mousedown",  e => _dragStart(e.clientX, e.clientY));
+    hdr.addEventListener("touchstart", e => { const t=e.touches[0]; _dragStart(t.clientX, t.clientY); }, {passive:true});
+    document.addEventListener("mousemove",  e => _dragMove(e.clientX, e.clientY));
+    document.addEventListener("touchmove",  e => { const t=e.touches[0]; _dragMove(t.clientX, t.clientY); }, {passive:true});
+    document.addEventListener("mouseup",  _dragEnd);
+    document.addEventListener("touchend", _dragEnd);
+
+    // Analyze button
+    document.getElementById("tcc-da-analyze").addEventListener("click", () => {
+      const status = document.getElementById("tcc-da-status");
+      const body   = document.getElementById("tcc-da-body");
+      status.textContent = "Loading…";
+      body.innerHTML = "";
+
+      // Fetch all whitelisted factions
+      _xhrTracked({
+        method: "GET",
+        url: `${FIREBASE_DB_URL}/whitelist.json?auth=${fbToken}&_cb=${Date.now()}`,
+        timeout: 8000,
+        onload(r) {
+          if (r.status < 200 || r.status >= 300) { status.textContent = "Error " + r.status; return; }
+          let factions;
+          try { factions = JSON.parse(r.responseText); } catch(_) { status.textContent = "Parse error"; return; }
+          if (!factions || typeof factions !== "object") { status.textContent = "No factions found"; return; }
+
+          const fids = Object.keys(factions).filter(k => factions[k] === true);
+          status.textContent = `Found ${fids.length} factions — loading members…`;
+
+          let loaded = 0;
+          fids.forEach(fid => {
+            _xhrTracked({
+              method: "GET",
+              url: `${FIREBASE_DB_URL}/factions/${fid}/members.json?auth=${fbToken}&_cb=${Date.now()}`,
+              timeout: 8000,
+              onload(r2) {
+                loaded++;
+                let members = {};
+                try { members = JSON.parse(r2.responseText) || {}; } catch(_) {}
+
+                // Build faction section
+                const section = document.createElement("div");
+                section.style.cssText = "margin-bottom:4px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;overflow:hidden";
+
+                const memberEntries = Object.values(members).filter(m => m && m.name);
+                const totalDl = memberEntries.reduce((s,m) => s + (m.dataUsage?.dlKB || 0), 0);
+                const totalRate = memberEntries.reduce((s,m) => s + (m.dataUsage?.dlPerMin || 0), 0);
+
+                section.innerHTML = `
+                  <div class="tcc-da-faction-hdr" style="padding:6px 10px;background:rgba(68,170,255,0.08);cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+                    <span style="color:#88bbff;font-weight:700">Faction ${fid}</span>
+                    <span style="color:#556;font-size:10px">${memberEntries.length} members · ${totalDl}KB dl · ${totalRate}KB/min ▼</span>
+                  </div>
+                  <div class="tcc-da-faction-body" style="display:none;padding:4px 6px">
+                    ${memberEntries.length === 0 ? '<div style="color:#445;padding:4px">No data reported yet</div>' :
+                      memberEntries.sort((a,b) => (b.dataUsage?.dlPerMin||0) - (a.dataUsage?.dlPerMin||0)).map(m => {
+                        const u = m.dataUsage || {};
+                        const age = u.reportedAt ? Math.round((Date.now()-u.reportedAt)/60000)+"m ago" : "never";
+                        const col = (u.dlPerMin||0)>5?"ff8844":(u.dlPerMin||0)>2?"ffcc44":"44ff88";
+                        const _age = u.reportedAt ? Math.round((Date.now()-u.reportedAt)/60000)+"m ago" : "never";
+                        return `<div style="padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.04)">
+                          <div style="display:flex;justify-content:space-between">
+                            <span style="color:#ccc">${m.name||"?"} <span style="color:#445;font-size:10px">v${m.version||"?"} · ${m.browser||"?"} · ${_age}</span></span>
+                            <span style="color:#${col};font-weight:700">${u.dlPerMin||0}KB/min</span>
+                          </div>
+                          <div style="display:flex;justify-content:space-between;margin-top:1px">
+                            <span style="color:#445;font-size:10px">↓${u.dlKB||0}KB total · ↑${u.ulKB||0}KB · ${u.sessionMins||0}min session</span>
+                          </div>
+                        </div>`;
+                      }).join("")
+                    }
+                  </div>`;
+
+                // Toggle expand
+                section.querySelector(".tcc-da-faction-hdr").addEventListener("click", () => {
+                  const b = section.querySelector(".tcc-da-faction-body");
+                  const isOpen = b.style.display !== "none";
+                  b.style.display = isOpen ? "none" : "block";
+                  section.querySelector(".tcc-da-faction-hdr span:last-child").textContent =
+                    `${memberEntries.length} members · ${totalDl}KB dl · ${totalRate}KB/min ${isOpen?"▼":"▲"}`;
+                });
+
+                body.appendChild(section);
+                if (loaded === fids.length) status.textContent = `${fids.length} factions loaded`;
+              },
+              onerror()  { loaded++; },
+              ontimeout(){ loaded++; },
+            });
+          });
+        },
+        onerror()  { status.textContent = "Network error"; },
+        ontimeout(){ status.textContent = "Timeout"; },
+      });
+    });
+  }
+
   function openApiPopover() {
     closeAllPopovers();
     apiInput.value = tornApiKey || "";
@@ -2747,6 +2911,12 @@
     if (swtClose) swtClose.onclick = closeAllPopovers;
 
     // Open popover on button click
+    // Wire Data Analysis
+    document.getElementById("chain-gmenu-data-analysis")?.addEventListener("click", () => {
+      closeAllPopovers();
+      openDataAnalysis();
+    });
+
     // Wire SWT via gear menu item too
     const gSwtItem = document.getElementById("chain-gmenu-swt");
     if (gSwtItem) {
@@ -2850,6 +3020,8 @@
           const _gSwtSep = document.getElementById("chain-gmenu-swt-sep");
           if (_gSwt) _gSwt.style.removeProperty("display");
           if (_gSwtSep) _gSwtSep.style.removeProperty("display");
+          const _gDA = document.getElementById("chain-gmenu-data-analysis");
+          if (_gDA) _gDA.style.removeProperty("display");
           // Keep swtBtn hidden — it's now accessed via gear menu only
           // If TCC's factionId is available, share it with SWT
           if (typeof factionId !== "undefined" && factionId && _xw.__swtBridge) {
@@ -3044,6 +3216,14 @@
           `<span style="color:#778">Session</span><span style="color:#aaa;font-size:8px">${chainSessionId ? chainSessionId.slice(0,14)+"…" : "none"}</span>` +
           `<span style="color:#778">Hits</span><span style="color:#aaa">${hitMap.size}</span>` +
           `<span style="color:#778">FB polls</span><span style="color:#aaa">${_dbgPollCount}</span>` +
+          (() => {
+            const dl = _bg.dlBytes || 0;
+            const ul = _bg.ulBytes || 0;
+            const mins = Math.max(1, Math.round((Date.now() - (_bg.sessionStart||Date.now())) / 60000));
+            const fmt = b => b < 1024 ? b+"B" : b < 1048576 ? (b/1024).toFixed(1)+"KB" : (b/1048576).toFixed(2)+"MB";
+            const rate = (dl/1024/mins).toFixed(1);
+            return `<span style="color:#778">FB data</span><span style="color:#88ccff">↓${fmt(dl)} ↑${fmt(ul)} · ${rate}KB/min</span>`;
+          })() +
           `<span style="color:#778">Faction</span><span style="color:#aaa">${factionId || "—"}</span>` +
           `<span style="color:#778">Auth uid</span><span style="color:#aaa;font-size:9px">${fbUid ? fbUid.slice(0,8)+"…" : "—"}</span>` +
           `<span style="color:#778">TornPDA</span><span style="color:${isTornPDA ? "#44ff88" : "#556"}">${isTornPDA ? "yes ✓" : "no"}</span>` +
@@ -5128,7 +5308,19 @@
           // Write member record using cached version — no inner GET needed.
           // _memberVersionToWrite starts as CURRENT_VERSION and is only updated
           // if fbRegisterMember() reads a newer version stored by another device.
-          fbPut(P.memberMe(), { name: ownName, tornId: ownId, lastSeen: Date.now(), version: _memberVersionToWrite, browser: _browserTag });
+          const _sessionMins = Math.max(1, Math.round((Date.now() - (_bg.sessionStart||Date.now())) / 60000));
+          const _dlPerMin = Math.round((_bg.dlBytes||0) / 1024 / _sessionMins);
+          fbPut(P.memberMe(), {
+            name: ownName, tornId: ownId, lastSeen: Date.now(),
+            version: _memberVersionToWrite, browser: _browserTag,
+            dataUsage: {
+              dlKB:      Math.round((_bg.dlBytes||0) / 1024),
+              ulKB:      Math.round((_bg.ulBytes||0) / 1024),
+              dlPerMin:  _dlPerMin,
+              sessionMins: _sessionMins,
+              reportedAt:  Date.now(),
+            }
+          });
           fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
           _lastMembersResponse = null; // force fresh members fetch on next poll
         } else {
@@ -5345,6 +5537,39 @@
     });
   }
 
+  // ── Shared Firebase GET helper ────────────────────────────────────────────
+  // Module-level so fbPresencePoll, fbPollOnce, and other callers can all use it.
+  function _fbGet(url, lastResp, setter, patchPath, inFlightRef) {
+    if (inFlightRef && inFlightRef.v) return;
+    if (inFlightRef) inFlightRef.v = true;
+    const _done = () => { if (inFlightRef) inFlightRef.v = false; };
+    if (isTornPDA && TCC_PROXY_URL) {
+      _tccProxy("GET", url, null,
+        r => { _done(); if (r && r.status >= 200 && r.status < 300 && r.responseText !== lastResp) {
+          try { setter(r.responseText); queuePatch(patchPath, JSON.parse(r.responseText)); } catch(_) {} } },
+        () => _done(), () => _done(), 8000);
+      return;
+    }
+    _xhrTracked({
+      method: "GET", url,
+      headers: { "Cache-Control": "no-cache, no-store", "Pragma": "no-cache" },
+      timeout: 8000,
+      onload(r) {
+        _done();
+        if (r.status >= 200 && r.status < 300) {
+          if (r.responseText === lastResp) { setSyncDot("live"); return; }
+          try { setter(r.responseText); queuePatch(patchPath, JSON.parse(r.responseText)); setSyncDot("live"); showBanner("chain-banner-debug", false); if (_dbg.recordPoll) _dbg.recordPoll(); }
+          catch(e) { console.warn("[ChainCoord] parse err:", e.message); }
+        } else if (r.status === 401 || r.status === 403) {
+          if (fbRefreshToken) { fbRefreshIdToken(); if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; } setTimeout(() => fbStartMainListener(), 3000); }
+          else { showBanner("chain-banner-locked", true); if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; } }
+        } else { setSyncDot("error"); }
+      },
+      onerror()  { _done(); setSyncDot("error"); },
+      ontimeout(){ _done(); setSyncDot("error"); },
+    });
+  }
+
   let pollInFlight          = false;
   let _hitsInFlight         = false;
   let _sessInFlight         = false;
@@ -5362,9 +5587,11 @@
   function fbPollOnce() {
     if (!factionId || !fbConfigured()) return;
     if (document.hidden) return;
-    if (!_isLeaderTab) return;
-    if (pollInFlight) return;
-    pollInFlight = true;
+    // All tabs run presence (members) poll. Only leader tab runs hit/session polls.
+    // pollInFlight guards the leader-only paths below.
+    // pollInFlight only applies to leader tab — non-leader tabs always run members fetch
+    if (_isLeaderTab && pollInFlight) return;
+    if (_isLeaderTab) pollInFlight = true;
     _pollTickCount = (_pollTickCount || 0) + 1;
     setSyncDot("syncing");
 
@@ -5372,46 +5599,15 @@
     // Pending hits (4s) + session (12s) + members (32s) + done hits (16s when active).
     // Reduces ~18MB/poll → ~1-5KB/poll = ~95% bandwidth reduction.
 
-    function _fbGet(url, lastResp, setter, patchPath, inFlightRef) {
-      // Per-path inFlight guard — prevents concurrent fetches of the same path
-      if (inFlightRef && inFlightRef.v) return;
-      if (inFlightRef) inFlightRef.v = true;
-      const _done = () => { if (inFlightRef) inFlightRef.v = false; };
-      if (isTornPDA && TCC_PROXY_URL) {
-        _tccProxy("GET", url, null,
-          r => { _done(); if (r && r.status >= 200 && r.status < 300 && r.responseText !== lastResp) {
-            try { setter(r.responseText); queuePatch(patchPath, JSON.parse(r.responseText)); } catch(_) {} } },
-          () => _done(), () => _done(), 8000);
-        return;
-      }
-      _xhrTracked({
-        method: "GET", url,
-        headers: { "Cache-Control": "no-cache, no-store", "Pragma": "no-cache" },
-        timeout: 8000,
-        onload(r) {
-          _done();
-          if (r.status >= 200 && r.status < 300) {
-            if (r.responseText === lastResp) { setSyncDot("live"); return; }
-            try { setter(r.responseText); queuePatch(patchPath, JSON.parse(r.responseText)); setSyncDot("live"); showBanner("chain-banner-debug", false); if (_dbg.recordPoll) _dbg.recordPoll(); }
-            catch(e) { console.warn("[ChainCoord] parse err:", e.message); }
-          } else if (r.status === 401 || r.status === 403) {
-            if (fbRefreshToken) { fbRefreshIdToken(); if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; } setTimeout(() => fbStartMainListener(), 3000); }
-            else { showBanner("chain-banner-locked", true); if (ssePollInterval) { clearInterval(ssePollInterval); ssePollInterval = null; } }
-          } else { setSyncDot("error"); }
-        },
-        onerror()  { _done(); setSyncDot("error"); },
-        ontimeout(){ _done(); setSyncDot("error"); },
-      });
-    }
     // inFlight ref objects — one per path
     const _ifHits    = { v: false };
     const _ifSess    = { v: false };
     const _ifMembers = { v: false };
 
-    // Hit/session polling — only runs when chain active or hits queued.
-    // Members are handled by fbPresencePoll (every 5min, separate interval).
-    // pending hits: every tick = 10s
-    // session:      every 3 ticks = 30s
+    // Hit/session/presence polling
+    // pending hits: every tick = 10s (chain active) / every 2 ticks = 20s (idle)
+    // session:      every 5 ticks = 50s
+    // members:      every 6 ticks = 60s — ALL tabs, ensures presence on every client
 
     // Hybrid pending hits strategy:
     // 1. Shallow check (50 bytes) to detect key changes
@@ -5419,6 +5615,7 @@
     // 3. Fast mode (5s effective) when claimed hit due within 60s
     // 4. Slow mode (30s effective) when next hit is 3+ minutes away
     (function _smartHitsFetch() {
+      if (!_isLeaderTab) return; // hits/session only on leader tab
       if (_hitsShallowInFlight) return;
 
       // Determine urgency based on claimed hit timing
@@ -5462,11 +5659,16 @@
       });
     })();
 
-    if (_pollTickCount % 5 === 0) { // every 5 ticks × 10s = 50s
+    if (_isLeaderTab && _pollTickCount % 5 === 0) {
       _fbGet(P.session(), _lastSessionResponse, v => _lastSessionResponse = v, "/session", _ifSess);
     }
 
-    pollInFlight = false;
+    // Members every 60s on ALL tabs — presence must work regardless of leader status
+    if (_pollTickCount % 6 === 0 || _pollTickCount === 1) {
+      _fbGet(P.members(), _lastMembersResponse, v => _lastMembersResponse = v, "/members", _ifMembers);
+    }
+
+    if (_isLeaderTab) pollInFlight = false;
   }
 
   // ── Patch debounce ────────────────────────────────────────────────────────
