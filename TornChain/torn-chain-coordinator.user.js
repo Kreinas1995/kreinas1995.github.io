@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.3.5
+// @version      6.3.6
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -551,7 +551,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.3.5";
+  const CURRENT_VERSION  = "6.3.6";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -5279,8 +5279,9 @@
 
   // ── Presence poll (always-on, every 5min) ────────────────────────────────
   function fbPresencePoll() {
-    if (!factionId || !fbConfigured() || document.hidden || !_isLeaderTab) return;
-    _fbGet(P.members(), _lastMembersResponse, v => { _lastMembersResponse = v; _lastMembersResponse = null; }, "/members", { v: false });
+    if (!factionId || !fbConfigured() || document.hidden) return;
+    // All tabs read presence — leader-only would leave non-leader tabs with empty list
+    _fbGet(P.members(), _lastMembersResponse, v => { _lastMembersResponse = v; }, "/members", { v: false });
   }
 
   // ── Hit polling (only when chain active or hits queued) ───────────────────
@@ -5323,6 +5324,7 @@
     fbPollClientVersions();
 
     // Presence — always on, every 5 minutes + immediate boot fetch
+    // Runs on ALL tabs (not just leader) so every tab shows who's online
     fbPresencePoll();
     _fbPresenceInterval = setInterval(fbPresencePoll, 5 * 60 * 1000);
 
@@ -8179,6 +8181,10 @@
           factionId   = data.faction?.faction_id ? String(data.faction.faction_id) : null;
           factionName = data.faction?.faction_name||"";
           updateApiBtn();
+          // Update title immediately
+          const _titleEl = document.getElementById("chain-panel-title");
+          if (_titleEl && factionName) _titleEl.textContent = `⛓ ${factionName}`;
+          scheduleRender();
 
           if(!factionId||factionId==="0"){showBanner("chain-banner-nofact",true);return;}
           showBanner("chain-banner-nofact",false);
