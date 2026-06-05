@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.3.3
+// @version      6.3.4
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -429,12 +429,8 @@
     // param NAME (not just value) defeats this. We also add Cache-Control headers
     // to every GM request to prevent browser-level caching on top of VM's cache.
     let bustUrl = details.url || "";
-    if (!details.method || details.method.toUpperCase() === "GET") {
-      // Random param name ensures VM cache miss even if it strips query values
-      const _rk = "_" + Math.random().toString(36).slice(2, 7);
-      bustUrl += (bustUrl.includes("?") ? "&" : "?") + _rk + "=" + Date.now();
-    }
     if (bustUrl.includes("api.torn.com")) {
+      // Torn API: native fetch, no cache bust param (avoids CDN cache misses = slow)
       // api.torn.com: use native fetch, NO Cache-Control headers (Torn CDN rejects them)
       const _m=(details.method||"GET").toUpperCase(),_c=new AbortController(),_t=setTimeout(()=>_c.abort(),details.timeout||15000);
       const _o={method:_m,credentials:"omit",signal:_c.signal,cache:"no-store"};
@@ -445,7 +441,9 @@
         .catch(e=>{clearTimeout(_t);_bg.xhrErr++;_bgSavePersisted();if(e&&e.name==="AbortError"){if(origTimeout)origTimeout({});}else{if(origErr)origErr({error:e&&e.message});}});
       return;
     }
-    // GM path (Firebase/Google) — safe to add no-cache headers here
+    // GM path (Firebase/Google) — add cache bust + no-cache headers
+    const _rk = "_" + Math.random().toString(36).slice(2, 7);
+    bustUrl += (bustUrl.includes("?") ? "&" : "?") + _rk + "=" + Date.now();
     const _gmHeaders = Object.assign({}, details.headers || {});
     _gmHeaders["Cache-Control"] = "no-cache, no-store";
     _gmHeaders["Pragma"] = "no-cache";
@@ -553,7 +551,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.3.3";
+  const CURRENT_VERSION  = "6.3.4";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -1023,6 +1021,7 @@
     clientVersion:   key => `${FIREBASE_DB_URL}/meta/clientVersions/${key}.json${auth()}`,
     clientVersions:  ()  => `${FIREBASE_DB_URL}/meta/clientVersions.json${auth()}`,
     latestVersion:   ()  => `${FIREBASE_DB_URL}/meta/latestVersion.json${auth()}`,
+    minVersion:      ()  => `${FIREBASE_DB_URL}/meta/minVersion.json${auth()}`,
     bugReport:    id  => `${FIREBASE_DB_URL}/bugs/${id}.json${auth()}`,
     bugs:         ()  => `${FIREBASE_DB_URL}/bugs.json${auth()}`,
     bugTracker:   ()  => `${FIREBASE_DB_URL}/bugTracker.json${auth()}`,
@@ -5182,6 +5181,11 @@
     // push networkLatestVersion above what GitHub has published — otherwise a
     // dev/pre-release build running locally would trigger phantom update arrows
     // on all other clients pointing to a version that doesn't exist on GitHub.
+    // Also check minimum supported version — blocks outdated clients
+    fbGet(P.minVersion(), mv => {
+      if (mv && typeof mv === "string") checkVersionGate(mv);
+    });
+
     fbGet(P.latestVersion(), lv => {
       const githubLatest = (lv && lv.version) ? lv.version : CURRENT_VERSION;
       fbGet(P.clientVersions(), data => {
@@ -8258,6 +8262,32 @@
   //  Version check — compare running version against GitHub raw file
   // ══════════════════════════════════════════════════════════════════════════
   // CURRENT_VERSION is declared at the top of the IIFE (needed for panel HTML template).
+  function checkVersionGate(minVer) {
+    if (!minVer) return;
+    if (!isNewerVersion(CURRENT_VERSION, minVer) && CURRENT_VERSION !== minVer) return; // we're at or above min
+    // Current version is below minimum — block the UI
+    console.warn("[ChainCoord] Version gate: current=" + CURRENT_VERSION + " min=" + minVer);
+    // Stop all polling immediately
+    if (ssePollInterval)      { clearInterval(ssePollInterval);      ssePollInterval      = null; }
+    if (_fbHitPollInterval)   { clearInterval(_fbHitPollInterval);   _fbHitPollInterval   = null; }
+    if (factionPollInterval)  { clearInterval(factionPollInterval);  factionPollInterval  = null; }
+    if (attackPollInterval)   { clearInterval(attackPollInterval);   attackPollInterval   = null; }
+    if (heartbeatInterval)    { clearInterval(heartbeatInterval);    heartbeatInterval    = null; }
+    // Show gate banner, hide everything else
+    showBanner("chain-banner-forced-update", true);
+    showBanner("chain-banner-status",  false);
+    showBanner("chain-banner-debug",   false);
+    showBanner("chain-banner-locked",  false);
+    const panelBody = document.getElementById("chain-panel-body");
+    if (panelBody) panelBody.style.display = "none";
+    // Wire click to update URL
+    const gateBanner = document.getElementById("chain-banner-forced-update");
+    if (gateBanner) gateBanner.addEventListener("click", () => {
+      window.open("https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/TornChain/torn-chain-coordinator.user.js", "_blank");
+    });
+    setSyncDot("error");
+  }
+
   function checkForUpdate() {
     _xhrTracked({
       method: "GET",
