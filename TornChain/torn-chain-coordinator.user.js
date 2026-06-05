@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.3.4
+// @version      6.3.5
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -551,7 +551,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.3.4";
+  const CURRENT_VERSION  = "6.3.5";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -8221,6 +8221,9 @@
               showBanner("chain-banner-locked", false);
               fbStartMainListener();
               _wireVisibilityCatchup();
+              // Presence poll fires inside fbStartMainListener, but we also trigger
+              // a second one 3s later to catch our own heartbeat write
+              setTimeout(fbPresencePoll, 3000);
               pollFactionChain();
               _chainPollIsActive = false;
               if (!factionPollInterval) factionPollInterval = setInterval(pollFactionChain, CHAIN_POLL_IDLE_MS);
@@ -8241,6 +8244,7 @@
               if (IS_ATTACK_PAGE) setTimeout(pollFactionChain, 2000);
             });
 
+            fbHeartbeat(); // fire immediately on boot — don't wait 60s for first presence write
             if (!heartbeatInterval) heartbeatInterval = setInterval(fbHeartbeat, PRESENCE_HEARTBEAT);
           });
         } catch { showBanner("chain-banner-status",true,"Failed to parse API response."); }
