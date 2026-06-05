@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.3.12
+// @version      6.4.0
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -319,11 +319,18 @@
       _bgLastSaveAt = Date.now();
       try {
         localStorage.setItem(BG_LS_KEY, JSON.stringify({
-          freezeCount: _bg.freezeCount,
-          freezeLog:   _bg.freezeLog.slice(0, BG_LOG_MAX),
-          xhrTotal:    _bg.xhrTotal,
-          xhrErr:      _bg.xhrErr,
-          firstSeen:   _bg.firstSeen,
+          freezeCount:  _bg.freezeCount,
+          freezeLog:    _bg.freezeLog.slice(0, BG_LOG_MAX),
+          xhrTotal:     _bg.xhrTotal,
+          xhrErr:       _bg.xhrErr,
+          firstSeen:    _bg.firstSeen,
+          dlBytesTotal: (_bg.dlBytesTotal || 0) + (_bg.dlBytes || 0),
+          ulBytesTotal: (_bg.ulBytesTotal || 0) + (_bg.ulBytes || 0),
+          dlByPathTotal:(function(){
+            const t = Object.assign({}, _bg.dlByPathTotal || {});
+            Object.entries(_bg.dlByPath || {}).forEach(([k,v]) => { t[k] = (t[k]||0) + v; });
+            return t;
+          })(),
         }));
       } catch(_) {}
     }, delay);
@@ -338,9 +345,12 @@
     freezeLog:   _bgPrev ? _bgPrev.freezeLog   : [],      // persisted freeze events
     xhrTotal:    _bgPrev ? _bgPrev.xhrTotal    : 0,
     xhrErr:      _bgPrev ? _bgPrev.xhrErr      : 0,
-    dlBytes:     0,   // bytes downloaded via GM bridge this session
-    ulBytes:     0,   // bytes uploaded via GM bridge this session
-    dlByPath:    {},  // per-path breakdown
+    dlBytes:      0,                                          // bytes downloaded this session
+    ulBytes:      0,                                          // bytes uploaded this session
+    dlByPath:     {},                                         // per-path this session
+    dlBytesTotal: _bgPrev ? (_bgPrev.dlBytesTotal || 0) : 0, // cumulative across all sessions
+    ulBytesTotal: _bgPrev ? (_bgPrev.ulBytesTotal || 0) : 0,
+    dlByPathTotal:_bgPrev ? (_bgPrev.dlByPathTotal || {}) : {},
     sessionStart: Date.now(),
     lastRafTime: 0,
     rafActive:   true,
@@ -480,6 +490,12 @@
         _bg.ulBytes = (_bg.ulBytes || 0) + ul;
         _bg.dlByPath = _bg.dlByPath || {};
         _bg.dlByPath[_trackPath] = (_bg.dlByPath[_trackPath] || 0) + dl;
+        // Cumulative totals (persisted across page loads)
+        _bg.dlBytesTotal = (_bg.dlBytesTotal || 0) + dl;
+        _bg.ulBytesTotal = (_bg.ulBytesTotal || 0) + ul;
+        _bg.dlByPathTotal = _bg.dlByPathTotal || {};
+        _bg.dlByPathTotal[_trackPath] = (_bg.dlByPathTotal[_trackPath] || 0) + dl;
+        _bgSavePersisted();
         if (_origOnload) _origOnload.apply(this, arguments);
       },
       onerror:   function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); },
@@ -582,7 +598,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.3.12";
+  const CURRENT_VERSION  = "6.4.0";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -864,7 +880,7 @@
   let settCompactMode    = _gmGet(SK_COMPACT_MODE,     false);
   let settNotifySound    = _gmGet(SK_NOTIFY_SOUND,     false);
   let settTimerFudge     = _gmGet(SK_TIMER_FUDGE_USR,  0);
-  let settPanelOpacity   = _gmGet(SK_PANEL_OPACITY,    0.96);
+  let settPanelOpacity   = _gmGet(SK_PANEL_OPACITY,    1.0);
   let settWarnThreshold  = _gmGet(SK_WARN_THRESHOLD,   90);
   let settDangerThreshold= _gmGet(SK_DANGER_THRESHOLD, 30);
   let settHighContrast   = _gmGet(SK_HIGH_CONTRAST,    false);
@@ -2246,7 +2262,7 @@
   // over the CSS default regardless of specificity.
   (function _applyEarlyOpacity() {
     try {
-      const _op = _gmGet(SK_PANEL_OPACITY, 0.96);
+      const _op = _gmGet(SK_PANEL_OPACITY, 1.0);
       panel.style.setProperty("background",
         `rgba(16,18,24,${_op})`, "important");
     } catch(_) {}
@@ -2743,7 +2759,13 @@
                             <span style="color:#${col};font-weight:700">${u.dlPerMin||0}KB/min</span>
                           </div>
                           <div style="display:flex;justify-content:space-between;margin-top:1px">
-                            <span style="color:#445;font-size:10px">↓${u.dlKB||0}KB total · ↑${u.ulKB||0}KB · ${u.sessionMins||0}min session</span>
+                            <span style="color:#445;font-size:10px">↓${u.dlTotalKB||u.dlKB||0}KB total · session:↓${u.dlKB||0}KB · ${u.sessionMins||0}min</span>
+                            <button onclick="(function(){
+                              const _rk=Date.now().toString(36);
+                              _xhrTracked({method:'PUT',url:'${FIREBASE_DB_URL}/factions/${fid}/members/torn_${m.tornId||''}/dataUsage/resetKey.json?auth=${fbToken}',
+                                headers:{'Content-Type':'application/json'},data:JSON.stringify(_rk),timeout:5000,
+                                onload:function(){},onerror:function(){},ontimeout:function(){}});
+                            })()" style="background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff8888;border-radius:3px;padding:1px 6px;font-size:9px;cursor:pointer">Reset</button>
                           </div>
                         </div>`;
                       }).join("")
@@ -3217,12 +3239,14 @@
           `<span style="color:#778">Hits</span><span style="color:#aaa">${hitMap.size}</span>` +
           `<span style="color:#778">FB polls</span><span style="color:#aaa">${_dbgPollCount}</span>` +
           (() => {
-            const dl = _bg.dlBytes || 0;
-            const ul = _bg.ulBytes || 0;
+            const dl  = _bg.dlBytes || 0;
+            const ul  = _bg.ulBytes || 0;
+            const dlT = (_bg.dlBytesTotal || 0) + dl;
+            const ulT = (_bg.ulBytesTotal || 0) + ul;
             const mins = Math.max(1, Math.round((Date.now() - (_bg.sessionStart||Date.now())) / 60000));
             const fmt = b => b < 1024 ? b+"B" : b < 1048576 ? (b/1024).toFixed(1)+"KB" : (b/1048576).toFixed(2)+"MB";
             const rate = (dl/1024/mins).toFixed(1);
-            return `<span style="color:#778">FB data</span><span style="color:#88ccff">↓${fmt(dl)} ↑${fmt(ul)} · ${rate}KB/min</span>`;
+            return `<span style="color:#778">FB data</span><span style="color:#88ccff">↓${fmt(dl)} ↑${fmt(ul)} · ${rate}KB/min · total:↓${fmt(dlT)}</span>`;
           })() +
           `<span style="color:#778">Faction</span><span style="color:#aaa">${factionId || "—"}</span>` +
           `<span style="color:#778">Auth uid</span><span style="color:#aaa;font-size:9px">${fbUid ? fbUid.slice(0,8)+"…" : "—"}</span>` +
@@ -3238,9 +3262,12 @@
         const totalMs2 = now2 - _bg.firstSeen;
         const totMin2  = Math.floor(totalMs2 / 60000);
         const totSec2  = Math.floor((totalMs2 % 60000) / 1000);
+        const dlT2 = (_bg.dlBytesTotal||0) + (_bg.dlBytes||0);
+        const fmt2 = b => b < 1048576 ? (b/1024).toFixed(0)+"KB" : (b/1048576).toFixed(2)+"MB";
         let fhtml = `<span style="color:#445">Tracked ${totMin2}m${totSec2}s | ` +
           `<span style="color:${_bg.freezeCount>0?"#ff8888":"#44ff88"}">${_bg.freezeCount} freeze${_bg.freezeCount!==1?"s":""}</span> | ` +
-          `XHR ${_bg.xhrTotal} (${_bg.xhrErr} err)</span><br>`;
+          `XHR ${_bg.xhrTotal} (${_bg.xhrErr} err) | ` +
+          `<span style="color:#88ccff">↓${fmt2(dlT2)} total</span></span><br>`;
         if (_bg.freezeLog.length) {
           _bg.freezeLog.slice(0, 8).forEach(f => {
             fhtml += `<span style="color:#445">${f.time}</span> <span style="color:#ff8888">⚠ ${f.gap}ms</span><br>`;
@@ -3430,6 +3457,48 @@
           }
         });
       }, 50);
+
+      // ── Usage reset button ──
+      const usageResetDiv = document.createElement("div");
+      Object.assign(usageResetDiv.style, {
+        display:"flex", alignItems:"center", justifyContent:"space-between",
+        padding:"3px 10px", flexShrink:"0",
+        borderBottom:"1px solid rgba(255,255,255,.06)",
+        fontSize:"10px", fontFamily:"monospace",
+      });
+      usageResetDiv.innerHTML =
+        `<span style="color:#556">↓<span id="tcc-dbg-usage-total">…</span> Firebase total</span>` +
+        `<button id="tcc-dbg-usage-reset" style="background:rgba(255,100,100,.15);border:1px solid rgba(255,100,100,.3);color:#ff8888;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">Reset my usage</button>`;
+      bodyWrap.appendChild(usageResetDiv);
+      setTimeout(() => {
+        // Update total display
+        const _utEl = document.getElementById("tcc-dbg-usage-total");
+        if (_utEl) {
+          const dlT = (_bg.dlBytesTotal||0) + (_bg.dlBytes||0);
+          const fmt = b => b < 1048576 ? (b/1024).toFixed(0)+"KB" : (b/1048576).toFixed(2)+"MB";
+          _utEl.textContent = fmt(dlT);
+        }
+        // Reset button
+        document.getElementById("tcc-dbg-usage-reset")?.addEventListener("click", () => {
+          _bg.dlBytes = 0; _bg.ulBytes = 0; _bg.dlByPath = {};
+          _bg.dlBytesTotal = 0; _bg.ulBytesTotal = 0; _bg.dlByPathTotal = {};
+          _bgSavePersisted();
+          // Write reset timestamp to Firebase so Data Analysis knows
+          const _resetKey = Date.now().toString(36);
+          _gmSet("tcc_usage_reset_key", _resetKey);
+          if (fbToken && ownId) {
+            fbPut(P.memberMe(), {
+              name: ownName, tornId: ownId, lastSeen: Date.now(),
+              version: _memberVersionToWrite, browser: _browserTag,
+              dataUsage: { dlKB:0, ulKB:0, dlTotalKB:0, ulTotalKB:0, dlPerMin:0,
+                           sessionMins:0, reportedAt:Date.now(), resetKey:_resetKey }
+            });
+          }
+          if (_utEl) _utEl.textContent = "0KB";
+          const btn = document.getElementById("tcc-dbg-usage-reset");
+          if (btn) { btn.textContent = "Reset ✓"; setTimeout(()=>{ if(btn) btn.textContent="Reset my usage"; },2000); }
+        });
+      }, 100);
 
       // ── Console log area ──
       const logDiv = document.createElement("div");
@@ -3784,7 +3853,7 @@
        SK_POS_X_FULL, SK_POS_Y_FULL, SK_POS_X_ICON, SK_POS_Y_ICON, SK_POS_X_MINI, SK_POS_Y_MINI
       ].forEach(k => _gmSet(k, null));
       settShowDoneHits = true; settCompactMode = false; settNotifySound = false;
-      settTimerFudge = 0; settPanelOpacity = 0.96; settWarnThreshold = 90;
+      settTimerFudge = 0; settPanelOpacity = 1.0; settWarnThreshold = 90;
       settDangerThreshold = 30; settShowBonusAlert = true; settMiniShowCount = true;
       settAutoExpandDue = false; settDebugConsole = false; settShowBrowser = true;
       applyDebugConsole(false);
@@ -5143,6 +5212,32 @@
   //  Firebase anonymous auth
   // ══════════════════════════════════════════════════════════════════════════
   function fbSignInAnon(cb) {
+    // Check minVersion before connecting — blocks old clients from hitting Firebase at all
+    // /meta/minVersion has .read:true so no auth needed
+    _xhrTracked({
+      method: "GET",
+      url: `${FIREBASE_DB_URL}/meta/minVersion.json`,
+      timeout: 6000,
+      onload(r2) {
+        try {
+          if (r2.status >= 200 && r2.status < 300) {
+            const minVer = JSON.parse(r2.responseText);
+            if (minVer && typeof minVer === "string" && isNewerVersion(minVer, CURRENT_VERSION)) {
+              console.warn("[ChainCoord] Version blocked: current=" + CURRENT_VERSION + " min=" + minVer);
+              checkVersionGate(minVer);
+              cb(null, null);
+              return;
+            }
+          }
+        } catch(_) {}
+        _doFbSignIn(cb);
+      },
+      onerror()  { _doFbSignIn(cb); },
+      ontimeout(){ _doFbSignIn(cb); },
+    });
+  }
+
+  function _doFbSignIn(cb) {
     let _settled = false;
     _xhrTracked({
       method:"POST",
@@ -5314,11 +5409,14 @@
             name: ownName, tornId: ownId, lastSeen: Date.now(),
             version: _memberVersionToWrite, browser: _browserTag,
             dataUsage: {
-              dlKB:      Math.round((_bg.dlBytes||0) / 1024),
-              ulKB:      Math.round((_bg.ulBytes||0) / 1024),
-              dlPerMin:  _dlPerMin,
+              dlKB:       Math.round((_bg.dlBytes||0) / 1024),
+              ulKB:       Math.round((_bg.ulBytes||0) / 1024),
+              dlTotalKB:  Math.round(((_bg.dlBytesTotal||0) + (_bg.dlBytes||0)) / 1024),
+              ulTotalKB:  Math.round(((_bg.ulBytesTotal||0) + (_bg.ulBytes||0)) / 1024),
+              dlPerMin:   _dlPerMin,
               sessionMins: _sessionMins,
               reportedAt:  Date.now(),
+              resetKey:    _gmGet("tcc_usage_reset_key", null),
             }
           });
           fbPut(P.clientVersion("torn_"+ownId), { version: CURRENT_VERSION, name: ownName, lastSeen: Date.now() });
