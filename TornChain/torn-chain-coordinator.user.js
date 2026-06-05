@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.3.2
+// @version      6.3.3
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -553,7 +553,7 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.3.2";
+  const CURRENT_VERSION  = "6.3.3";
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -3819,7 +3819,7 @@
     // no separate fetch delay. Covers both online and recently-offline members.
     recomputeNetworkLatestVersion();
 
-    updateOnlineCount();
+    updateOnlineCount(); // keep badge in sync with rendered list
 
     if (!online.length) {
       presenceList.innerHTML = `<div style="font-size:11px;color:#445;text-align:center;padding:4px">No one else online</div>`;
@@ -5631,9 +5631,19 @@
     }
 
     if (path === "/members") {
-      presenceMap.clear();
+      // Normalize lastSeen: old entries may have been written in seconds not ms
+      function _normLastSeen(m) {
+        if (!m) return m;
+        if (m.lastSeen && m.lastSeen < 1e10) m = Object.assign({}, m, { lastSeen: m.lastSeen * 1000 });
+        return m;
+      }
       if (data && typeof data === "object") {
-        Object.entries(data).forEach(([uid, m]) => { if(m) presenceMap.set(uid, m); });
+        for (const uid of presenceMap.keys()) {
+          if (!data[uid]) presenceMap.delete(uid);
+        }
+        Object.entries(data).forEach(([uid, m]) => { if (m) presenceMap.set(uid, _normLastSeen(m)); });
+      } else {
+        presenceMap.clear();
       }
       recomputeNetworkLatestVersion();
       updateOnlineCount();
@@ -5644,7 +5654,11 @@
     if (memberMatch) {
       const uid = memberMatch[1];
       if (data === null) presenceMap.delete(uid);
-      else presenceMap.set(uid, data);
+      else {
+        const norm = (data.lastSeen && data.lastSeen < 1e10)
+          ? Object.assign({}, data, { lastSeen: data.lastSeen * 1000 }) : data;
+        presenceMap.set(uid, norm);
+      }
       recomputeNetworkLatestVersion();
       updateOnlineCount();
       return;
@@ -5866,7 +5880,7 @@
   //  Session management
   // ══════════════════════════════════════════════════════════════════════════
   function onChainStart(startMs) {
-    const _wasAlreadyActive = !!chainSessionId; // true = page load detection, not new chain
+    const _wasAlreadyActive = _isFirstBoot; // true = first chain detection after page load
     if (chainSessionId) return; // already have a session — spurious call
 
     const oldSessionId = chainSessionId; // null here but kept for clarity
@@ -6288,6 +6302,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   let _chainPollIsActive      = false; // true = 5.3s rate, false = 30s idle rate
   let _forceAttacksPollOnce   = false; // lets attackData interceptor trigger one attacks poll
+  let _isFirstBoot            = true;  // cleared after first pollFactionChain completes
   let _chainPollBackoffSkips = 0;    // skip N ticks after rate-limit (error 5)
 
   function _maybeRescheduleChainPoll() {
@@ -6319,10 +6334,11 @@
             onChainApiData(d.chain);
           }
         } catch { /**/ }
+        _isFirstBoot = false; // mark first poll complete — subsequent onChainStart = new chain
         _maybeRescheduleChainPoll();
       },
-      onerror()  { },
-      ontimeout(){ },
+      onerror()  { _isFirstBoot = false; },
+      ontimeout(){ _isFirstBoot = false; },
     });
   }
 
@@ -8210,11 +8226,11 @@
               // Page load with active chain: fire attacks poll immediately so
               // "Waiting for Data" clears without waiting for the 30s interval.
               // Delayed 2s to let Firebase session fetch complete first.
+              // Safety net: if chain is active, ensure attacks poll fires even if
+              // onChainStart path was missed. 8s gives pollFactionChain time to return.
               setTimeout(() => {
-                if (chainStartTime && !_cachedSessionRestored) {
-                  pollFactionAttacks();
-                }
-              }, 2000);
+                if (chainStartTime) pollFactionAttacks();
+              }, 8000);
               if (!_hospRecheckInterval) _hospRecheckInterval = setInterval(recheckHospTargets, 60000); // 60s — only matters for hosp timing
               if (!isTornPDA && !timerRetryInterval) startTimerRetryLoop();
               if (!isTornPDA && !chainTimerObserver) scheduleTooltipTrigger();
