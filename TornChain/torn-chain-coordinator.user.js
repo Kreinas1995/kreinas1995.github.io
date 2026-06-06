@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Chain Coordinator
 // @namespace    https://kreinas1995.github.io/
-// @version      6.4.0
+// @version      6.4.4
 // @description  Multi-faction shared chain board. Keyed Firebase writes, single SSE per client, presence display, faction-scoped auth.
 // @author       Kreinas1995
 // @match        https://www.torn.com/*
@@ -495,7 +495,11 @@
         _bg.ulBytesTotal = (_bg.ulBytesTotal || 0) + ul;
         _bg.dlByPathTotal = _bg.dlByPathTotal || {};
         _bg.dlByPathTotal[_trackPath] = (_bg.dlByPathTotal[_trackPath] || 0) + dl;
-        _bgSavePersisted();
+        // Debounced save — don't write localStorage on every XHR response
+        if (!_bg._savePending) {
+          _bg._savePending = true;
+          setTimeout(() => { _bg._savePending = false; _bgSavePersisted(); }, 30000);
+        }
         if (_origOnload) _origOnload.apply(this, arguments);
       },
       onerror:   function(...a) { _bg.xhrErr++; _bgSavePersisted(); if (origErr)     origErr.apply(this, a); },
@@ -598,7 +602,13 @@
   // OWNER_TORN_ID has been removed from client code — owner identity is verified
   // exclusively by Firebase rules (lobby/{uid}/tornId check server-side). This prevents
   // anyone from editing the script to impersonate the owner.
-  const CURRENT_VERSION  = "6.4.0";
+  const CURRENT_VERSION  = "6.4.4";
+  // Numeric version for Firebase rules comparison (avoids string lexicographic issues)
+  // Format: major*10000 + minor*100 + patch  e.g. 6.4.0 = 60400
+  const CURRENT_VERSION_INT = (function() {
+    const p = CURRENT_VERSION.split(".").map(Number);
+    return (p[0]||0)*10000 + (p[1]||0)*100 + (p[2]||0);
+  })();
   // ── v5.8.20 ───────────────────────────────────────────────────────────────
   // • Attack scraper: apiCount ceiling now uses liveChainCount + 1 instead of
   //   strict liveChainCount. The attacks endpoint and chain count poll have
@@ -2738,13 +2748,14 @@
                 section.style.cssText = "margin-bottom:4px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;overflow:hidden";
 
                 const memberEntries = Object.values(members).filter(m => m && m.name);
-                const totalDl = memberEntries.reduce((s,m) => s + (m.dataUsage?.dlKB || 0), 0);
-                const totalRate = memberEntries.reduce((s,m) => s + (m.dataUsage?.dlPerMin || 0), 0);
+                const totalDlKB = memberEntries.reduce((s,m) => s + (m.dataUsage?.dlTotalKB || m.dataUsage?.dlKB || 0), 0);
+                const totalRate  = memberEntries.reduce((s,m) => s + (m.dataUsage?.dlPerMin || 0), 0);
+                const _fmtKB = kb => { const b=kb*1024; if(b<1048576) return (b/1024).toFixed(0)+"KB"; if(b<1073741824) return (b/1048576).toFixed(1)+"MB"; return (b/1073741824).toFixed(2)+"GB"; };
 
                 section.innerHTML = `
                   <div class="tcc-da-faction-hdr" style="padding:6px 10px;background:rgba(68,170,255,0.08);cursor:pointer;display:flex;justify-content:space-between;align-items:center">
                     <span style="color:#88bbff;font-weight:700">Faction ${fid}</span>
-                    <span style="color:#556;font-size:10px">${memberEntries.length} members · ${totalDl}KB dl · ${totalRate}KB/min ▼</span>
+                    <span style="color:#556;font-size:10px">${memberEntries.length} members · ${_fmtKB(totalDlKB)} total · ${totalRate}KB/min ▼</span>
                   </div>
                   <div class="tcc-da-faction-body" style="display:none;padding:4px 6px">
                     ${memberEntries.length === 0 ? '<div style="color:#445;padding:4px">No data reported yet</div>' :
@@ -2753,13 +2764,13 @@
                         const age = u.reportedAt ? Math.round((Date.now()-u.reportedAt)/60000)+"m ago" : "never";
                         const col = (u.dlPerMin||0)>5?"ff8844":(u.dlPerMin||0)>2?"ffcc44":"44ff88";
                         const _age = u.reportedAt ? Math.round((Date.now()-u.reportedAt)/60000)+"m ago" : "never";
-                        return `<div style="padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.04)">
+                        return `<div data-member-dl="${u.dlTotalKB||u.dlKB||0}" data-member-rate="${u.dlPerMin||0}" style="padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.04)">
                           <div style="display:flex;justify-content:space-between">
                             <span style="color:#ccc">${m.name||"?"} <span style="color:#445;font-size:10px">v${m.version||"?"} · ${m.browser||"?"} · ${_age}</span></span>
-                            <span style="color:#${col};font-weight:700">${u.dlPerMin||0}KB/min</span>
+                            <span style="color:#${col};font-weight:700">${(u.dlPerMin||0)<1&&(u.dlPerMin||0)>0?(u.dlPerMin||0).toFixed(1):(u.dlPerMin||0)}KB/min</span>
                           </div>
                           <div style="display:flex;justify-content:space-between;margin-top:1px">
-                            <span style="color:#445;font-size:10px">↓${u.dlTotalKB||u.dlKB||0}KB total · session:↓${u.dlKB||0}KB · ${u.sessionMins||0}min</span>
+                            <span style="color:#445;font-size:10px">total:↓${_fmtKB(u.dlTotalKB||u.dlKB||0)} ↑${_fmtKB(u.ulTotalKB||u.ulKB||0)} · session:↓${_fmtKB(u.dlKB||0)} · ${u.sessionMins||0}min</span>
                             <button onclick="(function(){
                               const _rk=Date.now().toString(36);
                               _xhrTracked({method:'PUT',url:'${FIREBASE_DB_URL}/factions/${fid}/members/torn_${m.tornId||''}/dataUsage/resetKey.json?auth=${fbToken}',
@@ -2778,11 +2789,35 @@
                   const isOpen = b.style.display !== "none";
                   b.style.display = isOpen ? "none" : "block";
                   section.querySelector(".tcc-da-faction-hdr span:last-child").textContent =
-                    `${memberEntries.length} members · ${totalDl}KB dl · ${totalRate}KB/min ${isOpen?"▼":"▲"}`;
+                    `${memberEntries.length} members · ${_fmtKB(totalDlKB)} total · ${totalRate}KB/min ${isOpen?"▼":"▲"}`;
                 });
 
                 body.appendChild(section);
-                if (loaded === fids.length) status.textContent = `${fids.length} factions loaded`;
+                if (loaded === fids.length) {
+                  status.textContent = `${fids.length} factions loaded`;
+                  // Show aggregate totals
+                  setTimeout(() => {
+                    const allMembers = Array.from(document.querySelectorAll(".tcc-da-member-data"));
+                    // Aggregate is shown in faction headers already
+                    // Add grand total row at top
+                    const existingTotal = document.getElementById("tcc-da-grand-total");
+                    if (!existingTotal) {
+                      const gt = document.createElement("div");
+                      gt.id = "tcc-da-grand-total";
+                      gt.style.cssText = "padding:6px 10px;background:rgba(68,170,255,0.06);border:1px solid rgba(68,170,255,0.15);border-radius:6px;margin-bottom:6px;font-size:10px";
+                      // Collect all members across all factions
+                      let grandDl=0, grandRate=0, grandMembers=0;
+                      document.querySelectorAll("[data-member-dl]").forEach(el => {
+                        grandDl   += parseInt(el.dataset.memberDl  ||0);
+                        grandRate += parseInt(el.dataset.memberRate ||0);
+                        grandMembers++;
+                      });
+                      const _fmtKB2 = kb => { const b=kb*1024; if(b<1048576) return (b/1024).toFixed(0)+"KB"; if(b<1073741824) return (b/1048576).toFixed(1)+"MB"; return (b/1073741824).toFixed(2)+"GB"; };
+                      gt.innerHTML = `<span style="color:#88bbff;font-weight:700">📊 All factions</span> <span style="color:#556">${grandMembers} reporting members · total downloaded: <span style="color:#88ccff">${_fmtKB2(grandDl)}</span> · live rate: <span style="color:#88ccff">${grandRate}KB/min</span></span>`;
+                      body.insertBefore(gt, body.firstChild);
+                    }
+                  }, 100);
+                }
               },
               onerror()  { loaded++; },
               ontimeout(){ loaded++; },
@@ -2873,6 +2908,8 @@
       if (gearMenu.classList.contains("open")) { gearMenu.classList.remove("open"); return; }
       closeAllPopovers();
       gearMenu.classList.add("open");
+      // Retry owner probe if not yet confirmed — ensures whitelist shows after delayed auth
+      if (ownerProbeResult === null && fbToken && fbUid) fbProbeOwner();
     });
     const _gWire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
     _gWire("chain-gmenu-bug", e => {
@@ -3245,7 +3282,7 @@
             const ulT = (_bg.ulBytesTotal || 0) + ul;
             const mins = Math.max(1, Math.round((Date.now() - (_bg.sessionStart||Date.now())) / 60000));
             const fmt = b => b < 1024 ? b+"B" : b < 1048576 ? (b/1024).toFixed(1)+"KB" : (b/1048576).toFixed(2)+"MB";
-            const rate = (dl/1024/mins).toFixed(1);
+            const rate = mins < 2 ? "—" : (dl/1024/mins).toFixed(1);
             return `<span style="color:#778">FB data</span><span style="color:#88ccff">↓${fmt(dl)} ↑${fmt(ul)} · ${rate}KB/min · total:↓${fmt(dlT)}</span>`;
           })() +
           `<span style="color:#778">Faction</span><span style="color:#aaa">${factionId || "—"}</span>` +
@@ -5404,7 +5441,8 @@
           // _memberVersionToWrite starts as CURRENT_VERSION and is only updated
           // if fbRegisterMember() reads a newer version stored by another device.
           const _sessionMins = Math.max(1, Math.round((Date.now() - (_bg.sessionStart||Date.now())) / 60000));
-          const _dlPerMin = Math.round((_bg.dlBytes||0) / 1024 / _sessionMins);
+          // Use session bytes / session mins for current rate (not total which inflates early)
+          const _dlPerMin = _sessionMins < 2 ? 0 : Math.round((_bg.dlBytes||0) / 1024 / _sessionMins);
           fbPut(P.memberMe(), {
             name: ownName, tornId: ownId, lastSeen: Date.now(),
             version: _memberVersionToWrite, browser: _browserTag,
@@ -8508,7 +8546,7 @@
 
             function _doLobby(n) {
               fbRequest({ method:"PUT", url:P.lobbyMe(), headers:{"Content-Type":"application/json"},
-                data:JSON.stringify({name:ownName,tornId:ownId,factionId:factionId,lastSeen:Date.now(),browser:_browserTag,version:CURRENT_VERSION}),
+                data:JSON.stringify({name:ownName,tornId:ownId,factionId:factionId,lastSeen:Date.now(),browser:_browserTag,version:CURRENT_VERSION,versionInt:CURRENT_VERSION_INT}),
                 timeout:10000,
                 onload(r){ if(!(r.status>=200&&r.status<300)&&n<3) setTimeout(()=>_doLobby(n+1),3000); },
                 onerror(){ if(n<3) setTimeout(()=>_doLobby(n+1),3000); },
