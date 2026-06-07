@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn BJ Advisor
 // @namespace    https://www.torn.com/
-// @version      7.6
+// @version      7.8
 // @description  Perfect strategy for Torn BJ +0.37% edge. Auto-bet, session/lifetime stats, goal mode.
 // @match        https://www.torn.com/page.php?sid=blackjack*
 // @match        https://www.torn.com/loader.php?sid=blackjack*
@@ -498,10 +498,19 @@ function watchResults(){
     const bet=betSnap||getCurrentBet()||sess.lastBet||0;
     if(bet) sess.lastBet=bet;
 
-    // Profit from actual balance change — handles doubles, splits, BJ, surrenders automatically
-    const delta=(balBefore!=null&&balAfter!=null)?(balAfter-balBefore):0;
+    // Balance diff from AFTER bet deducted to AFTER result
+    // On win: balAfter = balBefore + bet + profit = balBefore + 2*bet (regular)
+    // So net profit = delta - bet (subtract stake return)
+    // On loss: balAfter = balBefore - bet already deducted, result screen shows loss
+    //   but balBefore was ALREADY post-deduction, so delta = 0 on loss? No...
+    // Actually: Torn deducts bet at game start, then adds back on win
+    // So: balBefore = balance after bet deducted
+    //     Win:  balAfter = balBefore + (bet * multiplier)  → delta = bet * multiplier
+    //     Loss: balAfter = balBefore (bet already gone)    → delta = 0
+    //     Push: balAfter = balBefore + bet                 → delta = bet
+    // Therefore net profit = delta - bet on win/push, delta on loss (which is 0 or negative for surrender)
+    const rawDelta=(balBefore!=null&&balAfter!=null)?(balAfter-balBefore):null;
 
-    // Classify by wl class
     const wlEl=document.querySelector('.win-lose .wl-msg');
     const wlClass=wlEl?.className||'';
     const msg=(wlEl?.querySelector('span')||{}).textContent?.toLowerCase()||'';
@@ -510,15 +519,35 @@ function watchResults(){
                  (wlClass.includes('neutral')&&msg.includes('surrender'));
     const isPush=!isWin&&!isLoss;
 
+    const isSurrender=wlClass.includes('neutral')&&msg.includes('surrender');
+
+    // Net profit calculation:
+    // Win/Push: delta = stake returned + profit, so net = delta - bet
+    // Regular loss: delta = 0 (bet already gone at game start), so net = -bet... 
+    //   BUT balBefore was snapped AFTER bet deducted, so delta=0 means net=0 which is wrong
+    //   We need to account for the already-deducted bet: profit = -bet (fallback)
+    // Surrender: Torn returns 50%, so delta = +bet/2, net = delta - bet = -bet/2 ✓
+    let profit=0;
+    if(rawDelta!==null){
+      if(isWin||isPush) profit=rawDelta-bet;
+      else if(isSurrender) profit=rawDelta-bet; // delta=+bet/2, so profit = bet/2 - bet = -bet/2 ✓
+      else profit=-bet; // regular loss: bet already gone, delta=0, net profit = -bet
+    } else {
+      if(isWin) profit=bet;
+      else if(isSurrender) profit=-Math.round(bet*0.5);
+      else if(isLoss) profit=-bet;
+      else profit=0;
+    }
+
     if(isWin){sess.w=(sess.w||0)+1;}
     else if(isLoss){sess.l=(sess.l||0)+1;}
     else{sess.p=(sess.p||0)+1;}
-    sess.profit=(sess.profit||0)+delta;
+    sess.profit=(sess.profit||0)+profit;
 
     life.w=(life.w||0)+(isWin?1:0);
     life.l=(life.l||0)+(isLoss?1:0);
     life.p=(life.p||0)+(isPush?1:0);
-    life.profit=(life.profit||0)+delta;
+    life.profit=(life.profit||0)+profit;
 
     saveLife(life);saveSess(sess);
     updateStats();updateStartStats();
