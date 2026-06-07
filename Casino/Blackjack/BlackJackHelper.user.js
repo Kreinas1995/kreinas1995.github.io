@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn BJ Advisor — Perfect Strategy (+0.37% edge)
 // @namespace    https://www.torn.com/
-// @version      5.1
+// @version      5.0
 // @description  Perfect strategy, goal mode, hand odds, session tracking. Built into Torn BJ page.
 // @author       BJ Advisor
 // @match        https://www.torn.com/page.php?sid=blackjack*
@@ -219,6 +219,10 @@
   // ── Stats: session + lifetime via localStorage ──────────────────────────
   const LIFE_KEY = 'tbj_lifetime_v1';
   const SESS_KEY = 'tbj_session_v1';
+  function todayGMT() {
+    const d = new Date();
+    return `${d.getUTCFullYear()}-${d.getUTCMonth()+1}-${d.getUTCDate()}`;
+  }
   function loadLifetime() {
     try { return JSON.parse(localStorage.getItem(LIFE_KEY)) || {wins:0,losses:0,pushes:0,profit:0,hands:0}; }
     catch(e) { return {wins:0,losses:0,pushes:0,profit:0,hands:0}; }
@@ -227,12 +231,15 @@
     try { localStorage.setItem(LIFE_KEY, JSON.stringify(lt)); } catch(e){}
   }
   function loadSession() {
-    // Use sessionStorage so it persists across Tampermonkey script re-runs but resets on tab close
-    try { return JSON.parse(sessionStorage.getItem(SESS_KEY)) || {wins:0,losses:0,pushes:0,profit:0,lastBet:0}; }
-    catch(e) { return {wins:0,losses:0,pushes:0,profit:0,lastBet:0}; }
+    try {
+      const raw = JSON.parse(localStorage.getItem(SESS_KEY));
+      if (!raw || raw._date !== todayGMT())
+        return {wins:0,losses:0,pushes:0,profit:0,lastBet:0,_date:todayGMT()};
+      return raw;
+    } catch(e) { return {wins:0,losses:0,pushes:0,profit:0,lastBet:0,_date:todayGMT()}; }
   }
   function saveSession(s) {
-    try { sessionStorage.setItem(SESS_KEY, JSON.stringify(s)); } catch(e){}
+    try { s._date = todayGMT(); localStorage.setItem(SESS_KEY, JSON.stringify(s)); } catch(e){}
   }
   const sess = loadSession();
   let lifetime = loadLifetime();
@@ -742,30 +749,45 @@
         (wlClass.includes('neutral') && msg.trim() === '')
       );
 
+      // For doubles/splits, amt includes the full payout on the actual wagered amount
+      // effectiveBet = what was actually wagered = amt/2 on a win (since payout = 2x wager on win)
+      // For regular wins: amt = 2*bet, effectiveBet = bet -- same result
+      // For double wins: amt = 2*(2*bet) = 4*bet, effectiveBet = 2*bet -- correct
+      // So profit = amt - effectiveBet = amt - amt/2 = amt/2... no
+      // Actually: profit on any win = amt - actual_wager
+      // We can derive actual_wager from amt on wins: actual_wager = amt/2 (since win always returns 2x)
+      // Exception: blackjack pays 3:2 so amt = 2.5*bet
+      const isBJ = info.toLowerCase().includes('blackjack') ||
+                   info.toLowerCase().includes('natural') ||
+                   (amt > 0 && bet > 0 && Math.abs(amt/bet - 2.5) < 0.01);
+      const effectiveBet = isBJ ? Math.round(amt/2.5) : Math.round(amt/2);
+      const winProfit = isBJ ? Math.round(effectiveBet*1.5) : effectiveBet;
+
       if(wlClass.includes('won')||lower.includes('won')||lower.includes('win')){
         sess.wins++;
-        sess.profit+=amt-bet;
-        if(info.toLowerCase().includes('blackjack')) sess.profit+=bet*0.5;
+        sess.profit += winProfit;
       } else if(isSurrender){
-        sess.losses++; // count as a loss in W/L but only -50%
-        sess.profit-=Math.round(bet*0.5);
+        sess.losses++;
+        sess.profit -= Math.round(bet*0.5);
       } else if(wlClass.includes('lost')||lower.includes('lost')||lower.includes('lose')||lower.includes('bust')){
         sess.losses++;
-        sess.profit-=bet;
+        // On loss, bet shown in getCurrentBet is original, but double/split loses full wager
+        // Use amt if available (some losses show 0 amt), otherwise fall back to bet
+        sess.profit -= (amt > 0 ? amt : bet);
       } else if(isPush||lower.includes('push')||lower.includes('tie')){
         sess.pushes++;
       }
       if(bet) sess.lastBet=bet;
-      // Update lifetime directly on in-memory object (loaded once at boot)
+      // Update lifetime
       const isWin = wlClass.includes('won')||lower.includes('won')||lower.includes('win');
       const isLoss = isSurrender || wlClass.includes('lost')||lower.includes('lost')||lower.includes('lose')||lower.includes('bust');
       const isPushHand = isPush||lower.includes('push')||lower.includes('tie');
       lifetime.wins   = (lifetime.wins||0)   + (isWin ? 1 : 0);
       lifetime.losses = (lifetime.losses||0) + (isLoss ? 1 : 0);
       lifetime.pushes = (lifetime.pushes||0) + (isPushHand ? 1 : 0);
-      if (isWin) lifetime.profit = (lifetime.profit||0) + (amt - bet) + (info.toLowerCase().includes('blackjack') ? bet*0.5 : 0);
+      if (isWin)       lifetime.profit = (lifetime.profit||0) + winProfit;
       else if (isSurrender) lifetime.profit = (lifetime.profit||0) - Math.round(bet*0.5);
-      else if (isLoss) lifetime.profit = (lifetime.profit||0) - bet;
+      else if (isLoss) lifetime.profit = (lifetime.profit||0) - (amt > 0 ? amt : bet);
       lifetime.hands = (lifetime.hands||0) + 1;
       saveLifetime(lifetime);
       updateStats();
