@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn BJ Advisor
 // @namespace    https://www.torn.com/
-// @version      7.4
+// @version      7.6
 // @description  Perfect strategy for Torn BJ +0.37% edge. Auto-bet, session/lifetime stats, goal mode.
 // @match        https://www.torn.com/page.php?sid=blackjack*
 // @match        https://www.torn.com/loader.php?sid=blackjack*
@@ -473,53 +473,62 @@ function watchResults(){
   const target=document.querySelector('.blackjack-wrap');
   if(!target) return;
 
-  // Snapshot balance when player cards first appear
+  let balBefore=null, betSnap=null, handInProgress=false;
+
+  // Single observer does everything
   new MutationObserver(()=>{
-    const hasPlayerCard=document.querySelector('.player-cards div[class*="card-"]');
-    if(hasPlayerCard&&balBefore===null){
+    // Step 1: snapshot balance when hand starts (hole card appears)
+    const holeCard=document.querySelector('.dealer-cards .cards .card-back');
+    const playerCard=document.querySelector('.player-cards .cards div[class*="card-"]');
+    if(holeCard&&playerCard&&!handInProgress){
+      handInProgress=true;
       balBefore=getBankroll();
       betSnap=getCurrentBet()||sess.lastBet||0;
     }
-  }).observe(target,{childList:true,subtree:true});
 
-  // Record result when win/lose appears
-  new MutationObserver(()=>{
+    // Step 2: record result when win/lose screen appears
     const wlWrap=document.querySelector('.win-lose-wrap');
     if(!wlWrap||!wlWrap.classList.contains('bj-show')) return;
-    const wlEl=document.querySelector('.win-lose .wl-msg');
-    const msg=(wlEl?.querySelector('span')||{}).textContent||'';
-    const wlClass=wlEl?.className||'';
-    const bet=betSnap||getCurrentBet()||sess.lastBet||0;
-    const key=msg+bet+Math.floor(Date.now()/8000); // 8 second window
-    if(watchResults._k===key) return;
-    watchResults._k=key;
+    if(!handInProgress) return; // only record if we tracked a hand start
+    // Dedup: only fire once per hand using handInProgress as the gate
+    // handInProgress resets only when CONTINUE is clicked or new hand starts
+    watchResults._lastWl=wlWrap.innerHTML;
 
-    const lower=msg.toLowerCase();
     const balAfter=getBankroll();
-    const profit=(balBefore!=null&&balAfter!=null)?balAfter-balBefore:null;
-
-    const isWin=wlClass.includes('won')||lower.includes('won')||lower.includes('win');
-    const isSurr=wlClass.includes('neutral')&&(lower.includes('surrender')||(profit!=null&&bet>0&&Math.abs(profit+bet*0.5)<bet*0.1));
-    const isLoss=!isSurr&&(wlClass.includes('lost')||lower.includes('lost')||lower.includes('lose')||lower.includes('bust'));
-    const isPush=!isWin&&!isSurr&&!isLoss;
-
-    const delta=profit!=null?profit:(isWin?bet:isSurr?-Math.round(bet*0.5):isLoss?-bet:0);
-
-    if(isWin){sess.w=(sess.w||0)+1;sess.profit=(sess.profit||0)+delta;}
-    else if(isSurr){sess.l=(sess.l||0)+1;sess.profit=(sess.profit||0)+delta;}
-    else if(isLoss){sess.l=(sess.l||0)+1;sess.profit=(sess.profit||0)+delta;}
-    else{sess.p=(sess.p||0)+1;}
+    const bet=betSnap||getCurrentBet()||sess.lastBet||0;
     if(bet) sess.lastBet=bet;
 
+    // Profit from actual balance change — handles doubles, splits, BJ, surrenders automatically
+    const delta=(balBefore!=null&&balAfter!=null)?(balAfter-balBefore):0;
+
+    // Classify by wl class
+    const wlEl=document.querySelector('.win-lose .wl-msg');
+    const wlClass=wlEl?.className||'';
+    const msg=(wlEl?.querySelector('span')||{}).textContent?.toLowerCase()||'';
+    const isWin=wlClass.includes('won')||msg.includes('won')||msg.includes('win');
+    const isLoss=wlClass.includes('lost')||msg.includes('lost')||msg.includes('lose')||msg.includes('bust')||
+                 (wlClass.includes('neutral')&&msg.includes('surrender'));
+    const isPush=!isWin&&!isLoss;
+
+    if(isWin){sess.w=(sess.w||0)+1;}
+    else if(isLoss){sess.l=(sess.l||0)+1;}
+    else{sess.p=(sess.p||0)+1;}
+    sess.profit=(sess.profit||0)+delta;
+
     life.w=(life.w||0)+(isWin?1:0);
-    life.l=(life.l||0)+((isSurr||isLoss)?1:0);
+    life.l=(life.l||0)+(isLoss?1:0);
     life.p=(life.p||0)+(isPush?1:0);
-    life.profit=(life.profit||0)+(isPush?0:delta);
+    life.profit=(life.profit||0)+delta;
+
     saveLife(life);saveSess(sess);
     updateStats();updateStartStats();
+
+    // Reset for next hand - set to false AFTER recording, so second observer fire is ignored
+    handInProgress=false;
     balBefore=null;betSnap=null;
   }).observe(target,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
 }
+
 
 // ── Main update loop ──────────────────────────────────────────────────────────
 let lastKey='';
