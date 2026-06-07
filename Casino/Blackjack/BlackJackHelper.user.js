@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn BJ Advisor — Perfect Strategy (+0.37% edge)
 // @namespace    https://www.torn.com/
-// @version      5.0
+// @version      5.4
 // @description  Perfect strategy, goal mode, hand odds, session tracking. Built into Torn BJ page.
 // @author       BJ Advisor
 // @match        https://www.torn.com/page.php?sid=blackjack*
@@ -736,17 +736,18 @@
       const amtM=info.match(/\$([0-9,]+)/);
       const amt=amtM?parseInt(amtM[1].replace(/,/g,'')):bet;
 
-      // Detect surrender
-      const isSurrender = wlClass.includes('neutral') &&
-        (info.toLowerCase().includes('surrender') || lower.includes('surrender'));
-      // Detect push: neutral class OR tie/push text OR same score message
+      // Detect surrender: neutral class + text OR amt ≈ 0.5*bet (Torn returns half)
+      const isSurrender = wlClass.includes('neutral') && (
+        info.toLowerCase().includes('surrender') ||
+        lower.includes('surrender') ||
+        (amt > 0 && bet > 0 && Math.abs(amt/bet - 0.5) < 0.05)
+      );
+      // Detect push: neutral, not surrender, amt ≈ bet (full return)
       const isPush = (!isSurrender) && (
         wlClass.includes('neutral') ||
         lower.includes('push') ||
         lower.includes('tie') ||
-        lower.includes('draw') ||
-        // Torn shows "TIE" or empty msg with neutral class for pushes
-        (wlClass.includes('neutral') && msg.trim() === '')
+        lower.includes('draw')
       );
 
       // For doubles/splits, amt includes the full payout on the actual wagered amount
