@@ -1,925 +1,622 @@
 // ==UserScript==
-// @name         Torn BJ Advisor — Perfect Strategy (+0.37% edge)
+// @name         Torn BJ Advisor
 // @namespace    https://www.torn.com/
-// @version      6.0
-// @description  Perfect strategy, goal mode, hand odds, session/lifetime tracking, balance-diff P/L. Built into Torn BJ page.
-// @author       Sypharius
+// @version      7.4
+// @description  Perfect strategy for Torn BJ +0.37% edge. Auto-bet, session/lifetime stats, goal mode.
 // @match        https://www.torn.com/page.php?sid=blackjack*
 // @match        https://www.torn.com/loader.php?sid=blackjack*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 
-(function () {
-  'use strict';
+(function(){
+'use strict';
 
-  function waitFor(sel, cb, retries=40) {
-    const el = document.querySelector(sel);
-    if (el) { cb(el); return; }
-    if (retries > 0) setTimeout(() => waitFor(sel, cb, retries-1), 300);
+// ── Strategy tables ──────────────────────────────────────────────────────────
+// 8 decks, dealer stands soft 17, early surrender, 6-card charlie, 3:2
+// Columns: dealer 2,3,4,5,6,7,8,9,10,A
+const HARD={
+   4:['H','H','H','H','H','H','H','H','H','H'],
+   5:['H','H','H','H','H','H','H','H','E','E'],
+   6:['H','H','H','H','H','H','H','H','E','E'],
+   7:['H','H','H','H','H','H','H','H','E','E'],
+   8:['H','H','H','H','H','H','H','H','H','H'],
+   9:['H','D','D','D','D','H','H','H','H','H'],
+  10:['D','D','D','D','D','D','D','D','H','H'],
+  11:['D','D','D','D','D','D','D','D','D','H'],
+  12:['H','H','S','S','S','H','H','H','H','H'],
+  13:['S','S','S','S','S','H','H','H','H','H'],
+  14:['S','S','S','S','S','H','H','H','E','E'],
+  15:['S','S','S','S','S','H','H','H','E','E'],
+  16:['S','S','S','S','S','H','H','E','E','E'],
+  17:['S','S','S','S','S','S','S','S','S','E'],
+  18:['S','S','S','S','S','S','S','S','S','S'],
+  19:['S','S','S','S','S','S','S','S','S','S'],
+  20:['S','S','S','S','S','S','S','S','S','S'],
+  21:['S','S','S','S','S','S','S','S','S','S'],
+};
+const SOFT={
+  13:['H','H','H','D','D','H','H','H','H','H'],
+  14:['H','H','H','D','D','H','H','H','H','H'],
+  15:['H','H','D','D','D','H','H','H','H','H'],
+  16:['H','H','D','D','D','H','H','H','H','H'],
+  17:['H','D','D','D','D','H','H','H','H','H'],
+  18:['S','D','D','D','D','S','S','H','H','H'],
+  19:['S','S','S','S','S','S','S','S','S','S'],
+  20:['S','S','S','S','S','S','S','S','S','S'],
+};
+const PAIRS={
+   2:['P','P','P','P','P','P','H','H','H','H'],
+   3:['P','P','P','P','P','P','H','H','H','H'],
+   4:['H','H','H','P','P','H','H','H','H','H'],
+   5:['D','D','D','D','D','D','D','D','H','H'],
+   6:['P','P','P','P','P','H','H','H','H','H'],
+   7:['P','P','P','P','P','P','H','H','H','H'],
+   8:['P','P','P','P','P','P','P','P','P','E'],
+   9:['P','P','P','P','P','S','P','P','S','S'],
+  10:['S','S','S','S','S','S','S','S','S','S'],
+  11:['P','P','P','P','P','P','P','P','P','P'],
+};
+const SURR_PAIRS_ACE=new Set([3,6,7]);
+const DI={2:0,3:1,4:2,5:3,6:4,7:5,8:6,9:7,10:8,11:9};
+const ACT={
+  H:{t:'HIT',           c:'#f97316',bg:'rgba(249,115,22,0.15)'},
+  S:{t:'STAND',         c:'#22c55e',bg:'rgba(34,197,94,0.15)'},
+  D:{t:'DOUBLE DOWN',   c:'#a855f7',bg:'rgba(168,85,247,0.15)'},
+  P:{t:'SPLIT',         c:'#3b82f6',bg:'rgba(59,130,246,0.15)'},
+  E:{t:'EARLY SURRENDER',c:'#ef4444',bg:'rgba(239,68,68,0.15)'},
+  BJ:{t:'BLACKJACK!',   c:'#fbbf24',bg:'rgba(251,191,36,0.15)'},
+  C:{t:'6-CARD CHARLIE!',c:'#fbbf24',bg:'rgba(251,191,36,0.15)'},
+  W:{t:'DEAL A HAND',   c:'#4a7fa5',bg:'transparent'},
+  INS:{t:'DECLINE INSURANCE',c:'#ef4444',bg:'rgba(239,68,68,0.15)'},
+};
+
+// ── Card helpers ──────────────────────────────────────────────────────────────
+const SUIT_MAP={clubs:'C',diamonds:'D',hearts:'H',spades:'S'};
+const RANK_VAL={'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
+const CARD_RE=/card-(clubs|diamonds|hearts|spades)-([0-9AJQK]+)/;
+
+function parseCard(el){
+  const m=CARD_RE.exec(el.className||'');
+  if(!m) return null;
+  return {rank:m[2],suit:SUIT_MAP[m[1]],val:RANK_VAL[m[2]]||0};
+}
+
+function getCards(scope){
+  if(!scope) return [];
+  return Array.from(scope.querySelectorAll('div'))
+    .filter(el=>CARD_RE.test(el.className||''))
+    .map(parseCard).filter(Boolean);
+}
+
+function handInfo(cards){
+  let v=0,a=0;
+  for(const c of cards){v+=c.val===14?11:Math.min(c.val,10);if(c.val===14)a++;}
+  while(v>21&&a>0){v-=10;a--;}
+  return{value:v,isSoft:a>0&&v<=21};
+}
+
+// ── Action logic ──────────────────────────────────────────────────────────────
+function getAction(pc,du,canDbl,canSpl){
+  if(!du||!pc.length) return'W';
+  const dv=du.val===14?11:Math.min(du.val,10);
+  const di=DI[dv]??DI[10];
+  const{value,isSoft}=handInfo(pc);
+  const n=pc.length;
+  if(n>=6&&value<=21) return'C';
+  if(n===2&&value===21) return'BJ';
+  const isPair=n===2&&pc[0].val===pc[1].val;
+  const canSurr=n===2;
+  if(isPair&&canSurr&&dv===11){
+    const pv=Math.min(pc[0].val===14?11:pc[0].val,10);
+    if(SURR_PAIRS_ACE.has(pv)) return'E';
   }
-
-  // ── Strategy tables ────────────────────────────────────────────────────────
-  // Torn: 8 decks, dealer stands soft 17, EARLY surrender, 6-card Charlie, 3:2
-  const HARD = {
-     4:['H','H','H','H','H','H','H','H','H','H'],
-     5:['H','H','H','H','H','H','H','H','E','E'],
-     6:['H','H','H','H','H','H','H','H','E','E'],
-     7:['H','H','H','H','H','H','H','H','E','E'],
-     8:['H','H','H','H','H','H','H','H','H','H'],
-     9:['H','D','D','D','D','H','H','H','H','H'],
-    10:['D','D','D','D','D','D','D','D','H','H'],
-    11:['D','D','D','D','D','D','D','D','D','H'],
-    12:['H','H','S','S','S','H','H','H','H','H'],
-    13:['S','S','S','S','S','H','H','H','H','H'],
-    14:['S','S','S','S','S','H','H','H','E','E'],
-    15:['S','S','S','S','S','H','H','H','E','E'],
-    16:['S','S','S','S','S','H','H','E','E','E'],
-    17:['S','S','S','S','S','S','S','S','S','E'],
-    18:['S','S','S','S','S','S','S','S','S','S'],
-    19:['S','S','S','S','S','S','S','S','S','S'],
-    20:['S','S','S','S','S','S','S','S','S','S'],
-    21:['S','S','S','S','S','S','S','S','S','S'],
-  };
-  const SOFT = {
-    13:['H','H','H','D','D','H','H','H','H','H'],
-    14:['H','H','H','D','D','H','H','H','H','H'],
-    15:['H','H','D','D','D','H','H','H','H','H'],
-    16:['H','H','D','D','D','H','H','H','H','H'],
-    17:['H','D','D','D','D','H','H','H','H','H'],
-    18:['S','D','D','D','D','S','S','H','H','H'],
-    19:['S','S','S','S','S','S','S','S','S','S'],
-    20:['S','S','S','S','S','S','S','S','S','S'],
-  };
-  const PAIRS = {
-     2:['P','P','P','P','P','P','H','H','H','H'],
-     3:['P','P','P','P','P','P','H','H','H','H'],
-     4:['H','H','H','P','P','H','H','H','H','H'],
-     5:['D','D','D','D','D','D','D','D','H','H'],
-     6:['P','P','P','P','P','H','H','H','H','H'],
-     7:['P','P','P','P','P','P','H','H','H','H'],
-     8:['P','P','P','P','P','P','P','P','P','E'],
-     9:['P','P','P','P','P','S','P','P','S','S'],
-    10:['S','S','S','S','S','S','S','S','S','S'],
-    11:['P','P','P','P','P','P','P','P','P','P'],
-  };
-  const SURR_PAIRS_ACE = new Set([3,6,7]);
-  const DI = {2:0,3:1,4:2,5:3,6:4,7:5,8:6,9:7,10:8,11:9};
-  const ACT = {
-    H: {t:'HIT',           c:'#f97316', bg:'rgba(249,115,22,0.15)'},
-    S: {t:'STAND',         c:'#22c55e', bg:'rgba(34,197,94,0.15)'},
-    D: {t:'DOUBLE DOWN',   c:'#a855f7', bg:'rgba(168,85,247,0.15)'},
-    P: {t:'SPLIT',         c:'#3b82f6', bg:'rgba(59,130,246,0.15)'},
-    E: {t:'EARLY SURRENDER',c:'#ef4444',bg:'rgba(239,68,68,0.15)'},
-    INS:{t:'DECLINE INSURANCE',c:'#ef4444',bg:'rgba(239,68,68,0.15)'},
-    BJ: {t:'BLACKJACK!',c:'#fbbf24', bg:'rgba(251,191,36,0.15)'},
-    C:  {t:'6-CARD CHARLIE!',c:'#fbbf24',bg:'rgba(251,191,36,0.15)'},
-    W:  {t:'DEAL A HAND',  c:'#4a7fa5', bg:'transparent'},
-  };
-
-  // ── Card helpers ───────────────────────────────────────────────────────────
-  const SUIT_MAP = {clubs:'C',diamonds:'D',hearts:'H',spades:'S'};
-  const RANK_VAL = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
-
-  function parseTornCard(el) {
-    const m = (el.className||'').match(/card-(clubs|diamonds|hearts|spades)-([0-9AJQK]+)/);
-    if (!m) return null;
-    return { rank:m[2], suit:SUIT_MAP[m[1]]||'S', val:RANK_VAL[m[2]]||0 };
+  let a='H';
+  if(isPair&&canSpl){
+    const pv=pc[0].val===14?11:Math.min(pc[0].val,10);
+    a=PAIRS[pv]?.[di]??'H';
+    if(a==='D'&&!canDbl) a='H';
+    if(a==='E'&&!canSurr) a='H';
+  } else if(isSoft&&SOFT[value]){
+    a=SOFT[value][di];
+    if(a==='D'&&!canDbl) a='H';
+  } else {
+    const cv=Math.min(Math.max(value,4),21);
+    a=HARD[cv]?.[di]??(value>=17?'S':'H');
+    if(a==='D'&&!canDbl) a='H';
+    if(a==='E'&&!canSurr) a='H';
   }
+  if(n>=4&&value<=14) a='H';
+  return a;
+}
 
-  function handInfo(cards) {
-    let val=0, aces=0;
-    for (const c of cards) {
-      val += c.val===14 ? 11 : Math.min(c.val,10);
-      if (c.val===14) aces++;
-    }
-    while (val>21 && aces>0) { val-=10; aces--; }
-    return { value:val, isSoft:aces>0&&val<=21 };
-  }
+// ── Math ──────────────────────────────────────────────────────────────────────
+const EDGE=0.0037,VAR=1.3225,STD=1.15,DAILY=100;
+let goalTarget=null;
 
-  // ── Hand win probability ───────────────────────────────────────────────────
-  // Approximate P(win) for player total vs dealer up using 8-deck basic strategy outcomes
-  function handWinProb(playerVal, isSoft, dealerUpVal, cardCount) {
-    // Simplified lookup based on expected outcomes — not full combinatorial
-    // Returns {win, lose, push} probabilities
-    const d = dealerUpVal;
+function normCDF(z){
+  if(z<-8)return 0;if(z>8)return 1;
+  const t=1/(1+0.2316419*Math.abs(z));
+  const d=0.3989423*Math.exp(-z*z/2);
+  const p=d*t*(0.3193815+t*(-0.3565638+t*(1.7814779+t*(-1.8212560+t*1.3302744))));
+  return z>0?1-p:p;
+}
+function pBustDay(br,bet){
+  const mu=DAILY*EDGE*bet,sig=Math.sqrt(DAILY)*STD*bet;
+  return normCDF((-br-mu)/sig);
+}
+function pGoalDaily(br,target,bet){
+  const dmu=DAILY*EDGE*bet,dsig=Math.sqrt(DAILY)*STD*bet;
+  const theta=2*dmu/(dsig*dsig);
+  try{
+    const num=1-Math.exp(-theta*br),den=1-Math.exp(-theta*(br+target));
+    return(!isFinite(num)||!isFinite(den)||den===0)?0:Math.max(0,Math.min(1,num/den));
+  }catch(e){return 0;}
+}
+function optimalBet(br){
+  if(!br||br<=0) return 0;
+  if(br<1000000) return Math.max(1000,Math.round(br*0.05/1000)*1000);
+  let lo=1000,hi=Math.min(br,100000000);
+  for(let i=0;i<60;i++){const m=(lo+hi)/2;pBustDay(br,m)<0.05?lo=m:hi=m;}
+  const raw=Math.min(lo,100000000);
+  if(raw>=1000000) return Math.max(100000,Math.round(raw/500000)*500000);
+  if(raw>=100000)  return Math.max(10000, Math.round(raw/100000)*100000);
+  return Math.max(1000,Math.round(raw/10000)*10000);
+}
 
-    // Dealer bust probability by up card (8-deck, stands soft 17)
-    const dealerBust = {2:0.352,3:0.374,4:0.399,5:0.423,6:0.421,
-                         7:0.263,8:0.239,9:0.230,10:0.213,11:0.117};
-    const db = dealerBust[d] || 0.25;
+// ── Storage ───────────────────────────────────────────────────────────────────
+const LIFE_KEY='tbj_life_v1',SESS_KEY='tbj_sess_v1';
+function todayGMT(){const d=new Date();return`${d.getUTCFullYear()}-${d.getUTCMonth()+1}-${d.getUTCDate()}`;}
+function loadLife(){try{return JSON.parse(localStorage.getItem(LIFE_KEY))||{w:0,l:0,p:0,profit:0};}catch(e){return{w:0,l:0,p:0,profit:0};}}
+function saveLife(x){try{localStorage.setItem(LIFE_KEY,JSON.stringify(x));}catch(e){}}
+function loadSess(){
+  try{
+    const r=JSON.parse(localStorage.getItem(SESS_KEY));
+    if(!r||r._date!==todayGMT()) return{w:0,l:0,p:0,profit:0,lastBet:0,_date:todayGMT()};
+    return r;
+  }catch(e){return{w:0,l:0,p:0,profit:0,lastBet:0,_date:todayGMT()};}
+}
+function saveSess(x){try{x._date=todayGMT();localStorage.setItem(SESS_KEY,JSON.stringify(x));}catch(e){}}
 
-    // Very rough but reasonable approximation
-    if (playerVal > 21) return {win:0, lose:1, push:0};
-    if (playerVal === 21 && cardCount === 2) return {win:0.977, lose:0.008, push:0.015}; // BJ
+const sess=loadSess();
+let life=loadLife();
+// Store starting token count for accurate hand tracking
+setTimeout(()=>{const t=getTokens();if(t>0&&!sess._startTokens){sess._startTokens=t;saveSess(sess);}},2000);
 
-    // P(dealer makes hand >= player) — simplified
-    // Player win ≈ dealer bust + P(dealer < player when not bust)
-    const pv = playerVal;
-    let win, lose, push;
+// ── DOM helpers ───────────────────────────────────────────────────────────────
+function fmt(n){
+  const s=n<0?'-':'',a=Math.abs(n);
+  if(a>=1e9) return s+'$'+(a/1e9).toFixed(2)+'B';
+  if(a>=1e6) return s+'$'+(a/1e6).toFixed(1)+'M';
+  if(a>=1e3) return s+'$'+Math.round(a/1e3)+'K';
+  return s+'$'+a;
+}
+function getTokens(){
+  const el=document.querySelector('.bj-tokens');
+  return el?parseInt(el.textContent.replace(/[^0-9]/g,''))||0:0;
+}
 
-    if (pv >= 20) { win=0.75; lose=0.18; push=0.07; }
-    else if (pv===19) { win=0.66; lose=0.28; push=0.06; }
-    else if (pv===18) { win=0.54; lose=0.39; push=0.07; }
-    else if (pv===17) { win=0.45; lose=0.48; push=0.07; }
-    else if (pv>=13)  { win=db+0.05; lose=1-db-0.12; push=0.07; }
-    else              { win=db;      lose=1-db-0.05;  push=0.05; }
+function getBankroll(){
+  const el=document.getElementById('user-money')||document.querySelector('[id*="money"][data-money]');
+  if(el){const v=parseInt(el.getAttribute('data-money'));if(v>0)return v;}
+  return null;
+}
+function getCurrentBet(){
+  const t=(document.querySelector('.bj-pot')||{}).textContent||'';
+  return parseInt(t.replace(/[^0-9]/g,''))||0;
+}
+function btnEnabled(step){
+  const el=document.querySelector(`[data-step="${step}"]`);
+  if(!el) return false;
+  return !el.className.includes('disabled')&&parseFloat(window.getComputedStyle(el).opacity||'1')>=0.6;
+}
 
-    // Adjust for dealer up card
-    if (d >= 7) { win -= 0.05; lose += 0.05; }
-    if (d <= 6) { win += 0.03; lose -= 0.03; }
-    if (d === 11) { win -= 0.08; lose += 0.08; }
-
-    // Clamp
-    win  = Math.max(0, Math.min(1, win));
-    lose = Math.max(0, Math.min(1, lose));
-    push = Math.max(0, Math.min(1, 1-win-lose));
-    return {win, lose, push};
-  }
-
-  // ── Action logic ───────────────────────────────────────────────────────────
-  function getAction(playerCards, dealerUp, canDouble, canSplit, canSurrender) {
-    if (!dealerUp || !playerCards.length) return 'W';
-    const dv = dealerUp.val===14 ? 11 : Math.min(dealerUp.val,10);
-    const di = DI[dv] ?? DI[10];
-    const {value, isSoft} = handInfo(playerCards);
-    const n = playerCards.length;
-
-    if (n>=6 && value<=21) return 'C';
-    if (n===2 && value===21) return 'BJ';
-
-    // Surrender only valid on first 2 cards
-    const canSurrenderNow = canSurrender && n === 2;
-    const isPair = n===2 && playerCards[0].val===playerCards[1].val;
-
-    if (isPair && canSurrenderNow && dv===11) {
-      const pv = Math.min(playerCards[0].val===14?11:playerCards[0].val,10);
-      if (SURR_PAIRS_ACE.has(pv)) return 'E';
-    }
-
-    let action = 'H';
-    if (isPair && canSplit) {
-      const pv = playerCards[0].val===14?11:Math.min(playerCards[0].val,10);
-      action = PAIRS[pv]?.[di] ?? 'H';
-      if (action==='D'&&!canDouble) action='H';
-      if (action==='E'&&!canSurrenderNow) action='H';
-    } else if (isSoft && SOFT[value]) {
-      action = SOFT[value][di];
-      if (action==='D'&&!canDouble) action='H';
-    } else {
-      const cv = Math.min(Math.max(value,4),21);
-      action = HARD[cv]?.[di] ?? (value>=17?'S':'H');
-      if (action==='D'&&!canDouble) action='H';
-      if (action==='E'&&!canSurrenderNow) action='H';
-    }
-    if (n>=4 && value<=14) action='H';
-    return action;
-  }
-
-  // ── Math ───────────────────────────────────────────────────────────────────
-  const EDGE=0.0037, VAR=1.3225, STD_DEV=1.15, DAILY_HANDS=100;
-  let goalTarget=null;
-
-  function normCDF(z) {
-    if (z<-8) return 0; if (z>8) return 1;
-    const t=1/(1+0.2316419*Math.abs(z));
-    const d=0.3989423*Math.exp(-z*z/2);
-    const p=d*t*(0.3193815+t*(-0.3565638+t*(1.7814779+t*(-1.8212560+t*1.3302744))));
-    return z>0?1-p:p;
-  }
-  function pBustDay(br,bet,n=DAILY_HANDS) {
-    const mu=n*EDGE*bet, sig=Math.sqrt(n)*STD_DEV*bet;
-    return normCDF((-br-mu)/sig);
-  }
-  function pGoalDaily(br,target,bet,n=DAILY_HANDS) {
-    const dmu=n*EDGE*bet, dsig=Math.sqrt(n)*STD_DEV*bet;
-    const theta=2*dmu/(dsig*dsig); // positive (player has edge)
-    // P(hit +target before -br | start at 0) = (1-exp(-theta*br))/(1-exp(-theta*(br+target)))
-    try {
-      const num=1-Math.exp(-theta*br);
-      const den=1-Math.exp(-theta*(br+target));
-      if(!isFinite(num)||!isFinite(den)||den===0) return 0;
-      return Math.max(0,Math.min(1,num/den));
-    } catch(e){return 0;}
-  }
-  function optimalBet(br) {
-    if (!br || br <= 0) return 0;
-    // For very small bankrolls, just use 5% of bankroll as a reasonable bet
-    if (br < 1_000_000) return Math.max(1000, Math.round(br * 0.05 / 1000) * 1000);
-    let lo=1_000, hi=Math.min(br, 100_000_000);
-    for(let i=0;i<60;i++){const m=(lo+hi)/2; pBustDay(br,m)<0.05?lo=m:hi=m;}
-    // Round to nearest 500K for large, 100K for medium, 10K for small
-    const raw = Math.min(lo, 100_000_000);
-    if (raw >= 1_000_000) return Math.max(100_000, Math.round(raw/500_000)*500_000);
-    if (raw >= 100_000)   return Math.max(10_000,  Math.round(raw/100_000)*100_000);
-    return Math.max(1_000, Math.round(raw/10_000)*10_000);
-  }
-
-  // ── Session ────────────────────────────────────────────────────────────────
-  // ── Stats: session + lifetime via localStorage ──────────────────────────
-  const LIFE_KEY = 'tbj_lifetime_v1';
-  const SESS_KEY = 'tbj_session_v1';
-  function todayGMT() {
-    const d = new Date();
-    return `${d.getUTCFullYear()}-${d.getUTCMonth()+1}-${d.getUTCDate()}`;
-  }
-  function loadLifetime() {
-    try { return JSON.parse(localStorage.getItem(LIFE_KEY)) || {wins:0,losses:0,pushes:0,profit:0,hands:0}; }
-    catch(e) { return {wins:0,losses:0,pushes:0,profit:0,hands:0}; }
-  }
-  function saveLifetime(lt) {
-    try { localStorage.setItem(LIFE_KEY, JSON.stringify(lt)); } catch(e){}
-  }
-  function loadSession() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(SESS_KEY));
-      if (!raw || raw._date !== todayGMT())
-        return {wins:0,losses:0,pushes:0,profit:0,lastBet:0,_date:todayGMT()};
-      return raw;
-    } catch(e) { return {wins:0,losses:0,pushes:0,profit:0,lastBet:0,_date:todayGMT()}; }
-  }
-  function saveSession(s) {
-    try { s._date = todayGMT(); localStorage.setItem(SESS_KEY, JSON.stringify(s)); } catch(e){}
-  }
-  const sess = loadSession();
-  let lifetime = loadLifetime();
-  let showLifetime = false;
-
-  // ── DOM helpers ────────────────────────────────────────────────────────────
-  function readCards(container) {
-    if (!container) return [];
-    return Array.from(container.querySelectorAll('[class*="card-"]'))
-      .filter(el => {
-        const cls = el.className || '';
-        // Only count cards with an actual rank+suit class, not card-back or empty divs
-        return /card-(clubs|diamonds|hearts|spades)-[0-9AJQK]+/.test(cls);
-      })
-      .map(parseTornCard)
-      .filter(Boolean);
-  }
-  function readDealerUp() {
-    const cards=Array.from(document.querySelectorAll('.dealer-cards .cards [class*="card-"]'))
-      .map(parseTornCard).filter(Boolean);
-    return cards[0]||null;
-  }
-  function isEnabled(sel) {
-    const el = document.querySelector(sel);
-    if (!el) return false;
-    // Torn uses 'disabled' class OR greyed-out opacity, not the disabled attribute
-    const cls = el.className || '';
-    if (cls.includes('disabled')) return false;
-    if (el.disabled) return false;
-    // Check opacity — Torn dims buttons to ~0.4 when unavailable
-    const opacity = parseFloat(window.getComputedStyle(el).opacity);
-    if (opacity < 0.6) return false;
-    return true;
-  }
-
-  // More reliable: check by button text visibility
-  function getAvailableActions() {
-    const allBtns = Array.from(document.querySelectorAll('.bl-btn, [data-step]'));
-    const result = { canDouble: false, canSplit: false, canSurrender: false };
-    for (const btn of allBtns) {
-      const step = btn.getAttribute('data-step') || '';
-      const cls  = btn.className || '';
-      const active = !cls.includes('disabled') && !btn.disabled &&
-                     parseFloat(window.getComputedStyle(btn).opacity || '1') >= 0.6;
-      if (step === 'doubleDown' && active) result.canDouble   = true;
-      if (step === 'split'      && active) result.canSplit    = true;
-      if (step === 'surrender'  && active) result.canSurrender = true;
-    }
-    return result;
-  }
-  function getCurrentBet() {
-    const t=(document.querySelector('.bj-pot')||{}).textContent||'';
-    return parseInt(t.replace(/[^0-9]/g,''))||0;
-  }
-  function getBankroll() {
-    // Torn stores money in data-money on #user-money
-    const el = document.getElementById('user-money') ||
-               document.querySelector('[data-money]');
-    if (el) {
-      const v = parseInt(el.getAttribute('data-money'));
-      if (v > 0) return v;
-    }
-    // Fallback: parse the displayed text e.g. "$360.1M"
-    const txt = (el||{}).textContent || '';
-    const m = txt.match(/\$([\d.]+)([BMK]?)/);
-    if (m) {
-      const n = parseFloat(m[1]);
-      if (m[2]==='B') return n*1e9;
-      if (m[2]==='M') return n*1e6;
-      if (m[2]==='K') return n*1e3;
-      return n;
-    }
-    return null;
-  }
-  function fmt(n) {
-    const s=n<0?'-':'', a=Math.abs(n);
-    if(a>=1e9) return s+'$'+(a/1e9).toFixed(2)+'B';
-    if(a>=1e6) return s+'$'+(a/1e6).toFixed(1)+'M';
-    if(a>=1e3) return s+'$'+Math.round(a/1e3)+'K';
-    return s+'$'+a;
-  }
-
-  // ── Build panel ────────────────────────────────────────────────────────────
-  function buildPanel() {
-    if (document.getElementById('torn-bj-panel')) return;
-    const panel=document.createElement('div');
-    panel.id='torn-bj-panel';
-    panel.style.cssText=`
-      font-family:'Courier New',monospace;
-      background:#07101e;
-      border:1px solid #1a3a5c;
-      border-radius:0 0 8px 8px;
-      margin-top:-2px;
-    `;
-    panel.innerHTML=`
-      <!-- Expanded panel — above bar, opens upward -->
-      <div id="tbj-expanded" style="display:none;border-bottom:1px solid #1a2e42;padding:6px 10px;">
-        <div style="display:flex;gap:6px;">
-
-          <!-- Goal Mode -->
-          <div style="flex:1.2;padding:6px 8px;background:#0d1b2a;border:1px solid #1a2e42;border-radius:6px;">
-            <div style="font-size:8px;color:#3b7dd8;letter-spacing:1px;margin-bottom:4px;">GOAL MODE</div>
-            <div style="display:flex;gap:3px;margin-bottom:4px;">
-              <input id="tbj-goal-input" type="number" placeholder="Profit target $M"
-                style="flex:1;min-width:0;background:#07101e;border:1px solid #1a3a5c;
-                       border-radius:3px;color:#94a3b8;font-size:9px;padding:3px 4px;
-                       outline:none;font-family:monospace;">
-              <button id="tbj-goal-set"
-                style="background:#1a3a5c;border:none;border-radius:3px;color:#22c55e;
-                       font-size:9px;padding:3px 7px;cursor:pointer;font-family:monospace;">SET</button>
-            </div>
-            <div id="tbj-kelly" style="font-size:9px;color:#94a3b8;line-height:1.8;">—</div>
+// ── Build panel ───────────────────────────────────────────────────────────────
+function buildPanel(){
+  if(document.getElementById('tbj-panel')) return;
+  const p=document.createElement('div');
+  p.id='tbj-panel';
+  p.style.cssText='font-family:"Courier New",monospace;background:#07101e;border:1px solid #1a3a5c;border-radius:0 0 8px 8px;margin-top:-2px;';
+  p.innerHTML=`
+    <!-- Bottom bar -->
+    <div id="tbj-bar" style="display:flex;align-items:center;padding:4px 8px;gap:6px;cursor:pointer;min-height:30px;border-bottom:1px solid #1a2e42;">
+      <span id="tbj-toggle" style="color:#4a7fa5;font-size:10px;flex-shrink:0;">▲</span>
+      <div id="tbj-action" style="font-size:13px;font-weight:900;color:#22c55e;white-space:nowrap;flex-shrink:0;min-width:100px;">DEAL A HAND</div>
+      <div id="tbj-odds" style="font-size:9px;color:#4a7fa5;white-space:nowrap;flex-shrink:0;"></div>
+      <div style="display:flex;gap:2px;flex:1;max-width:60px;">
+        ${[1,2,3,4,5,6].map(i=>`<div id="tbj-pip${i}" style="flex:1;height:4px;border-radius:1px;background:#1a2e42;"></div>`).join('')}
+      </div>
+      <div style="font-size:9px;white-space:nowrap;flex-shrink:0;">
+        W:<span id="tbj-w" style="color:#22c55e">0</span>
+        L:<span id="tbj-l" style="color:#ef4444">0</span>
+        <span id="tbj-pl" style="color:#94a3b8"> $0</span>
+      </div>
+      <label style="display:flex;align-items:center;gap:2px;cursor:pointer;flex-shrink:0;" onclick="event.stopPropagation()">
+        <input type="checkbox" id="tbj-auto" style="cursor:pointer;width:10px;height:10px;"> <span style="font-size:8px;color:#3b82f6;">AUTO</span>
+      </label>
+    </div>
+    <div id="tbj-reason" style="font-size:8px;color:#4a7fa5;text-align:center;padding:1px 8px 2px;display:none;"></div>
+    <!-- Expanded -->
+    <div id="tbj-exp" style="display:none;padding:6px 8px;border-top:1px solid #1a2e42;">
+      <div style="display:flex;gap:6px;">
+        <div style="flex:1.2;padding:6px 8px;background:#0d1b2a;border:1px solid #1a2e42;border-radius:6px;">
+          <div style="font-size:8px;color:#3b7dd8;letter-spacing:1px;margin-bottom:4px;">GOAL MODE</div>
+          <div style="display:flex;gap:3px;margin-bottom:4px;">
+            <input id="tbj-goal-inp" type="number" placeholder="Target $M"
+              style="flex:1;min-width:0;background:#07101e;border:1px solid #1a3a5c;border-radius:3px;color:#94a3b8;font-size:9px;padding:3px 4px;outline:none;font-family:monospace;">
+            <button id="tbj-goal-btn" style="background:#1a3a5c;border:none;border-radius:3px;color:#22c55e;font-size:9px;padding:3px 7px;cursor:pointer;font-family:monospace;">SET</button>
           </div>
-
-          <!-- Session -->
-          <div style="flex:1;padding:6px 8px;background:#0d1b2a;border:1px solid #1a2e42;border-radius:6px;">
-            <div style="font-size:8px;color:#4a7fa5;letter-spacing:1px;margin-bottom:3px;">SESSION ⇄ <span id="tbj-life-reset" style="color:#ef4444;cursor:pointer;font-size:7px;">RESET LIFE</span></div>
-            <div id="tbj-stats" style="font-size:9px;color:#94a3b8;line-height:1.8;">—</div>
+          <div id="tbj-kelly" style="font-size:9px;color:#94a3b8;line-height:1.8;">—</div>
+        </div>
+        <div style="flex:1;padding:6px 8px;background:#0d1b2a;border:1px solid #1a2e42;border-radius:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+            <span id="tbj-sess-lbl" style="font-size:8px;color:#4a7fa5;letter-spacing:1px;cursor:pointer;">SESSION</span>
+            <button id="tbj-life-btn" style="background:#1a3a5c;border:none;border-radius:3px;color:#3b82f6;font-size:8px;padding:1px 5px;cursor:pointer;font-family:monospace;">LIFETIME</button>
           </div>
-
-          <!-- Martingale -->
-          <div style="flex:1;padding:6px 8px;background:#0d1b2a;border:1px solid #1a2e42;border-radius:6px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-              <span style="font-size:8px;color:#4a7fa5;letter-spacing:1px;">MARTINGALE</span>
-              <label style="display:flex;align-items:center;gap:3px;cursor:pointer;">
-                <input type="checkbox" id="tbj-mrt-on" style="cursor:pointer;width:10px;height:10px;">
-                <span style="font-size:8px;color:#4a7fa5;">ON</span>
-              </label>
-            </div>
-            <div id="tbj-mrt" style="font-size:9px;color:#2a5070;line-height:1.8;">Toggle to activate</div>
-          </div>
-
+          <div id="tbj-stats" style="font-size:9px;color:#94a3b8;line-height:1.8;">—</div>
+        </div>
+        <div style="flex:1;padding:6px 8px;background:#0d1b2a;border:1px solid #1a2e42;border-radius:6px;display:flex;flex-direction:column;justify-content:center;gap:6px;">
+          <button id="tbj-reset-sess" style="background:#0a1020;color:#f97316;border:1px solid #f97316;border-radius:4px;padding:6px;font-size:9px;font-weight:700;font-family:monospace;cursor:pointer;letter-spacing:1px;width:100%;">RESET SESSION</button>
+          <button id="tbj-reset" style="background:#1a0a0a;color:#ef4444;border:1px solid #ef4444;border-radius:4px;padding:6px;font-size:9px;font-weight:700;font-family:monospace;cursor:pointer;letter-spacing:1px;width:100%;">RESET ALL</button>
         </div>
       </div>
+    </div>
+  `;
 
-      <!-- Bottom bar: always visible, thin single line -->
-      <div id="tbj-bar" style="display:flex;align-items:center;padding:3px 8px;gap:6px;cursor:pointer;height:28px;border-top:1px solid #1a2e42;">
-        <span id="tbj-toggle" style="color:#4a7fa5;font-size:10px;flex-shrink:0;">▲</span>
-        <div id="tbj-action" style="font-size:12px;font-weight:900;color:#22c55e;white-space:nowrap;flex-shrink:0;transition:color .15s;">— DEAL —</div>
-        <div id="tbj-odds" style="font-size:9px;color:#4a7fa5;white-space:nowrap;flex-shrink:0;"></div>
-        <div style="display:flex;gap:2px;flex:1;align-items:center;">
-          ${[1,2,3,4,5,6].map(i=>`<div id="tbj-pip${i}" style="flex:1;height:4px;border-radius:1px;background:#1a2e42;"></div>`).join('')}
-        </div>
-        <div style="font-size:9px;white-space:nowrap;flex-shrink:0;color:#4a7fa5;">
-          W:<span id="tbj-w" style="color:#22c55e">0</span>
-          L:<span id="tbj-l" style="color:#ef4444">0</span>
-          <span id="tbj-pl" style="color:#94a3b8"> $0</span>
-        </div>
-        <label style="display:flex;align-items:center;gap:2px;cursor:pointer;flex-shrink:0;" title="Auto-fill optimal bet">
-          <input type="checkbox" id="tbj-autofill" style="cursor:pointer;width:10px;height:10px;">
-          <span style="font-size:8px;color:#3b82f6;">AUTO</span>
-        </label>
-      </div>
-      <div id="tbj-reason" style="font-size:8px;color:#4a7fa5;text-align:center;padding:1px 8px 2px;line-height:1.2;display:none;"></div>
-    `;
-    const bjWrap = document.querySelector('.blackjack-wrap');
-    if (bjWrap && bjWrap.parentNode) {
-      bjWrap.parentNode.insertBefore(panel, bjWrap.nextSibling);
-    } else {
-      document.body.appendChild(panel);
+  // Inject after blackjack-wrap
+  const bj=document.querySelector('.blackjack-wrap');
+  if(bj&&bj.parentNode) bj.parentNode.insertBefore(p,bj.nextSibling);
+  else document.body.appendChild(p);
+
+  // Expand/collapse
+  let exp=false;
+  document.getElementById('tbj-bar').addEventListener('click',e=>{
+    if(['tbj-auto','tbj-goal-inp','tbj-goal-btn','tbj-reset','tbj-life-btn','tbj-sess-lbl'].includes(e.target.id)) return;
+    exp=!exp;
+    document.getElementById('tbj-exp').style.display=exp?'flex':'none';
+    document.getElementById('tbj-reason').style.display=exp?'block':'none';
+    document.getElementById('tbj-toggle').textContent=exp?'▼':'▲';
+  });
+
+  // Goal set
+  p.addEventListener('click',e=>{
+    if(e.target.id==='tbj-goal-btn'){
+      const v=parseFloat(document.getElementById('tbj-goal-inp').value);
+      if(!isNaN(v)&&v>0){goalTarget=v*1e6;updateKelly();}
     }
-    // Toggle expand
-    let expanded=false;
-    document.getElementById('tbj-bar').addEventListener('click', e=>{
-      if(['tbj-goal-set','tbj-mrt-on','tbj-goal-input','tbj-autofill'].includes(e.target.id)) return;
-      expanded=!expanded;
-      document.getElementById('tbj-expanded').style.display=expanded?'flex':'none';
-      document.getElementById('tbj-reason').style.display=expanded?'block':'none';
-      document.getElementById('tbj-toggle').textContent=expanded?'▼':'▲';
-    });
-
-    // Goal set button — use event delegation so it works regardless of timing
-    panel.addEventListener('click', e=>{
-      if (e.target.id==='tbj-stats-label' || e.target.id==='tbj-stats-toggle' || e.target.className?.includes?.('SESSION')) {
-        showLifetime = !showLifetime;
-        updateStats();
-        return;
-      }
-      if (e.target.id==='tbj-life-reset') {
-        if (confirm('Reset lifetime stats?')) {
-          lifetime = {wins:0,losses:0,pushes:0,profit:0,hands:0};
-          saveLifetime(lifetime);
-          updateStats();
+    if(e.target.id==='tbj-reset-sess'){
+        if(confirm('Reset session stats?')){
+          sess.w=sess.l=sess.p=0;sess.profit=0;
+          sess._date=todayGMT();
+          sess._startTokens=getTokens()||null;
+          saveSess(sess);updateStats();updateStartStats();
         }
-        return;
       }
-      if (e.target.id!=='tbj-goal-set') return;
-      const inp=document.getElementById('tbj-goal-input');
-      if (!inp) return;
-      const v=parseFloat(inp.value);
-      if (!isNaN(v) && v>0) {
-        goalTarget=v*1_000_000;
-        updateKelly();
+      if(e.target.id==='tbj-reset'){
+      if(confirm('Reset ALL stats?')){
+        sess.w=sess.l=sess.p=0;sess.profit=0;
+        life={w:0,l:0,p:0,profit:0};
+        saveLife(life);saveSess(sess);updateStats();
       }
-    });
-    panel.addEventListener('keydown', e=>{
-      if (e.target.id==='tbj-goal-input' && e.key==='Enter') {
-        document.getElementById('tbj-goal-set')?.click();
-      }
-    });
-  }
-
-  // ── Update functions ───────────────────────────────────────────────────────
-  function updateCharlie(n) {
-    for(let i=1;i<=6;i++){
-      const p=document.getElementById('tbj-pip'+i);
-      if(!p) continue;
-      p.style.background=i<=n?(i===6?'#fbbf24':'#22c55e'):'#1a2e42';
     }
-  }
+  });
 
-  function updateKelly() {
-    const el=document.getElementById('tbj-kelly');
-    if (!el) return;
-    const br=getBankroll();
-    if (!br) { el.innerHTML='<span style="color:#2a5070">—</span>'; return; }
-    const opt=optimalBet(br);
-    if (!goalTarget) {
-      el.innerHTML=
-        `<span style="color:#4a7fa5">Safe bet:</span> <span style="color:#22c55e">${fmt(opt)}</span><br>`+
-        `<span style="color:#2a5070">EV/day: ${fmt(DAILY_HANDS*EDGE*opt)}</span><br>`+
-        `<span style="color:#2a5070">Enter goal target above</span>`;
-      return;
-    }
-    const pg=pGoalDaily(br,goalTarget,opt)*100;
-    const days=Math.ceil(goalTarget/(DAILY_HANDS*EDGE*opt));
-    el.innerHTML=
-      `<span style="color:#fbbf24">Goal: ${fmt(goalTarget)}</span><br>`+
-      `<span style="color:#22c55e">Bet: ${fmt(opt)}</span><br>`+
-      `P(goal): <span style="color:${pg>50?'#22c55e':'#f97316'}">${pg.toFixed(1)}%</span> `+
-      `<span style="color:#2a5070">~${days}d</span><br>`+
-      `EV/day: <span style="color:#3b82f6">${fmt(DAILY_HANDS*EDGE*opt)}</span>`;
-  }
-
-  function updateStats() {
-    const el=document.getElementById('tbj-stats');
-    const lbl=document.getElementById('tbj-stats-label');
-    const data = showLifetime ? lifetime : sess;
-    const total = data.wins+data.losses+data.pushes;
-    const pc = data.profit>=0?'#22c55e':'#ef4444';
-    if(lbl) lbl.textContent = showLifetime ? 'LIFETIME ⇄' : 'SESSION ⇄';
-    const tog = document.getElementById('tbj-stats-toggle');
-    if(tog) tog.textContent = showLifetime ? 'SESSION' : 'LIFETIME';
-    if(el) el.innerHTML=
-      `Hands: <span style="color:#94a3b8">${total}</span><br>`+
-      `W/L/P: <span style="color:#22c55e">${data.wins}</span>`+
-      `/<span style="color:#ef4444">${data.losses}</span>`+
-      `/<span style="color:#4a7fa5">${data.pushes}</span><br>`+
-      `P/L: <span style="color:${pc}">${fmt(data.profit)}</span>`;
-    // Inline bar always shows session
-    const w=document.getElementById('tbj-w');
-    const l=document.getElementById('tbj-l');
-    const pl=document.getElementById('tbj-pl');
-    if(w) w.textContent=sess.wins;
-    if(l) l.textContent=sess.losses;
-    if(pl){pl.textContent=fmt(sess.profit);pl.style.color=sess.profit>=0?'#22c55e':'#ef4444';}
-    saveSession(sess);
-  }
-
-  function updateMartingale() {
-    const el=document.getElementById('tbj-mrt');
-    const on=document.getElementById('tbj-mrt-on')?.checked;
-    if(!el) return;
-    if(!on){
-      el.innerHTML=
-        `<span style="color:#2a5070">Martingale does NOT</span><br>`+
-        `<span style="color:#2a5070">improve your odds.</span><br>`+
-        `<span style="color:#2a5070">EV same, risk higher.</span>`;
-      return;
-    }
-    const br=getBankroll()||316_000_000;
-    const base=optimalBet(br);
-    const next=base*2<=100_000_000?base*2:null;
-    const steps=base<100_000_000?Math.floor(Math.log2(100_000_000/base)):0;
-    el.innerHTML=
-      `Base: <span style="color:#f97316">${fmt(base)}</span><br>`+
-      `+1 loss: <span style="color:#a855f7">${next?fmt(next):'AT CAP'}</span><br>`+
-      `Steps: <span style="color:${steps<=1?'#ef4444':'#4a7fa5'}">${steps}</span>`+
-      (steps<=1?' <span style="color:#ef4444">⚠️ HIGH RISK</span>':'');
-  }
-
-  function autofillBet() {
-    const barCb = document.getElementById('tbj-autofill');
-    const slideOn = document.getElementById('tbj-slide-thumb')?.style.left === '19px';
-    if (!barCb?.checked && !slideOn) return;
-    const betInput = document.querySelector('.bet.input-money');
-    if (!betInput) return;
-    const newBetWrap = document.querySelector('.new-bet-wrap.bj-show');
-    if (!newBetWrap) return;
-    const br = getBankroll();
-    if (!br || br <= 0) return; // never autofill with $0 balance
-    const opt = Math.min(optimalBet(br), br); // never exceed bankroll
-    if (parseInt(betInput.value) === opt) return;
-    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-    if (nativeSetter) nativeSetter.call(betInput, String(opt));
-    else betInput.value = String(opt);
-    betInput.dispatchEvent(new Event('input',  {bubbles:true}));
-    betInput.dispatchEvent(new Event('change', {bubbles:true}));
-    betInput.dispatchEvent(new KeyboardEvent('keyup', {bubbles:true}));
-  }
-
-  function injectAutoToggle() {
-    if (document.getElementById('tbj-auto-inline')) return;
-    // Use the new-bet-wrap as anchor — position toggle absolutely over the left edge of input
-    const newBetWrap = document.querySelector('.new-bet-wrap');
-    if (!newBetWrap) return;
-
-    const tog = document.createElement('div');
-    tog.id = 'tbj-auto-inline';
-    tog.style.cssText = `
-      position:absolute; bottom:68px; left:8px;
-      display:flex; flex-direction:column; align-items:center;
-      z-index:10; pointer-events:auto;
-    `;
-    tog.innerHTML = `
-      <div style="font-family:'Courier New',monospace;font-size:8px;color:#22c55e;
-                  letter-spacing:1px;margin-bottom:3px;font-weight:700;">AUTO-BET</div>
-      <div id="tbj-slide-track" style="
-        width:36px;height:20px;border-radius:10px;
-        background:#1a2e42;border:1px solid #1a3a5c;
-        position:relative;cursor:pointer;transition:background .2s;">
-        <div id="tbj-slide-thumb" style="
-          width:16px;height:16px;border-radius:50%;
-          background:#4a7fa5;position:absolute;
-          top:1px;left:1px;transition:left .2s,background .2s;
-          box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>
-      </div>
-    `;
-
-    let on = false;
-    const track = tog.querySelector('#tbj-slide-track');
-    const thumb = tog.querySelector('#tbj-slide-thumb');
-    function setOn(val) {
-      on = val;
-      track.style.background = on ? '#0a2818' : '#1a2e42';
-      track.style.borderColor = on ? '#22c55e' : '#1a3a5c';
-      thumb.style.left        = on ? '17px' : '1px';
-      thumb.style.background  = on ? '#22c55e' : '#4a7fa5';
-      const barCb = document.getElementById('tbj-autofill');
-      if (barCb) barCb.checked = on;
-    }
-    track.addEventListener('click', () => setOn(!on));
-
-    // Append to new-bet-wrap which already has position:relative
-    newBetWrap.style.position = 'relative';
-    newBetWrap.appendChild(tog);
-  }
-  function updateOdds(playerCards, dealerUp) {
-    const el=document.getElementById('tbj-odds');
-    if(!el) return;
-    if(!playerCards.length||!dealerUp){el.textContent='';return;}
-    const {value,isSoft}=handInfo(playerCards);
-    const dv=dealerUp.val===14?11:Math.min(dealerUp.val,10);
-    const {win,lose,push}=handWinProb(value,isSoft,dv,playerCards.length);
-    el.innerHTML=
-      `<span style="color:#22c55e">W:${(win*100).toFixed(0)}%</span> `+
-      `<span style="color:#ef4444">L:${(lose*100).toFixed(0)}%</span> `+
-      `<span style="color:#4a7fa5">P:${(push*100).toFixed(0)}%</span>`;
-  }
-
-
-  function hideTornSuggestion() {
-    if (document.getElementById('tbj-hide-suggestion')) return;
-    const style = document.createElement('style');
-    style.id = 'tbj-hide-suggestion';
-    // Hide Torn's green suggestion text that overlaps the CONTINUE button
-    style.textContent = `
-      .casino-msg-wrap .right.msg,
-      .blackjack-wrap .suggestion,
-      .blackjack-wrap .hint,
-      .win-lose-wrap .win-lose .continue ~ *,
-      .main-table-wrap > .suggestion,
-      .main-table-wrap > .hint { display: none !important; }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function injectStartStats() {
-    if (document.getElementById('tbj-start-stats')) return;
-    const wrap = document.querySelector('.new-bet-wrap');
-    if (!wrap) return;
-
-    // Pull the wrap up to reduce dead space
-    wrap.style.top = '80px';
-
-    const strip = document.createElement('div');
-    strip.id = 'tbj-start-stats';
-    strip.style.cssText = `
-      font-family:'Courier New',monospace;
-      font-size:11px; font-weight:700;
-      text-align:center; padding:6px 8px 8px;
-      letter-spacing:0.5px;
-      text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
-    `;
-    // Insert before .msg (the warning text)
-    const msgDiv = wrap.querySelector('.msg');
-    wrap.insertBefore(strip, msgDiv || wrap.firstChild);
-    updateStartStats();
-  }
-
-  function updateStartStats() {
-    const strip = document.getElementById('tbj-start-stats');
-    if (!strip) return;
-    const pc = sess.profit>=0?'#22c55e':'#ef4444';
-    const lt = lifetime;
-    const ltpc = (lt.profit||0)>=0?'#22c55e':'#ef4444';
-    strip.innerHTML =
-      `<div style="margin-bottom:3px;">`+
-      `<span style="color:#4a7fa5;letter-spacing:1px;">SESSION</span>&nbsp;`+
-      `<span style="color:#22c55e">W:${sess.wins}</span>&nbsp;`+
-      `<span style="color:#ef4444">L:${sess.losses}</span>&nbsp;`+
-      `<span style="color:${pc};font-size:12px;">${fmt(sess.profit)}</span>`+
-      `</div>`+
-      `<div>`+
-      `<span style="color:#3b7dd8;letter-spacing:1px;">LIFETIME</span>&nbsp;`+
-      `<span style="color:#22c55e">W:${lt.wins||0}</span>&nbsp;`+
-      `<span style="color:#ef4444">L:${lt.losses||0}</span>&nbsp;`+
-      `<span style="color:${ltpc};font-size:12px;">${fmt(lt.profit||0)}</span>`+
-      `</div>`;
-  }
-
-  function ensureTableLabel() {
-    if (document.getElementById('tbj-table-label')) return;
-    const wrap = document.querySelector('.blackjack-wrap');
-    if (!wrap) return;
-    const lbl = document.createElement('div');
-    lbl.id = 'tbj-table-label';
-    lbl.style.cssText = `
-      position:absolute;
-      bottom:108px;
-      left:50%; transform:translateX(-50%);
-      font-size:15px; font-weight:900;
-      letter-spacing:1px;
-      font-family:'Courier New',monospace;
-      color:#22c55e;
-      background:rgba(7,16,30,0.82);
-      border:1px solid #1a3a5c;
-      border-radius:6px;
-      padding:4px 14px;
-      pointer-events:none;
-      z-index:10;
-      white-space:nowrap;
-      text-shadow:none;
-    `;
-    wrap.appendChild(lbl);
-  }
-
-  function updateTableLabel(action) {
-    ensureTableLabel();
-    const lbl = document.getElementById('tbj-table-label');
-    if (!lbl) return;
-
-    // Hide label when dealer hole card has been revealed (hand is over)
-    // During play: dealer has one face-down card (.card-back) in their hand
-    // Post-hand: hole card is revealed, no .card-back in dealer area
-    const dealerCards = document.querySelectorAll('.dealer-cards .cards [class*="card-"]');
-    const holeCardHidden = document.querySelector('.dealer-cards .cards .card-back');
-    const handOver = dealerCards.length >= 2 && !holeCardHidden;
-    if (handOver) {
-      lbl.style.display = 'none';
-      return;
-    }
-
-    const labels = {
-      H:'HIT', S:'STAND', D:'DOUBLE DOWN', P:'SPLIT',
-      E:'EARLY SURRENDER', BJ:'BLACKJACK!', C:'CHARLIE!', W:'',
-      INS:'DECLINE INSURANCE',
-    };
-    const colors = {
-      H:'#f97316', S:'#22c55e', D:'#a855f7', P:'#3b82f6',
-      E:'#ef4444', BJ:'#fbbf24', C:'#fbbf24', W:'',
-      INS:'#ef4444',
-    };
-    lbl.textContent = labels[action] || '';
-    lbl.style.color = colors[action] || '#6faf41';
-    lbl.style.display = (action === 'W' || !labels[action]) ? 'none' : 'block';
-  }
-  function watchResults() {
-    const target = document.querySelector('.blackjack-wrap');
-    if (!target) return;
-
-    let balanceBefore = null;
-    let betAmount = null;
-
-    // Snapshot balance when a hand starts (cards appear)
-    const snapObserver = new MutationObserver(() => {
-      const playerCards = document.querySelectorAll('.player-cards .cards [class*="card-clubs-"],[class*="card-hearts-"],[class*="card-spades-"],[class*="card-diamonds-"]');
-      const hasCards = document.querySelector('.player-cards .cards [class*="card-clubs-"],[class*="card-hearts-"],[class*="card-spades-"],[class*="card-diamonds-"]');
-      if (hasCards && balanceBefore === null) {
-        balanceBefore = getBankroll();
-        betAmount = getCurrentBet() || sess.lastBet || 0;
-      }
-    });
-    snapObserver.observe(target, {childList:true, subtree:true});
-
-    // Record result when win/lose screen appears
-    const obs = new MutationObserver(() => {
-      const wlWrap = document.querySelector('.win-lose-wrap');
-      if (!wlWrap || !wlWrap.classList.contains('bj-show')) return;
-
-      const wlEl  = document.querySelector('.win-lose .wl-msg');
-      const msg   = (wlEl?.querySelector('span') || {}).textContent || '';
-      const info  = (document.querySelector('.win-lose .wl-info .bj-wonState') || {}).textContent || '';
-      const bet   = betAmount || getCurrentBet() || sess.lastBet || 0;
-      const key   = msg + bet + Math.floor(Date.now()/5000);
-      if (obs._k === key) return;
-      obs._k = key;
-
-      const lower    = msg.toLowerCase();
-      const wlClass  = wlEl?.className || '';
-
-      // Get balance after and calculate actual profit
-      const balanceAfter = getBankroll();
-      let handProfit = null;
-      if (balanceBefore !== null && balanceAfter !== null && balanceBefore > 0) {
-        handProfit = balanceAfter - balanceBefore;
-      }
-
-      // Classify outcome
-      const isWin  = wlClass.includes('won') || lower.includes('won') || lower.includes('win');
-      const isSurrender = wlClass.includes('neutral') && (
-        info.toLowerCase().includes('surrender') || lower.includes('surrender') ||
-        (handProfit !== null && bet > 0 && Math.abs(handProfit + bet*0.5) < bet*0.1)
-      );
-      const isLoss = !isSurrender && (wlClass.includes('lost') || lower.includes('lost') ||
-                     lower.includes('lose') || lower.includes('bust'));
-      const isPush = !isSurrender && !isWin && !isLoss && (
-        wlClass.includes('neutral') || lower.includes('push') ||
-        lower.includes('tie') || lower.includes('draw')
-      );
-
-      // Use actual balance diff as profit — most accurate
-      const profit = handProfit !== null ? handProfit : (
-        isWin ? bet : isSurrender ? -Math.round(bet*0.5) : isLoss ? -bet : 0
-      );
-
-      // Update session
-      if (isWin)       { sess.wins++;   sess.profit += profit; }
-      else if (isSurrender) { sess.losses++; sess.profit += profit; }
-      else if (isLoss) { sess.losses++; sess.profit += profit; }
-      else if (isPush) { sess.pushes++; }
-
-      if (bet) sess.lastBet = bet;
-
-      // Update lifetime
-      lifetime.wins   = (lifetime.wins||0)   + (isWin ? 1 : 0);
-      lifetime.losses = (lifetime.losses||0) + (isLoss||isSurrender ? 1 : 0);
-      lifetime.pushes = (lifetime.pushes||0) + (isPush ? 1 : 0);
-      lifetime.profit = (lifetime.profit||0) + (isPush ? 0 : profit);
-      lifetime.hands  = (lifetime.hands||0)  + 1;
-      saveLifetime(lifetime);
-
-      saveSession(sess);
+  // Lifetime toggle
+  let showLife=false;
+  p.addEventListener('click',e=>{
+    if(e.target.id==='tbj-life-btn'||e.target.id==='tbj-sess-lbl'){
+      showLife=!showLife;
+      document.getElementById('tbj-sess-lbl').textContent=showLife?'LIFETIME':'SESSION';
+      document.getElementById('tbj-life-btn').textContent=showLife?'SESSION':'LIFETIME';
       updateStats();
-      updateStartStats();
+    }
+  });
+  p._showLife=()=>showLife;
 
-      // Reset for next hand
-      balanceBefore = null;
-      betAmount = null;
-    });
+  // Goal input enter key
+  p.addEventListener('keydown',e=>{
+    if(e.target.id==='tbj-goal-inp'&&e.key==='Enter') document.getElementById('tbj-goal-btn').click();
+  });
+}
 
-    obs.observe(target, {childList:true, subtree:true, attributes:true, attributeFilter:['class']});
+// ── Update helpers ────────────────────────────────────────────────────────────
+function updateCharlie(n){
+  for(let i=1;i<=6;i++){
+    const pip=document.getElementById('tbj-pip'+i);
+    if(pip) pip.style.background=i<=n?(i===6?'#fbbf24':'#22c55e'):'#1a2e42';
   }
-  function update() {
-    const actionEl=document.getElementById('tbj-action');
-    const reasonEl=document.getElementById('tbj-reason');
-    if(!actionEl) return;
+}
 
-    updateKelly();
-    updateMartingale();
-    injectAutoToggle();
-    injectStartStats();
-    updateStartStats();
-    autofillBet();
-    const bet=getCurrentBet();
+function updateKelly(){
+  const el=document.getElementById('tbj-kelly');
+  if(!el) return;
+  const br=getBankroll();
+  if(!br){el.innerHTML='<span style="color:#2a5070">—</span>';return;}
+  const opt=optimalBet(br);
+  if(!goalTarget){
+    el.innerHTML=`<span style="color:#4a7fa5">Safe bet:</span> <span style="color:#22c55e">${fmt(opt)}</span><br><span style="color:#2a5070">Set goal above</span>`;
+    return;
+  }
+  const pg=pGoalDaily(br,goalTarget,opt)*100;
+  const days=Math.ceil(goalTarget/(DAILY*EDGE*opt));
+  el.innerHTML=
+    `<span style="color:#fbbf24">Goal: ${fmt(goalTarget)}</span><br>`+
+    `<span style="color:#22c55e">Bet: ${fmt(opt)}</span><br>`+
+    `P(goal): <span style="color:${pg>50?'#22c55e':'#f97316'}">${pg.toFixed(1)}%</span> `+
+    `<span style="color:#2a5070">~${days}d</span><br>`+
+    `EV/day: <span style="color:#3b82f6">${fmt(DAILY*EDGE*opt)}</span>`;
+}
+
+function updateStats(){
+  const el=document.getElementById('tbj-stats');
+  const panel=document.getElementById('tbj-panel');
+  const showLife=panel&&panel._showLife&&panel._showLife();
+  const d=showLife?life:sess;
+  const pc=(d.profit||0)>=0?'#22c55e':'#ef4444';
+  // Use token diff for session hands (most accurate)
+  const tokens=getTokens();
+  const tokenHands=(sess._startTokens&&tokens>0)?(sess._startTokens-tokens):null;
+  const hands=showLife?(d.w||0)+(d.l||0)+(d.p||0):(tokenHands!==null?tokenHands:(d.w||0)+(d.l||0)+(d.p||0));
+  if(el) el.innerHTML=
+    `Hands: <span style="color:#94a3b8">${hands}</span><br>`+
+    `W/L/P: <span style="color:#22c55e">${d.w||0}</span>/<span style="color:#ef4444">${d.l||0}</span>/<span style="color:#4a7fa5">${d.p||0}</span><br>`+
+    `P/L: <span style="color:${pc}">${fmt(d.profit||0)}</span>`;
+  const w=document.getElementById('tbj-w');
+  const l=document.getElementById('tbj-l');
+  const pl=document.getElementById('tbj-pl');
+  if(w) w.textContent=sess.w||0;
+  if(l) l.textContent=sess.l||0;
+  if(pl){pl.textContent=fmt(sess.profit||0);pl.style.color=(sess.profit||0)>=0?'#22c55e':'#ef4444';}
+}
+function injectAutoToggle(){
+  if(document.getElementById('tbj-at')) return;
+  const wrap=document.querySelector('.new-bet-wrap');
+  if(!wrap) return;
+  const tog=document.createElement('div');
+  tog.id='tbj-at';
+  tog.style.cssText='position:absolute;bottom:78px;left:8px;display:flex;flex-direction:column;align-items:center;z-index:10;';
+  tog.innerHTML=`
+    <div style="font-family:monospace;font-size:8px;color:#22c55e;margin-bottom:3px;font-weight:700;">AUTO-BET</div>
+    <div id="tbj-track" style="width:36px;height:20px;border-radius:10px;background:#1a2e42;border:1px solid #1a3a5c;position:relative;cursor:pointer;transition:background .2s;">
+      <div id="tbj-thumb" style="width:16px;height:16px;border-radius:50%;background:#4a7fa5;position:absolute;top:1px;left:1px;transition:left .2s,background .2s;box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>
+    </div>
+  `;
+  let on=false;
+  const track=tog.querySelector('#tbj-track');
+  const thumb=tog.querySelector('#tbj-thumb');
+  function setOn(v){
+    on=v;
+    track.style.background=on?'#0a2818':'#1a2e42';
+    track.style.borderColor=on?'#22c55e':'#1a3a5c';
+    thumb.style.left=on?'17px':'1px';
+    thumb.style.background=on?'#22c55e':'#4a7fa5';
+    const cb=document.getElementById('tbj-auto');
+    if(cb) cb.checked=on;
+  }
+  track.addEventListener('click',()=>setOn(!on));
+  wrap.style.position='relative';
+  wrap.appendChild(tog);
+}
+
+function autofill(){
+  const barAuto=document.getElementById('tbj-auto')?.checked;
+  const slideOn=document.getElementById('tbj-thumb')?.style.left==='17px';
+  if(!barAuto&&!slideOn) return;
+  const inp=document.querySelector('.bet.input-money,[name="bet"]');
+  if(!inp) return;
+  if(!document.querySelector('.new-bet-wrap.bj-show')) return;
+  const br=getBankroll();
+  if(!br||br<=0) return;
+  const opt=Math.min(optimalBet(br),br);
+  if(parseInt(inp.value)===opt) return;
+  const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
+  if(setter) setter.call(inp,String(opt)); else inp.value=String(opt);
+  inp.dispatchEvent(new Event('input',{bubbles:true}));
+  inp.dispatchEvent(new Event('change',{bubbles:true}));
+}
+
+// ── Stats on start screen ─────────────────────────────────────────────────────
+function injectStartStats(){
+  if(document.getElementById('tbj-ss')) return;
+  const wrap=document.querySelector('.new-bet-wrap');
+  if(!wrap) return;
+  wrap.style.top='80px';
+  const strip=document.createElement('div');
+  strip.id='tbj-ss';
+  strip.style.cssText='font-family:monospace;font-size:11px;font-weight:700;text-align:center;padding:4px 8px 6px;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;';
+  const msg=wrap.querySelector('.msg');
+  wrap.insertBefore(strip,msg||wrap.firstChild);
+}
+function updateStartStats(){
+  const strip=document.getElementById('tbj-ss');
+  if(!strip) return;
+  const sp=(sess.profit||0)>=0?'#22c55e':'#ef4444';
+  const lp=(life.profit||0)>=0?'#22c55e':'#ef4444';
+  strip.innerHTML=
+    `<div style="margin-bottom:2px;"><span style="color:#4a7fa5">SESSION</span> `+
+    `<span style="color:#22c55e">W:${sess.w||0}</span> `+
+    `<span style="color:#ef4444">L:${sess.l||0}</span> `+
+    `<span style="color:${sp}">${fmt(sess.profit||0)}</span></div>`+
+    `<div><span style="color:#3b7dd8">LIFETIME</span> `+
+    `<span style="color:#22c55e">W:${life.w||0}</span> `+
+    `<span style="color:#ef4444">L:${life.l||0}</span> `+
+    `<span style="color:${lp}">${fmt(life.profit||0)}</span></div>`;
+}
+
+// ── Table label ───────────────────────────────────────────────────────────────
+function ensureLabel(){
+  if(document.getElementById('tbj-lbl')) return;
+  const wrap=document.querySelector('.blackjack-wrap');
+  if(!wrap) return;
+  const lbl=document.createElement('div');
+  lbl.id='tbj-lbl';
+  lbl.style.cssText='position:absolute;bottom:108px;left:50%;transform:translateX(-50%);font-family:monospace;font-size:15px;font-weight:900;letter-spacing:1px;padding:4px 14px;border-radius:6px;background:rgba(7,16,30,0.85);border:1px solid #1a3a5c;pointer-events:none;z-index:10;white-space:nowrap;display:none;';
+  wrap.appendChild(lbl);
+}
+function setLabel(action){
+  ensureLabel();
+  const lbl=document.getElementById('tbj-lbl');
+  if(!lbl) return;
+  const A=ACT[action]||ACT.H;
+  // Hide on post-hand or pre-deal
+  if(action==='W'||!A.t){lbl.style.display='none';return;}
+  lbl.textContent=A.t;
+  lbl.style.color=A.c;
+  lbl.style.display='block';
+}
+
+// ── Result tracking ───────────────────────────────────────────────────────────
+let balBefore=null,betSnap=null;
+function watchResults(){
+  if(watchResults._done) return;
+  watchResults._done=true;
+  const target=document.querySelector('.blackjack-wrap');
+  if(!target) return;
+
+  // Snapshot balance when player cards first appear
+  new MutationObserver(()=>{
+    const hasPlayerCard=document.querySelector('.player-cards div[class*="card-"]');
+    if(hasPlayerCard&&balBefore===null){
+      balBefore=getBankroll();
+      betSnap=getCurrentBet()||sess.lastBet||0;
+    }
+  }).observe(target,{childList:true,subtree:true});
+
+  // Record result when win/lose appears
+  new MutationObserver(()=>{
+    const wlWrap=document.querySelector('.win-lose-wrap');
+    if(!wlWrap||!wlWrap.classList.contains('bj-show')) return;
+    const wlEl=document.querySelector('.win-lose .wl-msg');
+    const msg=(wlEl?.querySelector('span')||{}).textContent||'';
+    const wlClass=wlEl?.className||'';
+    const bet=betSnap||getCurrentBet()||sess.lastBet||0;
+    const key=msg+bet+Math.floor(Date.now()/8000); // 8 second window
+    if(watchResults._k===key) return;
+    watchResults._k=key;
+
+    const lower=msg.toLowerCase();
+    const balAfter=getBankroll();
+    const profit=(balBefore!=null&&balAfter!=null)?balAfter-balBefore:null;
+
+    const isWin=wlClass.includes('won')||lower.includes('won')||lower.includes('win');
+    const isSurr=wlClass.includes('neutral')&&(lower.includes('surrender')||(profit!=null&&bet>0&&Math.abs(profit+bet*0.5)<bet*0.1));
+    const isLoss=!isSurr&&(wlClass.includes('lost')||lower.includes('lost')||lower.includes('lose')||lower.includes('bust'));
+    const isPush=!isWin&&!isSurr&&!isLoss;
+
+    const delta=profit!=null?profit:(isWin?bet:isSurr?-Math.round(bet*0.5):isLoss?-bet:0);
+
+    if(isWin){sess.w=(sess.w||0)+1;sess.profit=(sess.profit||0)+delta;}
+    else if(isSurr){sess.l=(sess.l||0)+1;sess.profit=(sess.profit||0)+delta;}
+    else if(isLoss){sess.l=(sess.l||0)+1;sess.profit=(sess.profit||0)+delta;}
+    else{sess.p=(sess.p||0)+1;}
     if(bet) sess.lastBet=bet;
 
-    const playerCards=readCards(document.querySelector('.player-cards .cards'));
-    const dealerUp=readDealerUp();
+    life.w=(life.w||0)+(isWin?1:0);
+    life.l=(life.l||0)+((isSurr||isLoss)?1:0);
+    life.p=(life.p||0)+(isPush?1:0);
+    life.profit=(life.profit||0)+(isPush?0:delta);
+    saveLife(life);saveSess(sess);
+    updateStats();updateStartStats();
+    balBefore=null;betSnap=null;
+  }).observe(target,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+}
 
-    updateCharlie(playerCards.length);
-    updateOdds(playerCards,dealerUp);
+// ── Main update loop ──────────────────────────────────────────────────────────
+let lastKey='';
+function update(){
+  const actionEl=document.getElementById('tbj-action');
+  const reasonEl=document.getElementById('tbj-reason');
+  if(!actionEl) return;
 
-    if(!playerCards.length||!dealerUp){
-      updateTableLabel('W');
-      const br2=getBankroll();
-      const opt2=br2?optimalBet(br2):null;
-      actionEl.textContent=opt2?`BET ${fmt(opt2)}`:'DEAL A HAND';
-      actionEl.style.color='#3b82f6';
-      actionEl.style.background='transparent';
-      if(reasonEl) reasonEl.textContent='';
-      return;
-    }
+  updateKelly();
+  updateStats();
+  injectAutoToggle();
+  injectStartStats();
+  updateStartStats();
+  autofill();
 
-    const key=playerCards.map(c=>c.rank+c.suit).join(',')+(dealerUp?dealerUp.rank+dealerUp.suit:'');
+  const bet=getCurrentBet();
+  if(bet) sess.lastBet=bet;
 
-    // Post-hand: dealer hole card revealed — check every tick (before key cache)
-    const dealerCardEls=document.querySelectorAll('.dealer-cards .cards [class*="card-"]');
-    const holeHidden=document.querySelector('.dealer-cards .cards .card-back');
-    const isPostHand=dealerCardEls.length>=2&&!holeHidden;
-    if(isPostHand){
-      updateTableLabel('W');
-      const br2=getBankroll();
-      const opt2=br2?optimalBet(br2):null;
-      actionEl.textContent=opt2?`BET ${fmt(opt2)}`:'DEAL A HAND';
-      actionEl.style.color='#3b82f6';
-      actionEl.style.background='transparent';
-      if(reasonEl) reasonEl.textContent='';
-      lastKey='';
-      return;
-    }
+  // Read cards
+  const pdiv=document.querySelector('.player-cards');
+  const ddiv=document.querySelector('.dealer-cards');
+  const pc=pdiv?Array.from(pdiv.querySelectorAll('div')).filter(el=>CARD_RE.test(el.className||'')).map(parseCard).filter(Boolean):[];
+  const dcards=ddiv?Array.from(ddiv.querySelectorAll('div')).filter(el=>CARD_RE.test(el.className||'')).map(parseCard).filter(Boolean):[];
+  const du=dcards[0]||null;
 
-    if(key===lastKey) return;
-    lastKey=key;
+  updateCharlie(pc.length);
 
-    const {canSplit} = getAvailableActions();
-    // Double always available on first 2 cards; split available when cards match
-    const canDouble = playerCards.length === 2;
-    const isPairHand = playerCards.length === 2 && playerCards[0].val === playerCards[1].val;
-    // Use detected canSplit but also check if it's visually a pair — Torn always allows split on pairs
-    const effectiveCanSplit = isPairHand || canSplit;
-    const action=getAction(playerCards,dealerUp,canDouble,effectiveCanSplit,true);
+  // Odds display
+  const oddsEl=document.getElementById('tbj-odds');
+  if(oddsEl&&pc.length&&du){
+    const{value,isSoft}=handInfo(pc);
+    const dv=du.val===14?11:Math.min(du.val,10);
+    // Simple approximation
+    const win=Math.max(0.05,Math.min(0.95,0.5+(value-dv)*0.04));
+    const lose=Math.max(0.05,1-win-0.07);
+    const push=Math.max(0,1-win-lose);
+    oddsEl.innerHTML=`<span style="color:#22c55e">W:${Math.round(win*100)}%</span> <span style="color:#ef4444">L:${Math.round(lose*100)}%</span> <span style="color:#4a7fa5">P:${Math.round(push*100)}%</span>`;
+  } else if(oddsEl) oddsEl.textContent='';
 
-    // Insurance: only show if insurance button is currently active (not disabled)
-    const insBtn = document.querySelector('[data-step="insurance"]');
-    const insActive = insBtn && !insBtn.className.includes('disabled') &&
-                      parseFloat(window.getComputedStyle(insBtn).opacity||'1') >= 0.6;
-    if (insActive && dealerUp?.val === 14) {
-      const actionEl2 = document.getElementById('tbj-action');
-      const reasonEl2 = document.getElementById('tbj-reason');
-      if(actionEl2){ actionEl2.textContent='DECLINE INSURANCE'; actionEl2.style.color='#ef4444'; actionEl2.style.background='rgba(239,68,68,0.15)'; }
-      if(reasonEl2) reasonEl2.textContent='Insurance is -EV. Always decline.';
-      updateTableLabel('INS');
-      return;
-    }
-    const A=ACT[action]||ACT['H'];
-
-    actionEl.textContent=A.t;
-    actionEl.style.color=A.c;
-    actionEl.style.background=A.bg;
-    updateTableLabel(action);
-
-    const {value,isSoft}=handInfo(playerCards);
-    const dv=dealerUp.val===14?11:Math.min(dealerUp.val,10);
-    const reasons={
-      E:`Surrender early — save 50% vs dealer ${dv}`,
-      C:'6 cards without busting = auto win!',
-      BJ:'Natural blackjack — 3:2 payout!',
-      D:`Double — max EV: ${isSoft?'Soft ':''}${value} vs ${dv}`,
-      P:`Split — each card plays vs dealer ${dv}`,
-      S:`Stand — ${isSoft?'Soft ':''}${value} vs dealer ${dv}`,
-      H:`Hit — ${isSoft?'Soft ':''}${value} vs dealer ${dv}`,
-    };
-    if(reasonEl) reasonEl.textContent=reasons[action]||'';
+  // Post-hand: dealer has 2+ revealed cards (no card-back)
+  const dealerRevealed=dcards.length>=2&&!ddiv?.querySelector('.card-back');
+  if(dealerRevealed||(!pc.length&&!du)){
+    setLabel('W');
+    const br=getBankroll();
+    const opt=br?optimalBet(br):null;
+    actionEl.textContent=opt?`BET ${fmt(opt)}`:'DEAL A HAND';
+    actionEl.style.color='#3b82f6';
+    actionEl.style.background='transparent';
+    if(reasonEl) reasonEl.textContent='';
+    lastKey='';
+    return;
   }
 
-  // ── Boot ───────────────────────────────────────────────────────────────────
-  function boot() {
-    document.getElementById('torn-bj-panel')?.remove();
-    hideTornSuggestion();
-    buildPanel();
-    watchResults();
-    updateStats();
-    setInterval(update, 400);
-    console.log('%c[Torn BJ Advisor v5] Active','color:#22c55e;font-weight:bold;');
+  if(!pc.length||!du) return;
+
+  const key=pc.map(c=>c.rank+c.suit).join(',')+(du.rank+du.suit);
+  if(key===lastKey) return;
+  lastKey=key;
+
+  // Insurance check
+  const insBtn=document.querySelector('[data-step="insurance"]');
+  const insActive=insBtn&&!insBtn.className.includes('disabled')&&parseFloat(window.getComputedStyle(insBtn).opacity||'1')>=0.6;
+  if(insActive&&du.val===14){
+    actionEl.textContent='DECLINE INSURANCE';actionEl.style.color='#ef4444';actionEl.style.background='rgba(239,68,68,0.15)';
+    if(reasonEl) reasonEl.textContent='Insurance is -EV. Always decline.';
+    setLabel('INS');return;
   }
 
-  // Auto-boot: wait for blackjack-wrap to appear, retry every 500ms
-  function tryBoot(retries) {
-    if (document.querySelector('.blackjack-wrap')) {
-      boot();
-    } else if (retries > 0) {
-      setTimeout(() => tryBoot(retries - 1), 500);
-    }
-  }
+  const canDbl=pc.length===2;
+  const isPair=pc.length===2&&pc[0].val===pc[1].val;
+  const canSpl=isPair||btnEnabled('split');
+  const action=getAction(pc,du,canDbl,canSpl);
+  const A=ACT[action]||ACT.H;
+  actionEl.textContent=A.t;actionEl.style.color=A.c;actionEl.style.background=A.bg;
+  setLabel(action);
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => tryBoot(40));
-  } else {
-    tryBoot(40);
-  }
+  const{value,isSoft}=handInfo(pc);
+  const dv=du.val===14?11:Math.min(du.val,10);
+  const reasons={E:`Surrender — save 50% vs dealer ${dv}`,C:'6-card Charlie!',BJ:'Blackjack 3:2!',
+    D:`Double — max EV: ${isSoft?'Soft ':''}${value} vs ${dv}`,P:`Split vs dealer ${dv}`,
+    S:`Stand — ${isSoft?'Soft ':''}${value} vs ${dv}`,H:`Hit — ${isSoft?'Soft ':''}${value} vs ${dv}`};
+  if(reasonEl) reasonEl.textContent=reasons[action]||'';
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+function boot(){
+  document.getElementById('tbj-panel')?.remove();
+  buildPanel();watchResults();updateStats();
+  setInterval(update,400);
+  console.log('%c[Torn BJ Advisor v7.0] Active','color:#22c55e;font-weight:bold;');
+}
+function tryBoot(n){
+  if(document.querySelector('.blackjack-wrap')) boot();
+  else if(n>0) setTimeout(()=>tryBoot(n-1),500);
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>tryBoot(40));
+else tryBoot(40);
 
 })();
+SCRIPTEOF
