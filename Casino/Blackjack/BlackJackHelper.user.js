@@ -203,9 +203,16 @@
     } catch(e){return 0;}
   }
   function optimalBet(br) {
-    let lo=100_000, hi=100_000_000;
+    if (!br || br <= 0) return 0;
+    // For very small bankrolls, just use 5% of bankroll as a reasonable bet
+    if (br < 1_000_000) return Math.max(1000, Math.round(br * 0.05 / 1000) * 1000);
+    let lo=1_000, hi=Math.min(br, 100_000_000);
     for(let i=0;i<60;i++){const m=(lo+hi)/2; pBustDay(br,m)<0.05?lo=m:hi=m;}
-    return Math.min(Math.round(lo/500_000)*500_000,100_000_000);
+    // Round to nearest 500K for large, 100K for medium, 10K for small
+    const raw = Math.min(lo, 100_000_000);
+    if (raw >= 1_000_000) return Math.max(100_000, Math.round(raw/500_000)*500_000);
+    if (raw >= 100_000)   return Math.max(10_000,  Math.round(raw/100_000)*100_000);
+    return Math.max(1_000, Math.round(raw/10_000)*10_000);
   }
 
   // ── Session ────────────────────────────────────────────────────────────────
