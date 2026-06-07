@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Torn BJ Advisor — Perfect Strategy (+0.37% edge)
 // @namespace    https://www.torn.com/
-// @version      5.4
-// @description  Perfect strategy, goal mode, hand odds, session tracking. Built into Torn BJ page.
-// @author       BJ Advisor
+// @version      6.0
+// @description  Perfect strategy, goal mode, hand odds, session/lifetime tracking, balance-diff P/L. Built into Torn BJ page.
+// @author       Sypharius
 // @match        https://www.torn.com/page.php?sid=blackjack*
 // @match        https://www.torn.com/loader.php?sid=blackjack*
 // @grant        none
@@ -718,87 +718,91 @@
     lbl.style.display = (action === 'W' || !labels[action]) ? 'none' : 'block';
   }
   function watchResults() {
-    const target=document.querySelector('.blackjack-wrap');
-    if(!target) return;
-    const obs=new MutationObserver(()=>{
-      const wlWrap=document.querySelector('.win-lose-wrap');
-      if(!wlWrap||!wlWrap.classList.contains('bj-show')) return;
-      const wlEl = document.querySelector('.win-lose .wl-msg');
-      const msg=(wlEl?.querySelector('span')||{}).textContent||'';
-      const info=(document.querySelector('.win-lose .wl-info .bj-wonState')||{}).textContent||'';
-      const bet=getCurrentBet()||sess.lastBet||0;
-      // Use timestamp-based key so identical consecutive hands are tracked separately
-      const key=msg+bet+Math.floor(Date.now()/5000); // 5 second dedup window
-      if(obs._k===key) return;
-      obs._k=key;
-      const lower=msg.toLowerCase();
-      const wlClass = wlEl?.className||'';
-      const amtM=info.match(/\$([0-9,]+)/);
-      const amt=amtM?parseInt(amtM[1].replace(/,/g,'')):bet;
+    const target = document.querySelector('.blackjack-wrap');
+    if (!target) return;
 
-      // Detect surrender: neutral class + text OR amt ≈ 0.5*bet (Torn returns half)
-      const isSurrender = wlClass.includes('neutral') && (
-        info.toLowerCase().includes('surrender') ||
-        lower.includes('surrender') ||
-        (amt > 0 && bet > 0 && Math.abs(amt/bet - 0.5) < 0.05)
-      );
-      // Detect push: neutral, not surrender, amt ≈ bet (full return)
-      const isPush = (!isSurrender) && (
-        wlClass.includes('neutral') ||
-        lower.includes('push') ||
-        lower.includes('tie') ||
-        lower.includes('draw')
-      );
+    let balanceBefore = null;
+    let betAmount = null;
 
-      // For doubles/splits, amt includes the full payout on the actual wagered amount
-      // effectiveBet = what was actually wagered = amt/2 on a win (since payout = 2x wager on win)
-      // For regular wins: amt = 2*bet, effectiveBet = bet -- same result
-      // For double wins: amt = 2*(2*bet) = 4*bet, effectiveBet = 2*bet -- correct
-      // So profit = amt - effectiveBet = amt - amt/2 = amt/2... no
-      // Actually: profit on any win = amt - actual_wager
-      // We can derive actual_wager from amt on wins: actual_wager = amt/2 (since win always returns 2x)
-      // Exception: blackjack pays 3:2 so amt = 2.5*bet
-      const isBJ = info.toLowerCase().includes('blackjack') ||
-                   info.toLowerCase().includes('natural') ||
-                   (amt > 0 && bet > 0 && Math.abs(amt/bet - 2.5) < 0.01);
-      const effectiveBet = isBJ ? Math.round(amt/2.5) : Math.round(amt/2);
-      const winProfit = isBJ ? Math.round(effectiveBet*1.5) : effectiveBet;
-
-      if(wlClass.includes('won')||lower.includes('won')||lower.includes('win')){
-        sess.wins++;
-        sess.profit += winProfit;
-      } else if(isSurrender){
-        sess.losses++;
-        sess.profit -= Math.round(bet*0.5);
-      } else if(wlClass.includes('lost')||lower.includes('lost')||lower.includes('lose')||lower.includes('bust')){
-        sess.losses++;
-        // On loss, bet shown in getCurrentBet is original, but double/split loses full wager
-        // Use amt if available (some losses show 0 amt), otherwise fall back to bet
-        sess.profit -= (amt > 0 ? amt : bet);
-      } else if(isPush||lower.includes('push')||lower.includes('tie')){
-        sess.pushes++;
+    // Snapshot balance when a hand starts (cards appear)
+    const snapObserver = new MutationObserver(() => {
+      const playerCards = document.querySelectorAll('.player-cards .cards [class*="card-clubs-"],[class*="card-hearts-"],[class*="card-spades-"],[class*="card-diamonds-"]');
+      const hasCards = document.querySelector('.player-cards .cards [class*="card-clubs-"],[class*="card-hearts-"],[class*="card-spades-"],[class*="card-diamonds-"]');
+      if (hasCards && balanceBefore === null) {
+        balanceBefore = getBankroll();
+        betAmount = getCurrentBet() || sess.lastBet || 0;
       }
-      if(bet) sess.lastBet=bet;
-      // Update lifetime
-      const isWin = wlClass.includes('won')||lower.includes('won')||lower.includes('win');
-      const isLoss = isSurrender || wlClass.includes('lost')||lower.includes('lost')||lower.includes('lose')||lower.includes('bust');
-      const isPushHand = isPush||lower.includes('push')||lower.includes('tie');
-      lifetime.wins   = (lifetime.wins||0)   + (isWin ? 1 : 0);
-      lifetime.losses = (lifetime.losses||0) + (isLoss ? 1 : 0);
-      lifetime.pushes = (lifetime.pushes||0) + (isPushHand ? 1 : 0);
-      if (isWin)       lifetime.profit = (lifetime.profit||0) + winProfit;
-      else if (isSurrender) lifetime.profit = (lifetime.profit||0) - Math.round(bet*0.5);
-      else if (isLoss) lifetime.profit = (lifetime.profit||0) - (amt > 0 ? amt : bet);
-      lifetime.hands = (lifetime.hands||0) + 1;
-      saveLifetime(lifetime);
-      updateStats();
     });
-    obs.observe(target,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+    snapObserver.observe(target, {childList:true, subtree:true});
+
+    // Record result when win/lose screen appears
+    const obs = new MutationObserver(() => {
+      const wlWrap = document.querySelector('.win-lose-wrap');
+      if (!wlWrap || !wlWrap.classList.contains('bj-show')) return;
+
+      const wlEl  = document.querySelector('.win-lose .wl-msg');
+      const msg   = (wlEl?.querySelector('span') || {}).textContent || '';
+      const info  = (document.querySelector('.win-lose .wl-info .bj-wonState') || {}).textContent || '';
+      const bet   = betAmount || getCurrentBet() || sess.lastBet || 0;
+      const key   = msg + bet + Math.floor(Date.now()/5000);
+      if (obs._k === key) return;
+      obs._k = key;
+
+      const lower    = msg.toLowerCase();
+      const wlClass  = wlEl?.className || '';
+
+      // Get balance after and calculate actual profit
+      const balanceAfter = getBankroll();
+      let handProfit = null;
+      if (balanceBefore !== null && balanceAfter !== null && balanceBefore > 0) {
+        handProfit = balanceAfter - balanceBefore;
+      }
+
+      // Classify outcome
+      const isWin  = wlClass.includes('won') || lower.includes('won') || lower.includes('win');
+      const isSurrender = wlClass.includes('neutral') && (
+        info.toLowerCase().includes('surrender') || lower.includes('surrender') ||
+        (handProfit !== null && bet > 0 && Math.abs(handProfit + bet*0.5) < bet*0.1)
+      );
+      const isLoss = !isSurrender && (wlClass.includes('lost') || lower.includes('lost') ||
+                     lower.includes('lose') || lower.includes('bust'));
+      const isPush = !isSurrender && !isWin && !isLoss && (
+        wlClass.includes('neutral') || lower.includes('push') ||
+        lower.includes('tie') || lower.includes('draw')
+      );
+
+      // Use actual balance diff as profit — most accurate
+      const profit = handProfit !== null ? handProfit : (
+        isWin ? bet : isSurrender ? -Math.round(bet*0.5) : isLoss ? -bet : 0
+      );
+
+      // Update session
+      if (isWin)       { sess.wins++;   sess.profit += profit; }
+      else if (isSurrender) { sess.losses++; sess.profit += profit; }
+      else if (isLoss) { sess.losses++; sess.profit += profit; }
+      else if (isPush) { sess.pushes++; }
+
+      if (bet) sess.lastBet = bet;
+
+      // Update lifetime
+      lifetime.wins   = (lifetime.wins||0)   + (isWin ? 1 : 0);
+      lifetime.losses = (lifetime.losses||0) + (isLoss||isSurrender ? 1 : 0);
+      lifetime.pushes = (lifetime.pushes||0) + (isPush ? 1 : 0);
+      lifetime.profit = (lifetime.profit||0) + (isPush ? 0 : profit);
+      lifetime.hands  = (lifetime.hands||0)  + 1;
+      saveLifetime(lifetime);
+
+      saveSession(sess);
+      updateStats();
+      updateStartStats();
+
+      // Reset for next hand
+      balanceBefore = null;
+      betAmount = null;
+    });
+
+    obs.observe(target, {childList:true, subtree:true, attributes:true, attributeFilter:['class']});
   }
-
-  // ── Main loop ──────────────────────────────────────────────────────────────
-  let lastKey='';
-
   function update() {
     const actionEl=document.getElementById('tbj-action');
     const reasonEl=document.getElementById('tbj-reason');
