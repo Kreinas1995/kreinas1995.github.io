@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn BJ Advisor — Perfect Strategy (+0.37% edge)
 // @namespace    https://www.torn.com/
-// @version      5.0
+// @version      5.1
 // @description  Perfect strategy, goal mode, hand odds, session tracking. Built into Torn BJ page.
 // @author       BJ Advisor
 // @match        https://www.torn.com/page.php?sid=blackjack*
@@ -721,7 +721,7 @@
       const info=(document.querySelector('.win-lose .wl-info .bj-wonState')||{}).textContent||'';
       const bet=getCurrentBet()||sess.lastBet||0;
       // Use timestamp-based key so identical consecutive hands are tracked separately
-      const key=msg+bet+Math.floor(Date.now()/2000); // 2 second window
+      const key=msg+bet+Math.floor(Date.now()/5000); // 5 second dedup window
       if(obs._k===key) return;
       obs._k=key;
       const lower=msg.toLowerCase();
@@ -756,15 +756,13 @@
         sess.pushes++;
       }
       if(bet) sess.lastBet=bet;
-      // Save to lifetime — track each hand outcome directly
-      lifetime = loadLifetime();
+      // Update lifetime directly on in-memory object (loaded once at boot)
       const isWin = wlClass.includes('won')||lower.includes('won')||lower.includes('win');
       const isLoss = isSurrender || wlClass.includes('lost')||lower.includes('lost')||lower.includes('lose')||lower.includes('bust');
       const isPushHand = isPush||lower.includes('push')||lower.includes('tie');
       lifetime.wins   = (lifetime.wins||0)   + (isWin ? 1 : 0);
       lifetime.losses = (lifetime.losses||0) + (isLoss ? 1 : 0);
       lifetime.pushes = (lifetime.pushes||0) + (isPushHand ? 1 : 0);
-      // Add this hand's profit directly
       if (isWin) lifetime.profit = (lifetime.profit||0) + (amt - bet) + (info.toLowerCase().includes('blackjack') ? bet*0.5 : 0);
       else if (isSurrender) lifetime.profit = (lifetime.profit||0) - Math.round(bet*0.5);
       else if (isLoss) lifetime.profit = (lifetime.profit||0) - bet;
