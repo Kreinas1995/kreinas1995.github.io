@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Torn Company Manager
 // @namespace    TCM
-// @version      10.2.1
+// @version      10.2.1_Hacked
 // @charset      utf-8
 // @description  Decision-support dashboard for Torn City company directors. Financial tracking, employee effectiveness, smart training rotation, promotion projections, and recommendations. No automation - all actions are user-triggered.
-// @author       _Solenya_ [4053619]
+// @author       Hacked by Syph
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_setValue
@@ -17,15 +17,15 @@
 // @connect      greasyfork.org
 // @run-at       document-idle
 // @license      Copyright © 2026 [Solenya]. All rights reserved.
-// @downloadURL https://update.greasyfork.org/scripts/570613/Torn%20Company%20Manager.user.js
-// @updateURL https://update.greasyfork.org/scripts/570613/Torn%20Company%20Manager.meta.js
+// @downloadURL https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/Tools/Torn_Company_Manager-10_2_1_whitelist-removed.user.js
+// @updateURL https://raw.githubusercontent.com/Kreinas1995/kreinas1995.github.io/main/Tools/Torn_Company_Manager-10_2_1_whitelist-removed.user.js
 // ==/UserScript==
 
   (function () {
       'use strict';
 
       const TCM = {
-          VERSION: '10.2.1',
+          VERSION: '10.2.1_Hacked',
           NS: 'TCM_v2_',
           API_BASE: 'https://api.torn.com',
           API_RATE_LIMIT_MS: 1000,
